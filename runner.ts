@@ -1,24 +1,24 @@
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   AgentRuntime,
   ChannelType,
   createCharacter,
-  type Character,
   stringToUuid,
+  type Character,
   type UUID,
 } from "@elizaos/core";
-import type { AutonomyService } from "@elizaos/core";
-import { openaiPlugin } from "@elizaos/plugin-openai";
 import anthropicPlugin from "@elizaos/plugin-anthropic";
 import googleGenAIPlugin from "@elizaos/plugin-google-genai";
 import groqPlugin from "@elizaos/plugin-groq";
-import XAIPlugin from "@elizaos/plugin-xai";
-import sqlPlugin from "@elizaos/plugin-sql";
+import { openaiPlugin } from "@elizaos/plugin-openai";
 import polymarketPlugin from "@elizaos/plugin-polymarket";
+import sqlPlugin from "@elizaos/plugin-sql";
+import XAIPlugin from "@elizaos/plugin-xai";
 import { Wallet } from "@ethersproject/wallet";
 import { ClobClient } from "@polymarket/clob-client";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { runInkInputTest } from "./ink-input-test";
 import {
   applyEnvValues,
   loadEnvConfig,
@@ -32,7 +32,6 @@ import {
   type LlmProvider,
 } from "./lib";
 import { runPolymarketTui, runSettingsWizard, setFatalError, type SettingsField } from "./tui";
-import { runInkInputTest } from "./ink-input-test";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

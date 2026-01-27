@@ -454,10 +454,11 @@ async function pollAutonomyLogs(
     count: 20,
     tableName: "memories",
   });
+  type AutonomyMemory = Memory & { createdAt: number };
   const fresh = memories
     .filter(isAutonomyResponse)
-    .filter((memory) => memory.createdAt > lastSeen.value)
-    .sort((a, b) => a.createdAt - b.createdAt);
+    .filter((memory: AutonomyMemory) => memory.createdAt > lastSeen.value)
+    .sort((a: AutonomyMemory, b: AutonomyMemory) => a.createdAt - b.createdAt);
 
   for (const memory of fresh) {
     onLog(memory.content?.text ?? "");
@@ -471,14 +472,34 @@ async function pollAutonomyLogs(
 async function setAutonomy(runtime: AgentRuntime, enabled: boolean): Promise<string> {
   const svc = runtime.getService<AutonomyService>("AUTONOMY");
   if (!svc) {
-    return "Autonomy service not available.";
+    return "Autonomy service not available. The agent may still be initializing.";
   }
-  if (enabled) {
-    await svc.enableAutonomy();
-    return "Autonomy enabled.";
+  try {
+    if (enabled) {
+      await svc.enableAutonomy();
+      const status = svc.getStatus?.() ?? { running: false, interval: 0 };
+      const intervalSec = Math.round((status.interval ?? 5000) / 1000);
+      return `Autonomy enabled. Loop running: ${status.running ? "yes" : "starting..."}, interval: ${intervalSec}s`;
+    }
+    await svc.disableAutonomy();
+    return "Autonomy disabled. Agent will only respond to direct messages.";
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return `Failed to ${enabled ? "enable" : "disable"} autonomy: ${msg}`;
   }
-  await svc.disableAutonomy();
-  return "Autonomy disabled.";
+}
+
+function getAutonomyStatus(runtime: AgentRuntime): { enabled: boolean; running: boolean; interval: number } | null {
+  const svc = runtime.getService<AutonomyService>("AUTONOMY");
+  if (!svc || typeof svc.getStatus !== "function") {
+    return null;
+  }
+  const status = svc.getStatus();
+  return {
+    enabled: status.enabled ?? false,
+    running: status.running ?? false,
+    interval: status.interval ?? 5000,
+  };
 }
 
 function ChatPanel(props: {
@@ -1342,7 +1363,19 @@ function PolymarketTuiApp({ runtime, roomId, userId, messageService }: TuiSessio
           appendMessage({
             id: uuidv4(),
             role: "system",
-            content: "Commands: /clear, /account, /markets, /logs, /autonomy true|false, /error, /help, /exit",
+            content: [
+              "Commands:",
+              "  /autonomy [true|false] - Show status or toggle autonomous mode",
+              "  /think - Trigger autonomous thinking immediately",
+              "  /interval <seconds> - Set autonomy loop interval (5-600s)",
+              "  /account - Show wallet and positions",
+              "  /markets - Show active markets",
+              "  /logs - Show agent logs",
+              "  /error - Show recent errors",
+              "  /clear - Clear chat history",
+              "  /help - Show this help",
+              "  /exit - Exit the application",
+            ].join("\n"),
             timestamp: Date.now(),
           });
           return;
@@ -1391,17 +1424,39 @@ function PolymarketTuiApp({ runtime, roomId, userId, messageService }: TuiSessio
         if (trimmed.startsWith("/autonomy")) {
           const parts = trimmed.split(/\s+/);
           const valueArg = parts[1];
+          // Allow /autonomy with no arg to show current status
+          if (!valueArg) {
+            const currentStatus = getAutonomyStatus(runtime);
+            if (!currentStatus) {
+              appendMessage({
+                id: uuidv4(),
+                role: "system",
+                content: "Autonomy service not available.",
+                timestamp: Date.now(),
+              });
+            } else {
+              const intervalSec = Math.round(currentStatus.interval / 1000);
+              appendMessage({
+                id: uuidv4(),
+                role: "system",
+                content: `Autonomy status: ${currentStatus.enabled ? "enabled" : "disabled"}, running: ${currentStatus.running ? "yes" : "no"}, interval: ${intervalSec}s`,
+                timestamp: Date.now(),
+              });
+            }
+            return;
+          }
           if (valueArg !== "true" && valueArg !== "false") {
             appendMessage({
               id: uuidv4(),
               role: "system",
-              content: "Usage: /autonomy true|false",
+              content: "Usage: /autonomy [true|false] - show status or enable/disable autonomy",
               timestamp: Date.now(),
             });
             return;
           }
           const enabled = valueArg === "true";
           const status = await setAutonomy(runtime, enabled);
+          setAutonomyEnabled(enabled); // Update local state immediately
           appendMessage({
             id: uuidv4(),
             role: "system",
@@ -1409,6 +1464,177 @@ function PolymarketTuiApp({ runtime, roomId, userId, messageService }: TuiSessio
             timestamp: Date.now(),
           });
           appendLog(`[Autonomy] ${status}`);
+          return;
+        }
+        if (trimmed === "/think") {
+          const svc = runtime.getService<AutonomyService>("AUTONOMY");
+          if (!svc) {
+            appendMessage({
+              id: uuidv4(),
+              role: "system",
+              content: "Autonomy service not available.",
+              timestamp: Date.now(),
+            });
+            return;
+          }
+          const status = svc.getStatus?.();
+          if (status?.thinking) {
+            appendMessage({
+              id: uuidv4(),
+              role: "system",
+              content: "Already thinking... please wait.",
+              timestamp: Date.now(),
+            });
+            return;
+          }
+          
+          // Check if triggerThinkNow is available (newer core versions)
+          if (typeof svc.triggerThinkNow === "function") {
+            appendMessage({
+              id: uuidv4(),
+              role: "system",
+              content: "Triggering autonomous thinking...",
+              timestamp: Date.now(),
+            });
+            appendLog("[Autonomy] Manual think triggered");
+            try {
+              const success = await svc.triggerThinkNow();
+              if (success === false) {
+                appendMessage({
+                  id: uuidv4(),
+                  role: "system",
+                  content: "Think cycle skipped (already in progress or error occurred).",
+                  timestamp: Date.now(),
+                });
+              }
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              appendMessage({
+                id: uuidv4(),
+                role: "system",
+                content: `Think error: ${msg}`,
+                timestamp: Date.now(),
+              });
+              appendLog(`[Autonomy] Think error: ${msg}`);
+            }
+            return;
+          }
+          
+          // Fallback: Send autonomous prompt directly through message service
+          const autonomousRoomId = svc.getAutonomousRoomId?.();
+          if (!autonomousRoomId) {
+            appendMessage({
+              id: uuidv4(),
+              role: "system",
+              content: "Could not get autonomous room ID.",
+              timestamp: Date.now(),
+            });
+            return;
+          }
+          
+          const thinkMsgId = uuidv4();
+          appendMessage({
+            id: thinkMsgId,
+            role: "system",
+            content: "Triggering autonomous thinking...",
+            timestamp: Date.now(),
+          });
+          appendLog("[Autonomy] Manual think triggered (fallback mode)");
+          
+          try {
+            const autonomousPrompt = `AUTONOMOUS TASK MODE - You have been manually triggered to think and act.
+
+Review your current context:
+- Check available Polymarket markets
+- Review any pending tasks or goals
+- Consider what actions would be most valuable right now
+
+Decide on your next action and execute it. You have access to all your tools and actions.`;
+
+            // Use the user's entity ID, not the agent's, to avoid "skipping message from self"
+            const autonomousMessage = createMessageMemory({
+              id: uuidv4() as UUID,
+              entityId: userId, // Use user ID so agent will respond
+              roomId: roomId, // Use the chat room, not autonomous room, so we see the response
+              content: {
+                text: autonomousPrompt,
+                source: "manual-trigger",
+                channelType: ChannelType.DM,
+                metadata: {
+                  type: "autonomous-prompt",
+                  isAutonomous: true,
+                  isManualTrigger: true,
+                },
+              },
+            });
+
+            const result = await messageService.handleMessage(
+              runtime,
+              autonomousMessage,
+              async (content: Content) => {
+                if (typeof content.text === "string" && content.text.trim()) {
+                  appendMessage({
+                    id: uuidv4(),
+                    role: "assistant",
+                    content: `[Autonomous] ${content.text}`,
+                    timestamp: Date.now(),
+                  });
+                  appendLog(`[Autonomy] Response: ${content.text.slice(0, 100)}...`);
+                }
+                return [];
+              }
+            );
+            
+            updateMessage(thinkMsgId, `Autonomous thinking complete. Responded: ${result.didRespond ? "yes" : "no"}`);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            updateMessage(thinkMsgId, `Think error: ${msg}`);
+            appendLog(`[Autonomy] Think error: ${msg}`);
+          }
+          return;
+        }
+        if (trimmed.startsWith("/interval")) {
+          const parts = trimmed.split(/\s+/);
+          const valueArg = parts[1];
+          if (!valueArg) {
+            const currentStatus = getAutonomyStatus(runtime);
+            const intervalSec = currentStatus ? Math.round(currentStatus.interval / 1000) : "unknown";
+            appendMessage({
+              id: uuidv4(),
+              role: "system",
+              content: `Current autonomy interval: ${intervalSec}s. Usage: /interval <seconds> (5-600)`,
+              timestamp: Date.now(),
+            });
+            return;
+          }
+          const seconds = Number.parseInt(valueArg, 10);
+          if (Number.isNaN(seconds) || seconds < 5 || seconds > 600) {
+            appendMessage({
+              id: uuidv4(),
+              role: "system",
+              content: "Invalid interval. Must be between 5 and 600 seconds.",
+              timestamp: Date.now(),
+            });
+            return;
+          }
+          const svc = runtime.getService<AutonomyService>("AUTONOMY");
+          if (!svc || typeof svc.setLoopInterval !== "function") {
+            appendMessage({
+              id: uuidv4(),
+              role: "system",
+              content: "Autonomy service not available or setLoopInterval not supported.",
+              timestamp: Date.now(),
+            });
+            return;
+          }
+          svc.setLoopInterval(seconds * 1000);
+          appendMessage({
+            id: uuidv4(),
+            role: "system",
+            content: `Autonomy interval set to ${seconds} seconds.`,
+            timestamp: Date.now(),
+          });
+          appendLog(`[Autonomy] Interval set to ${seconds}s`);
           return;
         }
 
@@ -1680,10 +1906,29 @@ function PolymarketTuiApp({ runtime, roomId, userId, messageService }: TuiSessio
     }
   });
 
+  // Track autonomy status
+  const [autonomyEnabled, setAutonomyEnabled] = useState(false);
+  
+  // Poll autonomy status periodically
+  useEffect(() => {
+    const checkAutonomy = () => {
+      const status = getAutonomyStatus(runtime);
+      if (status) {
+        setAutonomyEnabled(status.running);
+      }
+    };
+    checkAutonomy();
+    const timer = setInterval(checkAutonomy, 2000);
+    return () => clearInterval(timer);
+  }, [runtime]);
+
   const statusText = useMemo(
-    () =>
-      `Eliza Polymarket | ${balanceText} | ${isProcessing ? "..." : "Idle"} | Tab: Focus | Enter: View | Shift+Tab: Hide`,
-    [balanceText, isProcessing]
+    () => {
+      const autonomyIndicator = autonomyEnabled ? "🤖 Auto" : "💤 Manual";
+      const processingIndicator = isProcessing ? "..." : "Idle";
+      return `Eliza Polymarket | ${balanceText} | ${autonomyIndicator} | ${processingIndicator} | Tab: Focus | /autonomy true|false`;
+    },
+    [balanceText, isProcessing, autonomyEnabled]
   );
   const headerText = truncateText(statusText, Math.max(0, columns - 2));
 

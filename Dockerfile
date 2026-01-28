@@ -1,13 +1,13 @@
 # Polymarket Agent API Server - Dockerfile
-FROM oven/bun:1.1
+FROM oven/bun:latest
 
 WORKDIR /app
 
 # Copy package files
-COPY package.json bun.lock* ./
+COPY package.json ./
 
 # Install dependencies
-RUN bun install --frozen-lockfile
+RUN bun install
 
 # Copy source
 COPY . .

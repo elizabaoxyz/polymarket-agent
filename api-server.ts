@@ -138,10 +138,11 @@ async function scanAndScoreMarkets(
 ): Promise<MarketOpportunity[]> {
   console.log("📊 Scanning markets...");
 
-  const markets = await fetchActiveMarkets(50);
+  const markets = await fetchActiveMarkets(100);
   const opportunities: MarketOpportunity[] = [];
 
-  for (const market of markets.slice(0, 20)) {
+  // Process more markets to find good ones
+  for (const market of markets.slice(0, 50)) {
     let tokenIds: string[] = [];
     try {
       if (market.clobTokenIds) {
@@ -155,44 +156,51 @@ async function scanAndScoreMarkets(
 
     if (tokenIds.length === 0) continue;
 
-    const tokenId = tokenIds[0];
-    const orderBook = await getOrderBook(tokenId);
+    // Check both YES and NO tokens for better opportunities
+    for (let i = 0; i < Math.min(tokenIds.length, 2); i++) {
+      const tokenId = tokenIds[i];
+      const outcome = i === 0 ? "YES" : "NO";
+      const orderBook = await getOrderBook(tokenId);
 
-    if (!orderBook.bestBid || !orderBook.bestAsk) continue;
+      if (!orderBook.bestBid || !orderBook.bestAsk) continue;
+      
+      // Skip if prices are too extreme (not tradeable)
+      if (orderBook.bestBid < 0.05 || orderBook.bestAsk > 0.95) continue;
 
-    const spread = orderBook.bestAsk - orderBook.bestBid;
-    const midpoint = (orderBook.bestBid + orderBook.bestAsk) / 2;
-    const spreadPercent = (spread / midpoint) * 100;
-    const volume24h = market.volume24hr || 0;
+      const spread = orderBook.bestAsk - orderBook.bestBid;
+      const midpoint = (orderBook.bestBid + orderBook.bestAsk) / 2;
+      const spreadPercent = (spread / midpoint) * 100;
+      const volume24h = market.volume24hr || 0;
 
-    if (spreadPercent < config.minSpread || spreadPercent > config.maxSpread) {
-      continue;
+      // More relaxed filtering - include all markets with reasonable spreads
+      if (spreadPercent > 50) continue; // Skip very illiquid markets
+
+      const score = scoreOpportunity(
+        spreadPercent,
+        midpoint,
+        orderBook.bidDepth,
+        orderBook.askDepth,
+        volume24h
+      );
+
+      opportunities.push({
+        id: market.id,
+        conditionId: market.conditionId || market.condition_id || market.id,
+        question: market.question,
+        tokenId,
+        outcome,
+        bestBid: orderBook.bestBid,
+        bestAsk: orderBook.bestAsk,
+        spread,
+        spreadPercent,
+        midpoint,
+        volume24h,
+        score,
+      });
     }
-
-    const score = scoreOpportunity(
-      spreadPercent,
-      midpoint,
-      orderBook.bidDepth,
-      orderBook.askDepth,
-      volume24h
-    );
-
-    opportunities.push({
-      id: market.id,
-      conditionId: market.conditionId || market.condition_id || market.id,
-      question: market.question,
-      tokenId,
-      outcome: "YES",
-      bestBid: orderBook.bestBid,
-      bestAsk: orderBook.bestAsk,
-      spread,
-      spreadPercent,
-      midpoint,
-      volume24h,
-      score,
-    });
   }
 
+  // Sort by score (best first)
   opportunities.sort((a, b) => b.score - a.score);
   console.log(`📊 Found ${opportunities.length} opportunities`);
 
@@ -475,6 +483,96 @@ app.post("/api/execute", async (c) => {
     });
   } catch (error) {
     console.error("Execute error:", error);
+    return c.json(
+      { success: false, error: error instanceof Error ? error.message : "Unknown error" },
+      500
+    );
+  }
+});
+
+// Search markets by query
+app.post("/api/search", async (c) => {
+  try {
+    const body = await c.req.json();
+    const query = body.query || body.q || "";
+
+    if (!query) {
+      return c.json({ success: false, error: "Query required" }, 400);
+    }
+
+    // Search Polymarket Gamma API
+    const url = new URL(`${GAMMA_API_URL}/markets`);
+    url.searchParams.set("limit", "20");
+    url.searchParams.set("active", "true");
+    url.searchParams.set("closed", "false");
+
+    const response = await fetch(url.toString(), {
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Search failed: ${response.status}`);
+    }
+
+    const allMarkets = await response.json();
+    
+    // Filter by query (case insensitive)
+    const queryLower = query.toLowerCase();
+    const filtered = allMarkets.filter((m: any) => 
+      m.question?.toLowerCase().includes(queryLower) ||
+      m.description?.toLowerCase().includes(queryLower)
+    );
+
+    // Get order book data for top results
+    const results = [];
+    for (const market of filtered.slice(0, 10)) {
+      let tokenIds: string[] = [];
+      try {
+        if (market.clobTokenIds) {
+          tokenIds = JSON.parse(market.clobTokenIds);
+        }
+      } catch {}
+
+      let orderBook = null;
+      if (tokenIds.length > 0) {
+        orderBook = await getOrderBook(tokenIds[0]);
+      }
+
+      // Parse outcome prices
+      let yesPrice = null;
+      let noPrice = null;
+      try {
+        const prices = JSON.parse(market.outcomePrices || "[]");
+        yesPrice = parseFloat(prices[0]) || null;
+        noPrice = parseFloat(prices[1]) || null;
+      } catch {}
+
+      results.push({
+        id: market.id,
+        question: market.question,
+        yesPrice,
+        noPrice,
+        volume24h: market.volume24hr || 0,
+        liquidity: market.liquidityNum || 0,
+        endDate: market.endDate,
+        bestBid: orderBook?.bestBid,
+        bestAsk: orderBook?.bestAsk,
+        spread: orderBook?.bestBid && orderBook?.bestAsk 
+          ? ((orderBook.bestAsk - orderBook.bestBid) * 100).toFixed(1) + "%" 
+          : null,
+      });
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        query,
+        resultsCount: results.length,
+        markets: results,
+      },
+    });
+  } catch (error) {
+    console.error("Search error:", error);
     return c.json(
       { success: false, error: error instanceof Error ? error.message : "Unknown error" },
       500

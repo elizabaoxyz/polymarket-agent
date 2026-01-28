@@ -141,63 +141,61 @@ async function scanAndScoreMarkets(
   const markets = await fetchActiveMarkets(100);
   const opportunities: MarketOpportunity[] = [];
 
-  // Process more markets to find good ones
+  // Process markets - use Gamma API prices (more reliable than CLOB order book)
   for (const market of markets.slice(0, 50)) {
+    // Parse outcome prices from Gamma API
+    let yesPrice = 0.5;
+    let noPrice = 0.5;
+    try {
+      const prices = JSON.parse(market.outcomePrices || "[]");
+      yesPrice = parseFloat(prices[0]) || 0.5;
+      noPrice = parseFloat(prices[1]) || 0.5;
+    } catch {}
+
+    // Get token IDs
     let tokenIds: string[] = [];
     try {
       if (market.clobTokenIds) {
         tokenIds = JSON.parse(market.clobTokenIds);
-      } else if (market.tokens) {
-        tokenIds = market.tokens.map((t: any) => t.token_id);
       }
-    } catch {
-      continue;
-    }
+    } catch {}
 
-    if (tokenIds.length === 0) continue;
+    const volume24h = market.volume24hr || 0;
+    const liquidity = market.liquidityNum || 0;
 
-    // Check both YES and NO tokens for better opportunities
-    for (let i = 0; i < Math.min(tokenIds.length, 2); i++) {
-      const tokenId = tokenIds[i];
-      const outcome = i === 0 ? "YES" : "NO";
-      const orderBook = await getOrderBook(tokenId);
+    // Skip very low liquidity markets
+    if (liquidity < 100) continue;
 
-      if (!orderBook.bestBid || !orderBook.bestAsk) continue;
-      
-      // Skip if prices are too extreme (not tradeable)
-      if (orderBook.bestBid < 0.05 || orderBook.bestAsk > 0.95) continue;
+    // Skip very extreme prices (one-sided markets)
+    if (yesPrice < 0.05 || yesPrice > 0.95) continue;
 
-      const spread = orderBook.bestAsk - orderBook.bestBid;
-      const midpoint = (orderBook.bestBid + orderBook.bestAsk) / 2;
-      const spreadPercent = (spread / midpoint) * 100;
-      const volume24h = market.volume24hr || 0;
+    // Calculate a synthetic spread based on liquidity
+    // Higher liquidity = tighter spread assumed
+    const syntheticSpread = Math.max(0.01, 0.1 - (liquidity / 100000));
+    const spreadPercent = syntheticSpread * 100;
 
-      // More relaxed filtering - include all markets with reasonable spreads
-      if (spreadPercent > 50) continue; // Skip very illiquid markets
+    const score = scoreOpportunity(
+      spreadPercent,
+      yesPrice,
+      10, // assume reasonable depth
+      10,
+      volume24h
+    );
 
-      const score = scoreOpportunity(
-        spreadPercent,
-        midpoint,
-        orderBook.bidDepth,
-        orderBook.askDepth,
-        volume24h
-      );
-
-      opportunities.push({
-        id: market.id,
-        conditionId: market.conditionId || market.condition_id || market.id,
-        question: market.question,
-        tokenId,
-        outcome,
-        bestBid: orderBook.bestBid,
-        bestAsk: orderBook.bestAsk,
-        spread,
-        spreadPercent,
-        midpoint,
-        volume24h,
-        score,
-      });
-    }
+    opportunities.push({
+      id: market.id,
+      conditionId: market.conditionId || market.condition_id || market.id,
+      question: market.question,
+      tokenId: tokenIds[0] || "",
+      outcome: "YES",
+      bestBid: yesPrice - syntheticSpread / 2,
+      bestAsk: yesPrice + syntheticSpread / 2,
+      spread: syntheticSpread,
+      spreadPercent,
+      midpoint: yesPrice,
+      volume24h,
+      score,
+    });
   }
 
   // Sort by score (best first)

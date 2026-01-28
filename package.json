@@ -9,9 +9,12 @@
   },
   "scripts": {
     "start": "bun run polymarket-demo.ts",
+    "api": "bun run api-server.ts",
     "test": "bun test"
   },
   "dependencies": {
+    "hono": "^4.6.0",
+    "@hono/node-server": "^1.13.0",
     "@clack/prompts": "^0.11.0",
     "@elizaos/core": "next",
     "@elizaos/plugin-evm": "next",

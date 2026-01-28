@@ -1,40 +1,23 @@
 {
-  "name": "polyagent",
-  "version": "2.0.0-alpha",
-  "description": "Autonomous Polymarket demo agent CLI (TypeScript) using plugin-evm + plugin-polymarket",
+  "name": "polymarket-agent-api",
+  "version": "2.0.0",
+  "description": "AI-powered Polymarket trading agent API",
   "type": "module",
   "private": false,
-  "bin": {
-    "polyagent": "./bin/polyagent.js"
-  },
   "scripts": {
-    "start": "bun run polymarket-demo.ts",
-    "api": "bun run api-server.ts",
+    "start": "bun run api-server.ts",
+    "dev": "bun run --watch api-server.ts",
+    "cli": "bun run polymarket-demo.ts",
     "test": "bun test"
   },
   "dependencies": {
     "hono": "^4.6.0",
     "@hono/node-server": "^1.13.0",
-    "@clack/prompts": "^0.11.0",
-    "@elizaos/core": "next",
-    "@elizaos/plugin-evm": "next",
-    "@elizaos/plugin-openai": "next",
-    "@elizaos/plugin-polymarket": "next",
-    "@elizaos/plugin-sql": "next",
-    "@polymarket/clob-client": "^5.2.0",
-    "@zenobius/ink-mouse": "1.0.4",
-    "dotenv": "^16.6.1",
-    "ink": "^6.6.0",
-    "ink-text-input": "^6.0.0",
-    "react": "19.2.3",
-    "tsx": "^4.21.0",
-    "uuid": "^11.1.0",
-    "zod": "^4.3.5"
+    "dotenv": "^16.6.1"
   },
   "devDependencies": {
-    "@types/react": "19.2.3",
-    "@types/node": "^25.0.3",
-    "typescript": "^5.9.3"
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
   },
   "engines": {
     "node": ">=18.0.0"

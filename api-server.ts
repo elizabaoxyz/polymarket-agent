@@ -654,15 +654,20 @@ console.log(`
 ╚════════════════════════════════════════════════════════════════════╝
 `);
 
-// Pre-initialize runtime
-initializeRuntime().catch(console.error);
-
+// Start server first (so healthcheck passes)
 serve({
   fetch: app.fetch,
   port: PORT,
+  hostname: "0.0.0.0", // Bind to all interfaces for Railway/Docker
 });
 
-console.log(`🌐 Server running at http://localhost:${PORT}`);
+console.log(`🌐 Server running at http://0.0.0.0:${PORT}`);
+
+// Pre-initialize runtime in background (non-blocking)
+initializeRuntime().catch((err) => {
+  console.error("Failed to initialize elizaOS runtime:", err);
+  // Don't crash - server still works for basic endpoints
+});
 console.log(`📡 API Endpoints:`);
 console.log(`   GET  /           - Health check`);
 console.log(`   GET  /api/status - Agent status`);

@@ -67,6 +67,7 @@ async function scanMarkets() {
     opps.push({ 
       id: m.id, 
       question: m.question, 
+      slug: m.slug,
       yesPrice, 
       volume24h: m.volume24hr || 0, 
       liquidity: m.liquidityNum || 0, 
@@ -256,6 +257,36 @@ app.get("/api/status", (c) => c.json({
   } 
 }));
 
+app.get("/api/wallet", async (c) => {
+  try {
+    const provider = new ethers.providers.JsonRpcProvider("https://polygon-rpc.com");
+    
+    // Get POL balance
+    const polBalance = await provider.getBalance(WALLET_ADDRESS);
+    const polFormatted = ethers.utils.formatEther(polBalance);
+    
+    // Get USDC balance (Polygon USDC contract)
+    const usdcContract = new ethers.Contract(
+      "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
+      ["function balanceOf(address) view returns (uint256)"],
+      provider
+    );
+    const usdcBalance = await usdcContract.balanceOf(WALLET_ADDRESS);
+    const usdcFormatted = ethers.utils.formatUnits(usdcBalance, 6);
+    
+    return c.json({
+      success: true,
+      data: {
+        address: WALLET_ADDRESS,
+        pol: { balance: polFormatted, symbol: "POL" },
+        usdc: { balance: usdcFormatted, symbol: "USDC" },
+      }
+    });
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message }, 500);
+  }
+});
+
 app.post("/api/autonomy/start", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   if (body.intervalMs) autonomyIntervalMs = Math.max(30000, body.intervalMs);
@@ -336,7 +367,7 @@ app.post("/api/search", async (c) => {
   const markets = await fetchMarkets(100);
   const filtered = markets.filter((m: any) => m.question?.toLowerCase().includes(q)).slice(0, 10).map((m: any) => {
     let yesPrice = 0.5; try { yesPrice = parseFloat(JSON.parse(m.outcomePrices)[0]); } catch {}
-    return { id: m.id, question: m.question, yesPrice, volume24h: m.volume24hr || 0, clobTokenIds: m.clobTokenIds };
+    return { id: m.id, question: m.question, slug: m.slug, yesPrice, volume24h: m.volume24hr || 0, clobTokenIds: m.clobTokenIds };
   });
   return c.json({ success: true, data: { query: q, markets: filtered } });
 });

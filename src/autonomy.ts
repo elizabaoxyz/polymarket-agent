@@ -93,6 +93,12 @@ import {
   formatEventCalendar,
 } from "../packages/plugin-polymarket/src/event-calendar.js";
 import {
+  analyzeMarket,
+  quickMarketCheck,
+  formatAnalysisReport,
+  type MarketAnalysis,
+} from "../packages/plugin-polymarket/src/market-analyzer.js";
+import {
   predictCryptoMarket,
   calculateCryptoEdge,
   shouldTradeCryptoMarket,
@@ -390,6 +396,33 @@ async function autoTradeCryptoMarket(): Promise<boolean> {
         continue;
       }
 
+      // NEW: Full market analysis (order book, volume, trades)
+      let tokenId = "";
+      try {
+        const ids = typeof market.clobTokenIds === "string" 
+          ? JSON.parse(market.clobTokenIds) 
+          : market.clobTokenIds;
+        tokenId = Array.isArray(ids) ? ids[0] : ids;
+      } catch {}
+
+      if (tokenId) {
+        const marketAnalysis = await analyzeMarket(market.id, tokenId, question);
+        console.log(`📊 Order Book: Bid $${marketAnalysis.orderBook.totalBidVolume.toFixed(0)} | Ask $${marketAnalysis.orderBook.totalAskVolume.toFixed(0)} | Imbalance: ${(marketAnalysis.orderBook.imbalance * 100).toFixed(0)}%`);
+        console.log(`📊 Volume 24h: $${marketAnalysis.volume.volume24h.toFixed(0)} | Buy: ${((marketAnalysis.volume.buyVolume / marketAnalysis.volume.volume24h) * 100).toFixed(0)}% | Whales: ${marketAnalysis.volume.whaleTrades}`);
+        
+        // Check market analysis signal
+        if (marketAnalysis.signal.direction === "sell" && marketAnalysis.signal.confidence > 0.4) {
+          console.log(`💎 ⚠️ SKIP: Market analysis bearish (${marketAnalysis.signal.reasons.join(", ")})`);
+          continue;
+        }
+
+        // Boost size if market analysis agrees
+        if (marketAnalysis.signal.direction === "buy" && marketAnalysis.signal.confidence > 0.5) {
+          recommendation.suggestedSize *= 1.15;
+          console.log(`💎 Boosting size: Market analysis bullish`);
+        }
+      }
+
       // Get recommendation from trade analytics (learning)
       const recommendation = getTradeRecommendation(
         question,
@@ -595,6 +628,19 @@ async function aiTradeNonElon(): Promise<boolean> {
       if (eventSignal.hasRelevantEvent && eventSignal.riskLevel === "high" && eventSignal.marketImpact === "volatile") {
         console.log(`🤖 ⚠️ SKIP: High-risk event imminent (${eventSignal.eventName})`);
         return false;
+      }
+
+      // NEW: Full market analysis (order book, volume, trades)
+      if (opp.tokenId) {
+        const marketAnalysis = await analyzeMarket(opp.market.id, opp.tokenId, opp.market.question || "");
+        console.log(`📊 Order Book: Imbalance ${(marketAnalysis.orderBook.imbalance * 100).toFixed(0)}% | Volume 24h: $${marketAnalysis.volume.volume24h.toFixed(0)}`);
+        console.log(`📊 Buy: ${((marketAnalysis.volume.buyVolume / (marketAnalysis.volume.volume24h || 1)) * 100).toFixed(0)}% | Whales: ${marketAnalysis.volume.whaleTrades} | Trend: ${marketAnalysis.momentum.trend}`);
+        
+        // Check market analysis signal
+        if (marketAnalysis.signal.direction === "sell" && marketAnalysis.signal.confidence > 0.5) {
+          console.log(`🤖 ⚠️ SKIP: Market analysis bearish`);
+          return false;
+        }
       }
 
       // NEW: Get learning recommendation
@@ -834,7 +880,7 @@ export async function startAutonomy(): Promise<void> {
 ║  SMART FEATURES:                                                       ║
 ║  📊 Trade Analytics: Learning from ${insights.overallWinRate > 0 ? `${(insights.overallWinRate * 100).toFixed(0)}% win rate` : "building data"}               ║
 ║  📰 News Intelligence: ${Object.entries(getNewsAPIStatus()).filter(([k, v]) => v).length} sources active                    ║
-║  🐦 Social Tracker: ${INFLUENCERS.length} influencers monitored                             ║
+║  🐦 Social Tracker: ${INFLUENCERS.length} influencers (world leaders, finance, crypto)     ║
 ║  🐋 Whale Tracker: Smart money following                               ║
 ║  📅 Event Calendar: ${getEventIntelligence().thisWeekEvents.length} events this week                             ║
 ║  🎯 Dynamic TP/SL: Volatility-adjusted (${(TPSL_CONFIG.baseTakeProfit * 100).toFixed(0)}%/${(TPSL_CONFIG.baseStopLoss * 100).toFixed(0)}% base)                ║

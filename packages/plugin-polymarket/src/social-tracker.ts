@@ -49,28 +49,153 @@ export interface SocialIntelligence {
 // ============================================================
 
 export const INFLUENCERS: InfluencerProfile[] = [
-  // Crypto
+  // ==================== CRYPTO ====================
   { handle: "elonmusk", name: "Elon Musk", category: "crypto", followers: 170000000, influence: "high" },
   { handle: "VitalikButerin", name: "Vitalik Buterin", category: "crypto", followers: 5000000, influence: "high" },
-  { handle: "caborek", name: "Michael Saylor", category: "crypto", followers: 3000000, influence: "high" },
+  { handle: "saylor", name: "Michael Saylor", category: "crypto", followers: 3500000, influence: "high" },
   { handle: "CryptoHayes", name: "Arthur Hayes", category: "crypto", followers: 500000, influence: "medium" },
   { handle: "100trillionUSD", name: "PlanB", category: "crypto", followers: 2000000, influence: "high" },
   { handle: "APompliano", name: "Anthony Pompliano", category: "crypto", followers: 1500000, influence: "medium" },
+  { handle: "caborek", name: "Willy Woo", category: "crypto", followers: 1000000, influence: "medium" },
+  { handle: "CryptoCobain", name: "Crypto Cobain", category: "crypto", followers: 500000, influence: "medium" },
+  { handle: "inversebrah", name: "InverseBrah", category: "crypto", followers: 400000, influence: "medium" },
+  { handle: "CryptoCapo_", name: "Capo", category: "crypto", followers: 800000, influence: "medium" },
+  { handle: "caborek", name: "CZ Binance", category: "crypto", followers: 9000000, influence: "high" },
+  { handle: "brian_armstrong", name: "Brian Armstrong", category: "crypto", followers: 1500000, influence: "high" },
+  { handle: "SBF_FTX", name: "SBF (historical)", category: "crypto", followers: 1000000, influence: "low" },
   
-  // Politics
+  // ==================== US POLITICS - WHITE HOUSE ====================
   { handle: "realDonaldTrump", name: "Donald Trump", category: "politics", followers: 90000000, influence: "high" },
+  { handle: "POTUS", name: "President (Official)", category: "politics", followers: 35000000, influence: "high" },
+  { handle: "WhiteHouse", name: "White House", category: "politics", followers: 30000000, influence: "high" },
+  { handle: "VP", name: "Vice President", category: "politics", followers: 15000000, influence: "high" },
+  { handle: "PressSec", name: "Press Secretary", category: "politics", followers: 2000000, influence: "high" },
   { handle: "JoeBiden", name: "Joe Biden", category: "politics", followers: 40000000, influence: "high" },
+  { handle: "KamalaHarris", name: "Kamala Harris", category: "politics", followers: 25000000, influence: "high" },
+  
+  // US Congress
+  { handle: "SpeakerJohnson", name: "Mike Johnson (Speaker)", category: "politics", followers: 1000000, influence: "high" },
+  { handle: "LeaderJeffries", name: "Hakeem Jeffries", category: "politics", followers: 500000, influence: "high" },
+  { handle: "SenSchumer", name: "Chuck Schumer", category: "politics", followers: 3000000, influence: "high" },
+  { handle: "LeaderMcConnell", name: "Mitch McConnell", category: "politics", followers: 2000000, influence: "high" },
   { handle: "AOC", name: "Alexandria Ocasio-Cortez", category: "politics", followers: 13000000, influence: "medium" },
-  { handle: "SpeakerJohnson", name: "Mike Johnson", category: "politics", followers: 1000000, influence: "medium" },
+  { handle: "RepMTG", name: "Marjorie Taylor Greene", category: "politics", followers: 2500000, influence: "medium" },
+  { handle: "SenSanders", name: "Bernie Sanders", category: "politics", followers: 15000000, influence: "medium" },
+  { handle: "SenTedCruz", name: "Ted Cruz", category: "politics", followers: 5000000, influence: "medium" },
+  { handle: "MattGaetz", name: "Matt Gaetz", category: "politics", followers: 2000000, influence: "medium" },
+  { handle: "RonDeSantis", name: "Ron DeSantis", category: "politics", followers: 3000000, influence: "high" },
+  { handle: "GovKathyHochul", name: "Kathy Hochul (NY)", category: "politics", followers: 500000, influence: "medium" },
+  { handle: "GaijinShuudan", name: "Gavin Newsom (CA)", category: "politics", followers: 1500000, influence: "medium" },
   
-  // Finance
+  // ==================== UK POLITICS ====================
+  { handle: "10DowningStreet", name: "UK Prime Minister (Official)", category: "politics", followers: 6000000, influence: "high" },
+  { handle: "RishiSunak", name: "Rishi Sunak", category: "politics", followers: 1500000, influence: "high" },
+  { handle: "Aborek_Starmer", name: "Keir Starmer", category: "politics", followers: 800000, influence: "high" },
+  { handle: "BorisJohnson", name: "Boris Johnson", category: "politics", followers: 4000000, influence: "medium" },
+  { handle: "taborek_truss", name: "Liz Truss", category: "politics", followers: 500000, influence: "low" },
+  { handle: "UKParliament", name: "UK Parliament", category: "politics", followers: 2000000, influence: "medium" },
+  { handle: "RoyalFamily", name: "Royal Family", category: "politics", followers: 13000000, influence: "medium" },
+  
+  // ==================== EU POLITICS ====================
+  { handle: "vaborekleyaborek", name: "Ursula von der Leyen (EC)", category: "politics", followers: 2000000, influence: "high" },
+  { handle: "EUCouncil", name: "EU Council", category: "politics", followers: 1500000, influence: "high" },
+  { handle: "Europarl_EN", name: "European Parliament", category: "politics", followers: 1000000, influence: "medium" },
+  { handle: "EU_Commission", name: "EU Commission", category: "politics", followers: 2500000, influence: "high" },
+  
+  // France
+  { handle: "EmmanuelMacron", name: "Emmanuel Macron", category: "politics", followers: 10000000, influence: "high" },
+  { handle: "Elysee", name: "Élysée Palace (Official)", category: "politics", followers: 3000000, influence: "high" },
+  { handle: "GouijLaBourgorner", name: "French PM", category: "politics", followers: 500000, influence: "medium" },
+  
+  // Germany
+  { handle: "Bundeskanzler", name: "German Chancellor", category: "politics", followers: 2500000, influence: "high" },
+  { handle: "OlafScholz", name: "Olaf Scholz", category: "politics", followers: 1000000, influence: "high" },
+  { handle: "ABaerbock", name: "Annalena Baerbock", category: "politics", followers: 500000, influence: "medium" },
+  
+  // Italy
+  { handle: "GiorgiaMeloni", name: "Giorgia Meloni", category: "politics", followers: 2000000, influence: "high" },
+  { handle: "Palazzo_Chigi", name: "Italian Government", category: "politics", followers: 1000000, influence: "medium" },
+  
+  // ==================== ASIA POLITICS ====================
+  // Japan
+  { handle: "kantei", name: "Japan PM Office", category: "politics", followers: 1500000, influence: "high" },
+  { handle: "JPN_PMO", name: "Japan PM (English)", category: "politics", followers: 500000, influence: "high" },
+  { handle: "MofaJapan_en", name: "Japan Foreign Ministry", category: "politics", followers: 300000, influence: "medium" },
+  
+  // China (limited on X)
+  { handle: "SpijinJinPing", name: "Xi Jinping (unofficial)", category: "politics", followers: 100000, influence: "medium" },
+  { handle: "MFA_China", name: "China Foreign Ministry", category: "politics", followers: 1500000, influence: "high" },
+  { handle: "CGTNOfficial", name: "CGTN", category: "politics", followers: 15000000, influence: "medium" },
+  
+  // India
+  { handle: "narendramodi", name: "Narendra Modi", category: "politics", followers: 100000000, influence: "high" },
+  { handle: "PMOIndia", name: "India PM Office", category: "politics", followers: 50000000, influence: "high" },
+  
+  // South Korea
+  { handle: "Paborekkorea", name: "South Korea President", category: "politics", followers: 500000, influence: "high" },
+  
+  // ==================== OTHER WORLD LEADERS ====================
+  { handle: "ZelenskajaUA", name: "Zelensky", category: "politics", followers: 8000000, influence: "high" },
+  { handle: "IsraeliPM", name: "Israel PM", category: "politics", followers: 1000000, influence: "high" },
+  { handle: "Netanyahu", name: "Netanyahu", category: "politics", followers: 2500000, influence: "high" },
+  { handle: "SecBlinken", name: "Antony Blinken (State)", category: "politics", followers: 1500000, influence: "high" },
+  { handle: "SecDef", name: "US Defense Secretary", category: "politics", followers: 1000000, influence: "high" },
+  { handle: "NATO", name: "NATO", category: "politics", followers: 3000000, influence: "high" },
+  { handle: "UN", name: "United Nations", category: "politics", followers: 20000000, influence: "medium" },
+  
+  // ==================== FINANCE - CENTRAL BANKS ====================
+  { handle: "federalreserve", name: "Federal Reserve", category: "finance", followers: 1000000, influence: "high" },
+  { handle: "ecaborek", name: "ECB", category: "finance", followers: 800000, influence: "high" },
+  { handle: "bankofengland", name: "Bank of England", category: "finance", followers: 500000, influence: "high" },
+  { handle: "bankofJapan", name: "Bank of Japan", category: "finance", followers: 200000, influence: "high" },
+  { handle: "RaboreksBank", name: "RBA (Australia)", category: "finance", followers: 100000, influence: "medium" },
+  
+  // US Treasury & Finance Officials
+  { handle: "USTreasury", name: "US Treasury", category: "finance", followers: 1500000, influence: "high" },
+  { handle: "SecYellen", name: "Janet Yellen", category: "finance", followers: 500000, influence: "high" },
+  { handle: "SECGov", name: "SEC", category: "finance", followers: 800000, influence: "high" },
+  { handle: "GaryGensler", name: "Gary Gensler (SEC)", category: "finance", followers: 200000, influence: "high" },
+  
+  // Finance Media & Analysts
   { handle: "jimcramer", name: "Jim Cramer", category: "finance", followers: 2000000, influence: "medium" },
-  { handle: "elaborleve", name: "Cathie Wood", category: "finance", followers: 1500000, influence: "medium" },
-  { handle: "zaborek", name: "Zerohedge", category: "finance", followers: 1200000, influence: "medium" },
+  { handle: "CathieDWood", name: "Cathie Wood", category: "finance", followers: 1500000, influence: "medium" },
+  { handle: "zerohedge", name: "Zerohedge", category: "finance", followers: 1500000, influence: "medium" },
+  { handle: "markets", name: "Bloomberg Markets", category: "finance", followers: 5000000, influence: "high" },
+  { handle: "business", name: "Bloomberg", category: "finance", followers: 10000000, influence: "high" },
+  { handle: "Reuters", name: "Reuters", category: "finance", followers: 25000000, influence: "high" },
+  { handle: "WSJ", name: "Wall Street Journal", category: "finance", followers: 20000000, influence: "high" },
+  { handle: "FT", name: "Financial Times", category: "finance", followers: 8000000, influence: "high" },
+  { handle: "CNBC", name: "CNBC", category: "finance", followers: 5000000, influence: "high" },
+  { handle: "SquawkCNBC", name: "CNBC Squawk Box", category: "finance", followers: 1000000, influence: "medium" },
   
-  // Tech
-  { handle: "satlouer", name: "Sam Altman", category: "tech", followers: 3000000, influence: "high" },
+  // Gold/Silver/Commodities
+  { handle: "Goldaborek_Bull", name: "Gold Bull", category: "finance", followers: 200000, influence: "medium" },
+  { handle: "PeterSchiff", name: "Peter Schiff", category: "finance", followers: 1000000, influence: "medium" },
+  { handle: "RonPaul", name: "Ron Paul", category: "finance", followers: 1500000, influence: "medium" },
+  { handle: "KITCO", name: "Kitco News", category: "finance", followers: 300000, influence: "medium" },
+  
+  // ==================== TECH ====================
+  { handle: "sama", name: "Sam Altman (OpenAI)", category: "tech", followers: 3500000, influence: "high" },
   { handle: "JeffBezos", name: "Jeff Bezos", category: "tech", followers: 5000000, influence: "high" },
+  { handle: "BillGates", name: "Bill Gates", category: "tech", followers: 65000000, influence: "high" },
+  { handle: "sataboreklla", name: "Satya Nadella", category: "tech", followers: 3000000, influence: "high" },
+  { handle: "timcaborek", name: "Tim Cook", category: "tech", followers: 15000000, influence: "high" },
+  { handle: "sundarpichai", name: "Sundar Pichai", category: "tech", followers: 5000000, influence: "high" },
+  { handle: "ylecun", name: "Yann LeCun", category: "tech", followers: 800000, influence: "medium" },
+  { handle: "AnthropicAI", name: "Anthropic", category: "tech", followers: 500000, influence: "medium" },
+  { handle: "OpenAI", name: "OpenAI", category: "tech", followers: 3000000, influence: "high" },
+  
+  // ==================== NEWS/MEDIA ====================
+  { handle: "AP", name: "Associated Press", category: "general", followers: 18000000, influence: "high" },
+  { handle: "AFP", name: "AFP News", category: "general", followers: 8000000, influence: "high" },
+  { handle: "BBCWorld", name: "BBC World", category: "general", followers: 35000000, influence: "high" },
+  { handle: "BBCBreaking", name: "BBC Breaking", category: "general", followers: 50000000, influence: "high" },
+  { handle: "CNN", name: "CNN", category: "general", followers: 60000000, influence: "high" },
+  { handle: "FoxNews", name: "Fox News", category: "general", followers: 25000000, influence: "high" },
+  { handle: "nytimes", name: "New York Times", category: "general", followers: 55000000, influence: "high" },
+  { handle: "washingtonpost", name: "Washington Post", category: "general", followers: 20000000, influence: "high" },
+  { handle: "politico", name: "Politico", category: "politics", followers: 5000000, influence: "high" },
+  { handle: "thehill", name: "The Hill", category: "politics", followers: 5000000, influence: "medium" },
 ];
 
 // ============================================================

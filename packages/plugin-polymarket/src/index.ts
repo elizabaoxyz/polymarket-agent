@@ -46,6 +46,9 @@ export * from "./whale-tracker.js";
 // Event Calendar
 export * from "./event-calendar.js";
 
+// Market Analyzer (real-time order book & volume)
+export * from "./market-analyzer.js";
+
 // Crypto Prediction
 export * from "./crypto-prediction.js";
 

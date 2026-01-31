@@ -16,6 +16,9 @@
 
 import "dotenv/config";
 
+// HTTP Proxy configuration (must be first!)
+import { configureHttpProxy, testProxyConnection, getProxyInfo } from "./proxy-config.js";
+
 // Plugin imports
 import { PolymarketService, setPolymarketService } from "../packages/plugin-polymarket/src/index.js";
 import type { PolymarketConfig, Position } from "../packages/plugin-polymarket/src/types.js";
@@ -527,6 +530,7 @@ export async function startAutonomy(): Promise<void> {
 ╠════════════════════════════════════════════════════════════════════════╣
 ║  CONFIG:                                                               ║
 ║  ⏰ Interval: ${(AUTONOMY_INTERVAL_MS / 1000).toString().padEnd(4)}s | 🎯 TP: +${TAKE_PROFIT_PERCENT}% | SL: -${STOP_LOSS_PERCENT}%                           ║
+║  🌐 Proxy: ${getProxyInfo().configured ? `${getProxyInfo().host}:${getProxyInfo().port}` : "Not configured"}                                  ║
 ║  📊 Max: ${MAX_POSITIONS} positions | ${MAX_ELON_POSITIONS} Elon | Edge: ${(ELON_EDGE_CONFIG.minEdge * 100).toFixed(0)}%/${(ELON_EDGE_CONFIG.mediumEdge * 100).toFixed(0)}%/${(ELON_EDGE_CONFIG.highEdge * 100).toFixed(0)}%                  ║
 ║  💰 Trade: Elon $${ELON_TRADE_SIZE} | Regular $${REGULAR_TRADE_SIZE}                                         ║
 ║  🧠 Claude AI: ${ANTHROPIC_API_KEY ? "Enabled" : "Disabled"}                                                  ║
@@ -573,6 +577,14 @@ export function getAutonomyStatus() {
 // CLI entry point
 if (import.meta.main) {
   console.log("Starting ElizaBAO Autonomy v2.0.0...");
+  
+  // Configure HTTP proxy FIRST before any Polymarket API calls
+  const proxyConfigured = configureHttpProxy();
+  if (proxyConfigured) {
+    // Test proxy connection
+    await testProxyConnection();
+  }
+  
   startAutonomy().catch(console.error);
 
   process.on("SIGINT", () => {

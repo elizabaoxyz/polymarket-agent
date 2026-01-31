@@ -5,6 +5,41 @@ import { serve } from "@hono/node-server";
 import { ethers } from "ethers";
 import { ClobClient, OrderType } from "@polymarket/clob-client";
 import * as fs from "fs";
+import axios from "axios";
+import { HttpsProxyAgent } from "https-proxy-agent";
+
+// ============================================================
+// HTTP PROXY CONFIGURATION (to bypass Cloudflare blocks)
+// ============================================================
+const PROXY_HOST = process.env.HTTP_PROXY_HOST || "";
+const PROXY_PORT = process.env.HTTP_PROXY_PORT || "";
+const PROXY_USER = process.env.HTTP_PROXY_USER || "";
+const PROXY_PASS = process.env.HTTP_PROXY_PASS || "";
+
+function configureHttpProxy(): boolean {
+  if (!PROXY_HOST || !PROXY_PORT) {
+    console.log("⚠️ HTTP proxy not configured (no HTTP_PROXY_HOST/PORT in env)");
+    return false;
+  }
+
+  try {
+    let proxyUrl = `http://`;
+    if (PROXY_USER && PROXY_PASS) {
+      proxyUrl += `${PROXY_USER}:${PROXY_PASS}@`;
+    }
+    proxyUrl += `${PROXY_HOST}:${PROXY_PORT}`;
+
+    const httpsAgent = new HttpsProxyAgent(proxyUrl);
+    axios.defaults.httpsAgent = httpsAgent;
+    axios.defaults.proxy = false;
+
+    console.log(`✅ HTTP Proxy configured: ${PROXY_HOST}:${PROXY_PORT}`);
+    return true;
+  } catch (err: any) {
+    console.error(`❌ Failed to configure HTTP proxy: ${err.message}`);
+    return false;
+  }
+}
 
 const PORT = process.env.PORT || 3001;
 const GAMMA_API_URL = "https://gamma-api.polymarket.com";
@@ -2188,7 +2223,10 @@ app.get("/api/debug/orders", async (c) => {
 // STARTUP
 // ============================================================
 loadPositions();
+configureHttpProxy();  // Configure HTTP proxy BEFORE CLOB client
 initClobClient();
+
+const httpProxyStatus = PROXY_HOST ? `${PROXY_HOST}:${PROXY_PORT}` : "Not configured";
 
 console.log(`
 ╔════════════════════════════════════════════════════════════════════════╗
@@ -2204,7 +2242,8 @@ console.log(`
 ╠════════════════════════════════════════════════════════════════════════╣
 ║  WALLETS:                                                              ║
 ║  💰 Signer: ${WALLET_ADDRESS}                      ║
-║  🏦 Proxy: ${PROXY_WALLET}                         ║
+║  🏦 Poly Proxy: ${PROXY_WALLET}                         ║
+║  🌐 HTTP Proxy: ${httpProxyStatus}                                     ║
 ╠════════════════════════════════════════════════════════════════════════╣
 ║  CONFIG:                                                               ║
 ║  🎯 TP: +${takeProfitPercent}% | SL: -${stopLossPercent}% | Price Filter: 8-85%                           ║

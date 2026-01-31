@@ -77,6 +77,29 @@ export function configureHttpProxy(): boolean {
       return config;
     });
 
+    // CRITICAL: Patch axios.create to inject proxy into all new instances
+    const originalAxiosCreate = axios.create.bind(axios);
+    axios.create = function(config?: any) {
+      const instance = originalAxiosCreate({
+        ...config,
+        httpsAgent,
+        httpAgent: httpsAgent,
+        proxy: false,
+      });
+      
+      // Add interceptor to the new instance too
+      instance.interceptors.request.use((reqConfig) => {
+        reqConfig.httpsAgent = httpsAgent;
+        reqConfig.httpAgent = httpsAgent;
+        reqConfig.proxy = false;
+        return reqConfig;
+      });
+      
+      return instance;
+    };
+    
+    console.log("🔌 Patched axios.create for CLOB client proxy support");
+
     // Also patch global fetch if needed (Bun/Node)
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {

@@ -404,16 +404,31 @@ async function checkPositionsTPSL(): Promise<void> {
           await service.cancelOrder(pos.tpOrderId);
         }
 
+        // Add delay to avoid Cloudflare rate limiting
+        await new Promise(r => setTimeout(r, 3000));
+
         // Place sell order
-        await service.placeSellOrder(pos.tokenId, currentPrice - 0.01, pos.size);
-        service.closePosition(pos.id, currentPrice, `SL ${pnlPercent.toFixed(1)}%`);
+        const sellResult = await service.placeSellOrder(pos.tokenId, currentPrice - 0.01, pos.size);
+        if (sellResult.success) {
+          service.closePosition(pos.id, currentPrice, `SL ${pnlPercent.toFixed(1)}%`);
+        } else {
+          console.log(`⚠️ SL sell failed: ${sellResult.error}`);
+        }
       }
 
       // Take Profit (if no TP order placed)
       if (!pos.tpOrderId && pos.tpPrice && currentPrice >= pos.tpPrice) {
         console.log(`📈 TP triggered for ${pos.question?.slice(0, 30)}...`);
-        await service.placeSellOrder(pos.tokenId, currentPrice, pos.size);
-        service.closePosition(pos.id, currentPrice, `TP +${pnlPercent.toFixed(1)}%`);
+        
+        // Add delay to avoid Cloudflare rate limiting
+        await new Promise(r => setTimeout(r, 3000));
+        
+        const sellResult = await service.placeSellOrder(pos.tokenId, currentPrice, pos.size);
+        if (sellResult.success) {
+          service.closePosition(pos.id, currentPrice, `TP +${pnlPercent.toFixed(1)}%`);
+        } else {
+          console.log(`⚠️ TP sell failed: ${sellResult.error}`);
+        }
       }
     } catch (e: any) {
       console.error(`Error checking ${pos.id}: ${e.message}`);

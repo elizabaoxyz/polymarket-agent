@@ -957,16 +957,16 @@ export function getAutonomyStatus() {
   };
 }
 
-// CLI entry point
-if (import.meta.main) {
+// CLI entry point - works with both Bun and Node/tsx
+const isMainModule = typeof Bun !== 'undefined' 
+  ? import.meta.main  // Bun
+  : import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/')}`; // Node/tsx
+
+if (isMainModule) {
   console.log("Starting ElizaBAO Autonomy v2.0.0...");
   
-  // Configure HTTP proxy FIRST before any Polymarket API calls
-  const proxyConfigured = configureHttpProxy();
-  if (proxyConfigured) {
-    // Test proxy connection
-    await testProxyConnection();
-  }
+  // Test proxy connection (proxy already configured at module load)
+  await testProxyConnection();
   
   startAutonomy().catch(console.error);
 

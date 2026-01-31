@@ -9,7 +9,10 @@
   ],
   "scripts": {
     "start": "bun run src/agent.ts",
+    "start:autonomy": "bun run src/autonomy.ts",
+    "start:autonomy-api": "bun run src/autonomy-api.ts",
     "dev": "bun run --watch src/agent.ts",
+    "dev:autonomy": "bun run --watch src/autonomy.ts",
     "start:api": "bun run api-server.ts",
     "start:elizaos": "bun run api-server-elizaos.ts",
     "build": "bun run build:plugin",

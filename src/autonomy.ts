@@ -458,15 +458,7 @@ async function autoTradeCryptoMarket(): Promise<boolean> {
         continue;
       }
 
-      // NEW: Get whale trading signal
-      let tokenId = "";
-      try {
-        const ids = typeof market.clobTokenIds === "string" 
-          ? JSON.parse(market.clobTokenIds) 
-          : market.clobTokenIds;
-        tokenId = Array.isArray(ids) ? ids[0] : ids;
-      } catch {}
-
+      // NEW: Get whale trading signal (tokenId already set above)
       if (tokenId) {
         const whaleSignal = await getWhaleTradingSignal(market.id, tokenId, question);
         console.log(`🐋 Whales: ${whaleSignal.direction} (${(whaleSignal.confidence * 100).toFixed(0)}% confidence)`);
@@ -482,8 +474,7 @@ async function autoTradeCryptoMarket(): Promise<boolean> {
         }
       }
 
-      // Get token ID (may have been set above)
-      let tokenId = "";
+      // Update tokenId for correct side (YES or NO)
       try {
         const ids = typeof market.clobTokenIds === "string" 
           ? JSON.parse(market.clobTokenIds) 

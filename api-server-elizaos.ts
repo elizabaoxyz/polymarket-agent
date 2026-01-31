@@ -890,7 +890,8 @@ async function placeLiquidityOrders(market: any): Promise<LiquidityOrder | null>
     
     // Place BUY limit order
     const buyOrder = await client.createOrder({ tokenID: tokenId, price: buyPrice, size: shares, side: "BUY" });
-    const buyResult = await client.postOrder(buyOrder, OrderType.GTC, true); // postOnly=true for rewards
+    // FIXED: postOrder(order, orderType, deferExec, postOnly) - postOnly is 4th param!
+    const buyResult = await client.postOrder(buyOrder, OrderType.GTC, false, true); // deferExec=false, postOnly=true
     
     if (buyResult.error) {
       console.log(`💧 BUY order failed:`, buyResult.error);
@@ -902,7 +903,8 @@ async function placeLiquidityOrders(market: any): Promise<LiquidityOrder | null>
     // Place SELL limit order (using USDC collateral, not shares)
     // For liquidity mining, we place both sides to earn rewards
     const sellOrder = await client.createOrder({ tokenID: tokenId, price: sellPrice, size: shares, side: "SELL" });
-    const sellResult = await client.postOrder(sellOrder, OrderType.GTC, true);
+    // FIXED: postOnly is 4th param, not 3rd!
+    const sellResult = await client.postOrder(sellOrder, OrderType.GTC, false, true); // deferExec=false, postOnly=true
     
     let sellOrderId = "";
     if (!sellResult.error) {
@@ -1389,44 +1391,14 @@ async function executeBuy(market: any, amount: number): Promise<Position | null>
           console.log(`📈 TP order signed:`, JSON.stringify(tpOrder).slice(0, 300));
           
           // ============================================================
-          // CRITICAL FIX: Direct API call with postOnly=true
-          // The client library doesn't pass postOnly correctly!
+          // FIXED: Use client.postOrder with correct parameter order!
+          // postOrder(order, orderType, deferExec, postOnly)
+          // postOnly is the 4TH parameter, not 3rd!
           // ============================================================
-          const orderPayload = {
-            order: tpOrder,
-            owner: CLOB_API_KEY,
-            orderType: "GTC",
-            postOnly: true  // THIS IS THE KEY - must be true for resting limit orders!
-          };
+          console.log(`📈 Posting TP with postOnly=true via client library...`);
           
-          // Generate auth headers
-          const timestamp = Math.floor(Date.now() / 1000).toString();
-          const message = `${timestamp}POST/order${JSON.stringify(orderPayload)}`;
-          const encoder = new TextEncoder();
-          const keyData = encoder.encode(CLOB_API_SECRET);
-          const msgData = encoder.encode(message);
-          const cryptoKey = await crypto.subtle.importKey(
-            "raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
-          );
-          const signature = await crypto.subtle.sign("HMAC", cryptoKey, msgData);
-          const sigBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
-          
-          console.log(`📈 Posting TP with postOnly=true via direct API...`);
-          
-          const tpResponse = await fetch("https://clob.polymarket.com/order", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "POLY_ADDRESS": WALLET_ADDRESS,
-              "POLY_SIGNATURE": sigBase64,
-              "POLY_TIMESTAMP": timestamp,
-              "POLY_API_KEY": CLOB_API_KEY,
-              "POLY_PASSPHRASE": CLOB_API_PASSPHRASE
-            },
-            body: JSON.stringify(orderPayload)
-          });
-          
-          const tpResult = await tpResponse.json();
+          // deferExec=false (execute immediately), postOnly=true (rest on book, don't match)
+          const tpResult = await client.postOrder(tpOrder, OrderType.GTC, false, true);
           
           console.log(`📈 TP post result:`, JSON.stringify(tpResult));
           

@@ -16,8 +16,9 @@
 
 import "dotenv/config";
 
-// HTTP Proxy configuration (must be first!)
+// HTTP Proxy configuration - MUST configure BEFORE any other imports!
 import { configureHttpProxy, testProxyConnection, getProxyInfo } from "./proxy-config.js";
+configureHttpProxy(); // Configure immediately at module load
 
 // Plugin imports
 import { PolymarketService, setPolymarketService } from "../packages/plugin-polymarket/src/index.js";

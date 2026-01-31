@@ -5,6 +5,7 @@
 
 import axios from "axios";
 import { HttpsProxyAgent } from "https-proxy-agent";
+import https from "https";
 
 // Proxy configuration from environment
 const PROXY_HOST = process.env.HTTP_PROXY_HOST || "";
@@ -13,6 +14,28 @@ const PROXY_USER = process.env.HTTP_PROXY_USER || "";
 const PROXY_PASS = process.env.HTTP_PROXY_PASS || "";
 
 let proxyConfigured = false;
+let httpsAgent: HttpsProxyAgent<string> | null = null;
+
+/**
+ * Get the proxy URL
+ */
+export function getProxyUrl(): string {
+  if (!PROXY_HOST || !PROXY_PORT) return "";
+  
+  let proxyUrl = `http://`;
+  if (PROXY_USER && PROXY_PASS) {
+    proxyUrl += `${PROXY_USER}:${PROXY_PASS}@`;
+  }
+  proxyUrl += `${PROXY_HOST}:${PROXY_PORT}`;
+  return proxyUrl;
+}
+
+/**
+ * Get the configured HTTPS proxy agent
+ */
+export function getHttpsAgent(): HttpsProxyAgent<string> | null {
+  return httpsAgent;
+}
 
 /**
  * Configure axios to use HTTP proxy globally
@@ -27,26 +50,39 @@ export function configureHttpProxy(): boolean {
   }
 
   try {
-    // Build proxy URL with auth
-    let proxyUrl = `http://`;
-    if (PROXY_USER && PROXY_PASS) {
-      proxyUrl += `${PROXY_USER}:${PROXY_PASS}@`;
-    }
-    proxyUrl += `${PROXY_HOST}:${PROXY_PORT}`;
+    const proxyUrl = getProxyUrl();
 
     // Create HTTPS proxy agent
-    const httpsAgent = new HttpsProxyAgent(proxyUrl);
+    httpsAgent = new HttpsProxyAgent(proxyUrl);
+
+    // Set global HTTPS agent - this affects ALL https requests
+    https.globalAgent = httpsAgent as any;
+
+    // Set environment variables - many libraries check these
+    process.env.HTTPS_PROXY = proxyUrl;
+    process.env.https_proxy = proxyUrl;
+    process.env.HTTP_PROXY = proxyUrl;
+    process.env.http_proxy = proxyUrl;
 
     // Configure axios defaults
     axios.defaults.httpsAgent = httpsAgent;
+    axios.defaults.httpAgent = httpsAgent;
     axios.defaults.proxy = false; // Disable axios built-in proxy, use agent instead
+
+    // Add axios interceptor to ensure all requests use proxy
+    axios.interceptors.request.use((config) => {
+      config.httpsAgent = httpsAgent;
+      config.httpAgent = httpsAgent;
+      config.proxy = false;
+      return config;
+    });
 
     // Also patch global fetch if needed (Bun/Node)
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       // For now, only use proxy for polymarket.com requests
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (url.includes("polymarket.com")) {
+      if (url.includes("polymarket.com") || url.includes("clob.polymarket")) {
         // Use axios for proxied requests
         try {
           const method = init?.method || "GET";
@@ -77,6 +113,7 @@ export function configureHttpProxy(): boolean {
     proxyConfigured = true;
     console.log(`✅ HTTP Proxy configured: ${PROXY_HOST}:${PROXY_PORT}`);
     console.log(`🌍 Requests will route through Romania proxy`);
+    console.log(`🔧 Global HTTPS agent set, env vars configured`);
     
     return true;
   } catch (err: any) {

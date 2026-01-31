@@ -49,6 +49,9 @@ export * from "./event-calendar.js";
 // Market Analyzer (real-time order book & volume)
 export * from "./market-analyzer.js";
 
+// Forex Factory Economic Calendar (all countries)
+export * from "./forex-factory.js";
+
 // Crypto Prediction
 export * from "./crypto-prediction.js";
 

@@ -99,6 +99,16 @@ import {
   type MarketAnalysis,
 } from "../packages/plugin-polymarket/src/market-analyzer.js";
 import {
+  fetchForexFactoryCalendar,
+  getTodayEvents,
+  getUpcomingHighImpact,
+  getForexTradingSignal,
+  formatDailyCalendar,
+  formatWeeklyOverview,
+  getRelevantEvents,
+  type EconomicEvent,
+} from "../packages/plugin-polymarket/src/forex-factory.js";
+import {
   predictCryptoMarket,
   calculateCryptoEdge,
   shouldTradeCryptoMarket,
@@ -423,6 +433,16 @@ async function autoTradeCryptoMarket(): Promise<boolean> {
         }
       }
 
+      // Forex Factory: Check for high-impact economic events
+      const forexSignal = getForexTradingSignal(question);
+      if (forexSignal.hasHighImpact && forexSignal.riskLevel === "high") {
+        console.log(`💎 ⚠️ SKIP: High-impact economic event (${forexSignal.recommendation})`);
+        continue;
+      }
+      if (forexSignal.nextHighImpact) {
+        console.log(`📅 Next event: ${forexSignal.nextHighImpact.currency} ${forexSignal.nextHighImpact.event}`);
+      }
+
       // Get recommendation from trade analytics (learning)
       const recommendation = getTradeRecommendation(
         question,
@@ -640,6 +660,19 @@ async function aiTradeNonElon(): Promise<boolean> {
         if (marketAnalysis.signal.direction === "sell" && marketAnalysis.signal.confidence > 0.5) {
           console.log(`🤖 ⚠️ SKIP: Market analysis bearish`);
           return false;
+        }
+      }
+
+      // Forex Factory: Check for high-impact economic events
+      const forexSignal = getForexTradingSignal(opp.market.question || "");
+      if (forexSignal.hasHighImpact) {
+        console.log(`📅 Forex Factory: ${forexSignal.eventsToday} events today (Risk: ${forexSignal.riskLevel})`);
+        if (forexSignal.riskLevel === "high") {
+          console.log(`🤖 ⚠️ SKIP: ${forexSignal.recommendation}`);
+          return false;
+        }
+        if (forexSignal.nextHighImpact) {
+          console.log(`📅 Next: ${forexSignal.nextHighImpact.currency} ${forexSignal.nextHighImpact.event} @ ${forexSignal.nextHighImpact.time}`);
         }
       }
 
@@ -883,6 +916,8 @@ export async function startAutonomy(): Promise<void> {
 ║  🐦 Social Tracker: ${INFLUENCERS.length} influencers (world leaders, finance, crypto)     ║
 ║  🐋 Whale Tracker: Smart money following                               ║
 ║  📅 Event Calendar: ${getEventIntelligence().thisWeekEvents.length} events this week                             ║
+║  📊 Forex Factory: ${getUpcomingHighImpact(7).length} high-impact events (all countries)         ║
+║  📈 Market Analyzer: Order book + Volume tracking                      ║
 ║  🎯 Dynamic TP/SL: Volatility-adjusted (${(TPSL_CONFIG.baseTakeProfit * 100).toFixed(0)}%/${(TPSL_CONFIG.baseStopLoss * 100).toFixed(0)}% base)                ║
 ╠════════════════════════════════════════════════════════════════════════╣
 ║  CONFIG:                                                               ║

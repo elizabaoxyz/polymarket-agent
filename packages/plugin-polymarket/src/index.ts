@@ -31,8 +31,11 @@ export * from "./claude-ai.js";
 // Trade Analytics (Learning)
 export * from "./trade-analytics.js";
 
-// News Feed
+// News Feed (basic RSS)
 export * from "./news-feed.js";
+
+// News Intelligence (multi-source)
+export * from "./news-intelligence.js";
 
 // Crypto Prediction
 export * from "./crypto-prediction.js";

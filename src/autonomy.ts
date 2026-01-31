@@ -72,6 +72,11 @@ import {
   getNewsForMarket,
 } from "../packages/plugin-polymarket/src/news-feed.js";
 import {
+  getNewsIntelligence,
+  getNewsTradingSignal,
+  getNewsAPIStatus,
+} from "../packages/plugin-polymarket/src/news-intelligence.js";
+import {
   predictCryptoMarket,
   calculateCryptoEdge,
   shouldTradeCryptoMarket,
@@ -518,13 +523,14 @@ async function aiTradeNonElon(): Promise<boolean> {
       const opp = nonElonOpps.find(o => o.market.id === decision.market.id);
       if (!opp) return false;
 
-      // NEW: Get news signal for the market
-      const newsSignal = await getNewsSignal(opp.market.question || "");
-      console.log(`📰 News: ${newsSignal.direction} (${(newsSignal.strength * 100).toFixed(0)}%) - ${newsSignal.reason.slice(0, 50)}`);
+      // NEW: Get enhanced news intelligence (multi-source)
+      const newsSignal = await getNewsTradingSignal(opp.market.question || "");
+      console.log(`📰 News: ${newsSignal.direction} (${(newsSignal.strength * 100).toFixed(0)}% strength, ${(newsSignal.confidence * 100).toFixed(0)}% confidence)`);
+      console.log(`   Sources: ${newsSignal.sources.join(", ") || "none"} - ${newsSignal.reason.slice(0, 60)}`);
 
-      // Check if news contradicts AI decision
-      if (newsSignal.direction === "sell" && newsSignal.strength > 0.5) {
-        console.log(`🤖 ⚠️ SKIP: News is bearish, overriding AI decision`);
+      // Check if news contradicts AI decision with high confidence
+      if (newsSignal.direction === "sell" && newsSignal.confidence > 0.4) {
+        console.log(`🤖 ⚠️ SKIP: News is bearish with high confidence, overriding AI decision`);
         return false;
       }
 
@@ -764,7 +770,7 @@ export async function startAutonomy(): Promise<void> {
 ╠════════════════════════════════════════════════════════════════════════╣
 ║  SMART FEATURES:                                                       ║
 ║  📊 Trade Analytics: Learning from ${insights.overallWinRate > 0 ? `${(insights.overallWinRate * 100).toFixed(0)}% win rate` : "building data"}               ║
-║  📰 News Feed: Real-time sentiment analysis                            ║
+║  📰 News Intelligence: ${Object.entries(getNewsAPIStatus()).filter(([k, v]) => v).map(([k]) => k).join(", ") || "RSS only"}  ║
 ║  🎯 Dynamic TP/SL: Volatility-adjusted (${(TPSL_CONFIG.baseTakeProfit * 100).toFixed(0)}%/${(TPSL_CONFIG.baseStopLoss * 100).toFixed(0)}% base)                ║
 ╠════════════════════════════════════════════════════════════════════════╣
 ║  CONFIG:                                                               ║

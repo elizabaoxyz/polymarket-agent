@@ -5,9 +5,10 @@
  * 
  * Features:
  * - Market scanning and opportunity detection
- * - AI-powered trading decisions
+ * - AI-powered trading decisions (Claude)
  * - Position management with TP/SL
- * - Elon tweet prediction engine
+ * - Elon tweet prediction engine with edge calculation
+ * - XTracker integration for live tweet counts
  * - Liquidity mining support
  * 
  * @author ElizaBAO
@@ -18,8 +19,19 @@ import type { Plugin, IAgentRuntime } from "@elizaos/core";
 // Services
 import { PolymarketService } from "./services/polymarket-service.js";
 
+// Elon Prediction
+export * from "./elon-prediction.js";
+
+// XTracker
+export * from "./xtracker.js";
+
+// Claude AI
+export * from "./claude-ai.js";
+
 // Types
 export * from "./types.js";
+
+// Service export
 export { PolymarketService };
 
 // Store service instance globally for access
@@ -29,12 +41,16 @@ export function getPolymarketService(): PolymarketService | null {
   return polymarketServiceInstance;
 }
 
+export function setPolymarketService(service: PolymarketService): void {
+  polymarketServiceInstance = service;
+}
+
 /**
  * Polymarket Plugin for ElizaOS v2.0.0
  */
 export const polymarketPlugin: Plugin = {
   name: "@elizabao/plugin-polymarket",
-  description: "Polymarket prediction market trading plugin for ElizaOS",
+  description: "Polymarket prediction market trading plugin for ElizaOS with Elon prediction engine",
 
   // Actions - defined inline to avoid import issues
   actions: [],
@@ -84,6 +100,7 @@ export const polymarketPlugin: Plugin = {
     polymarketServiceInstance = service;
 
     console.log("✅ Polymarket Plugin initialized");
+    console.log("📊 Features: Elon Prediction, XTracker, Claude AI, Position Persistence");
   },
 };
 

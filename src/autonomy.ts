@@ -1,38 +1,67 @@
 /**
- * ElizaBAO Autonomy Service
+ * ElizaBAO Autonomy Service v2.0
  * 
- * ElizaOS v2.0.0 compatible autonomous trading loop
- * Uses the plugin architecture for market scanning and trading
+ * Full-featured autonomous trading with:
+ * - Elon tweet prediction engine with edge calculation
+ * - Claude AI for non-Elon market analysis
+ * - XTracker live tweet counting
+ * - TP limit orders with postOnly
+ * - Position persistence
+ * 
+ * @author ElizaBAO
  */
 
 import "dotenv/config";
 
-// Simplified autonomy that works directly without full ElizaOS runtime
-// This avoids dependency resolution issues while keeping the structure
+// Plugin imports
+import { PolymarketService, setPolymarketService } from "../packages/plugin-polymarket/src/index.js";
+import type { PolymarketConfig, Position } from "../packages/plugin-polymarket/src/types.js";
+import {
+  predictElonTweets,
+  calculateEdge,
+  extractDateRange,
+  parseBucketRange,
+  ELON_EDGE_CONFIG,
+  ELON_HISTORICAL_DATA,
+} from "../packages/plugin-polymarket/src/elon-prediction.js";
+import {
+  getAllElonTrackings,
+  getElonTweetCount,
+  findMatchingTracking,
+} from "../packages/plugin-polymarket/src/xtracker.js";
+import {
+  analyzeWithAI,
+  type AnalysisContext,
+} from "../packages/plugin-polymarket/src/claude-ai.js";
 
-import { PolymarketService } from "../packages/plugin-polymarket/src/services/polymarket-service.js";
-import type { PolymarketConfig } from "../packages/plugin-polymarket/src/types.js";
-
-// Configuration
+// ============================================================
+// CONFIGURATION
+// ============================================================
 const AUTONOMY_INTERVAL_MS = parseInt(process.env.AUTONOMY_INTERVAL_MS || "120000");
 const MAX_POSITIONS = parseInt(process.env.MAX_POSITIONS || "20");
 const MAX_ELON_POSITIONS = parseInt(process.env.MAX_ELON_POSITIONS || "3");
 const TAKE_PROFIT_PERCENT = parseInt(process.env.TAKE_PROFIT_PERCENT || "20");
 const STOP_LOSS_PERCENT = parseInt(process.env.STOP_LOSS_PERCENT || "15");
+const ELON_TRADE_SIZE = parseFloat(process.env.ELON_TRADE_SIZE || "20");
+const REGULAR_TRADE_SIZE = parseFloat(process.env.REGULAR_TRADE_SIZE || "2");
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 
-// State
+// ============================================================
+// STATE
+// ============================================================
 let autonomyEnabled = false;
 let autonomyRunning = false;
 let totalScans = 0;
 let totalTrades = 0;
 let service: PolymarketService | null = null;
 
-/**
- * Initialize the Polymarket service
- */
+// ============================================================
+// INITIALIZATION
+// ============================================================
+
 export async function initializeService(): Promise<PolymarketService> {
-  console.log("🔧 Initializing Polymarket Service (ElizaOS v2.0.0 compatible)...");
-  
+  console.log("🔧 Initializing Polymarket Service (ElizaOS v2.0.0)...");
+
   const config: PolymarketConfig = {
     privateKey: process.env.EVM_PRIVATE_KEY || "",
     walletAddress: process.env.WALLET_ADDRESS || "",
@@ -44,183 +73,375 @@ export async function initializeService(): Promise<PolymarketService> {
 
   service = new PolymarketService(config);
   await service.initialize();
+  setPolymarketService(service);
 
   console.log("✅ Polymarket Service initialized");
   console.log(`🤖 Agent: ElizaBAO`);
   console.log(`📦 Plugin: @elizabao/plugin-polymarket`);
-  
+
   return service;
 }
 
-/**
- * Execute a single autonomy cycle using ElizaOS actions
- */
-async function executeAutonomyCycle(): Promise<void> {
-  if (!service) {
-    console.error("❌ Service not initialized");
-    return;
+// ============================================================
+// ELON AUTO-TRADE (with edge calculation)
+// ============================================================
+
+async function autoTradeElonMarket(): Promise<boolean> {
+  if (!service) return false;
+
+  const openElonPos = service.getOpenElonPositions();
+  if (openElonPos >= MAX_ELON_POSITIONS) {
+    console.log(`🐦 Max Elon positions reached (${openElonPos}/${MAX_ELON_POSITIONS})`);
+    return false;
   }
+
+  try {
+    // Search for Elon tweet markets
+    const markets = await service.searchMarkets("elon tweets", 30);
+    const tweetMarkets = markets.filter(m => 
+      m.question?.toLowerCase().includes("tweet") &&
+      m.question?.toLowerCase().includes("elon")
+    );
+
+    console.log(`🐦 Found ${tweetMarkets.length} Elon tweet markets`);
+
+    // Group by event
+    const eventGroups: { [key: string]: any[] } = {};
+    for (const m of tweetMarkets) {
+      const eventSlug = m.eventSlug || "unknown";
+      if (!eventGroups[eventSlug]) eventGroups[eventSlug] = [];
+      eventGroups[eventSlug].push(m);
+    }
+
+    for (const [eventSlug, eventMarkets] of Object.entries(eventGroups)) {
+      const firstMarket = eventMarkets[0];
+      const marketDates = extractDateRange(firstMarket.question || "");
+      if (!marketDates) continue;
+
+      console.log(`\n🐦 === ${firstMarket.eventTitle || eventSlug} ===`);
+
+      // Build dates
+      const months: { [key: string]: number } = {
+        january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+        july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
+      };
+
+      const year = 2026;
+      const startDate = new Date(year, months[marketDates.startMonth], marketDates.startDay, 12, 0, 0);
+      const endDate = new Date(year, months[marketDates.endMonth], marketDates.endDay, 12, 0, 0);
+      if (endDate < startDate) endDate.setFullYear(year + 1);
+
+      console.log(`🐦 Market dates: ${startDate.toDateString()} → ${endDate.toDateString()}`);
+
+      const now = Date.now();
+      const elapsedHours = Math.max(0, (now - startDate.getTime()) / (1000 * 60 * 60));
+      const totalHours = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60);
+
+      // Get current tweet count
+      let currentCount = 0;
+      if (now > startDate.getTime()) {
+        const tracking = await findMatchingTracking(startDate, endDate);
+        if (tracking) {
+          currentCount = tracking.count;
+          console.log(`🐦 XTracker count: ${currentCount} tweets`);
+        }
+      }
+
+      // Get prediction
+      const prediction = predictElonTweets(currentCount, elapsedHours, totalHours);
+      console.log(`🐦 Prediction: ${prediction.predicted} tweets`);
+
+      // Calculate stdDev for edge calculation
+      const rates = ELON_HISTORICAL_DATA.historicalPeriods.map(p => p.rate);
+      const avgRate = rates.reduce((a, b) => a + b, 0) / rates.length;
+      const variance = rates.reduce((sum, r) => sum + Math.pow(r - avgRate, 2), 0) / rates.length;
+      const stdDev = Math.sqrt(variance) * totalHours;
+
+      // Find best bucket to trade
+      for (const market of eventMarkets) {
+        if (service.hasTraded(market.id)) continue;
+
+        const bucket = parseBucketRange(market.question || "");
+        if (!bucket) continue;
+
+        // Check if prediction matches bucket
+        const isMatch = prediction.predicted >= bucket.lower && prediction.predicted <= bucket.upper;
+        const isNearby = Math.abs(prediction.predicted - bucket.lower) <= 20 || 
+                         Math.abs(prediction.predicted - bucket.upper) <= 20;
+
+        if (!isMatch && !isNearby) continue;
+
+        // Get market price
+        let yesPrice = 0.5;
+        try {
+          yesPrice = parseFloat(market.outcomePrices[0]) || 0.5;
+        } catch {}
+
+        // Calculate edge
+        const edgeResult = calculateEdge(bucket.lower, bucket.upper, prediction.predicted, stdDev, yesPrice);
+
+        console.log(`🐦 Bucket ${bucket.lower}-${bucket.upper}:`);
+        console.log(`   Market: ${(yesPrice * 100).toFixed(1)}% | Ours: ${(edgeResult.probability * 100).toFixed(1)}%`);
+        console.log(`   Edge: ${(edgeResult.edge * 100).toFixed(1)}% [${edgeResult.level}]`);
+
+        // Check edge threshold
+        if (ELON_EDGE_CONFIG.enabled && edgeResult.edge < ELON_EDGE_CONFIG.minEdge) {
+          console.log(`🐦 ⚠️ SKIP: Edge ${(edgeResult.edge * 100).toFixed(1)}% < ${(ELON_EDGE_CONFIG.minEdge * 100).toFixed(0)}% min`);
+          continue;
+        }
+
+        // Get token ID
+        let tokenId = "";
+        try {
+          const ids = typeof market.clobTokenIds === "string" 
+            ? JSON.parse(market.clobTokenIds) 
+            : market.clobTokenIds;
+          tokenId = Array.isArray(ids) ? ids[0] : ids;
+        } catch {}
+
+        if (!tokenId) continue;
+
+        // Calculate trade size and TP price
+        const size = ELON_TRADE_SIZE / yesPrice;
+        const tpPrice = Math.min(0.99, Math.round((yesPrice * (1 + TAKE_PROFIT_PERCENT / 100)) * 100) / 100);
+
+        console.log(`🐦 🎯 BUYING bucket ${bucket.lower}-${bucket.upper} for $${ELON_TRADE_SIZE}! [${edgeResult.level} EDGE]`);
+
+        // Execute buy with TP order
+        const result = await service.placeBuyOrder(tokenId, yesPrice + 0.02, size, {
+          placeTPOrder: true,
+          tpPrice,
+        });
+
+        if (result.success) {
+          totalTrades++;
+          
+          // Add position
+          service.addPosition({
+            id: `pos_${Date.now()}`,
+            marketId: market.id,
+            question: market.question || "",
+            slug: market.slug || "",
+            side: "BUY",
+            entryPrice: yesPrice,
+            size,
+            amount: ELON_TRADE_SIZE,
+            tokenId,
+            openedAt: new Date().toISOString(),
+            status: "open",
+            category: "elon",
+            tpOrderId: result.tpOrderId,
+            tpPrice,
+          });
+
+          console.log(`🐦 ✅ BOUGHT! Edge: ${(edgeResult.edge * 100).toFixed(1)}% [${edgeResult.level}]`);
+          return true;
+        }
+      }
+    }
+
+    console.log(`🐦 No matching bucket with sufficient edge`);
+    return false;
+  } catch (e: any) {
+    console.error("🐦 Elon auto-trade error:", e.message);
+    return false;
+  }
+}
+
+// ============================================================
+// CLAUDE AI TRADING (for non-Elon markets)
+// ============================================================
+
+async function aiTradeNonElon(): Promise<boolean> {
+  if (!service || !ANTHROPIC_API_KEY) return false;
+
+  try {
+    const opportunities = await service.scanOpportunities(50, 0.6);
+    const nonElonOpps = opportunities.filter(o => o.category !== "elon");
+
+    if (nonElonOpps.length === 0) {
+      console.log("🤖 No non-Elon opportunities found");
+      return false;
+    }
+
+    // Get Elon prediction for context
+    let elonPrediction = undefined;
+    try {
+      const elonData = await getElonTweetCount();
+      if (elonData) {
+        const elapsedHours = (Date.now() - elonData.startDate.getTime()) / (1000 * 60 * 60);
+        const totalHours = (elonData.endDate.getTime() - elonData.startDate.getTime()) / (1000 * 60 * 60);
+        const pred = predictElonTweets(elonData.count, elapsedHours, totalHours);
+        elonPrediction = {
+          predicted: pred.predicted,
+          currentCount: elonData.count,
+          confidence: pred.confidence * 100,
+        };
+      }
+    } catch {}
+
+    // Prepare context for Claude
+    const context: AnalysisContext = {
+      opportunities: nonElonOpps.slice(0, 10).map(o => ({
+        id: o.market.id,
+        question: o.market.question,
+        yesPrice: o.midpoint,
+        volume24h: o.market.volume24hr,
+        score: o.score,
+        category: o.category,
+      })),
+      elonPrediction,
+      openPositions: service.getOpenPositions().length,
+      maxPositions: MAX_POSITIONS,
+      openElonPositions: service.getOpenElonPositions(),
+      maxElonPositions: MAX_ELON_POSITIONS,
+      totalScans,
+      totalTrades,
+      totalPnl: service.getTotalPnl(),
+      tradedMarkets: service.getTradedMarkets().slice(-10),
+    };
+
+    console.log("🤖 Asking Claude for analysis...");
+    const decision = await analyzeWithAI(context, ANTHROPIC_API_KEY);
+
+    console.log(`🤖 Decision: ${decision.action} | Confidence: ${decision.confidence}%`);
+    console.log(`   Reasoning: ${decision.reasoning}`);
+
+    if (decision.shouldTrade && decision.confidence >= 70 && decision.market) {
+      const opp = nonElonOpps.find(o => o.market.id === decision.market.id);
+      if (!opp) return false;
+
+      const size = REGULAR_TRADE_SIZE / opp.midpoint;
+      const tpPrice = Math.min(0.99, Math.round((opp.midpoint * (1 + TAKE_PROFIT_PERCENT / 100)) * 100) / 100);
+
+      console.log(`🤖 🎯 BUYING "${opp.market.question?.slice(0, 40)}..." for $${REGULAR_TRADE_SIZE}`);
+
+      const result = await service.placeBuyOrder(opp.tokenId, opp.midpoint + 0.02, size, {
+        placeTPOrder: size >= 5,
+        tpPrice,
+      });
+
+      if (result.success) {
+        totalTrades++;
+        
+        service.addPosition({
+          id: `pos_${Date.now()}`,
+          marketId: opp.market.id,
+          question: opp.market.question || "",
+          slug: opp.market.slug || "",
+          side: "BUY",
+          entryPrice: opp.midpoint,
+          size,
+          amount: REGULAR_TRADE_SIZE,
+          tokenId: opp.tokenId,
+          openedAt: new Date().toISOString(),
+          status: "open",
+          category: opp.category,
+          tpOrderId: result.tpOrderId,
+          tpPrice,
+        });
+
+        console.log(`✅ Trade executed!`);
+        return true;
+      }
+    }
+
+    return false;
+  } catch (e: any) {
+    console.error("🤖 AI trade error:", e.message);
+    return false;
+  }
+}
+
+// ============================================================
+// POSITION MONITORING (TP/SL)
+// ============================================================
+
+async function checkPositionsTPSL(): Promise<void> {
+  if (!service) return;
+
+  const positions = service.getOpenPositions();
+
+  for (const pos of positions) {
+    try {
+      const currentPrice = await service.getMarketPrice(pos.marketId);
+      if (!currentPrice) continue;
+
+      const pnlPercent = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
+      const tpInfo = pos.tpOrderId 
+        ? `[TP: ${pos.tpPrice} ✅]` 
+        : `[TP: ${pos.tpPrice} (monitoring)]`;
+
+      console.log(`📊 ${pos.id}: ${pos.entryPrice.toFixed(3)}→${currentPrice.toFixed(3)} (${pnlPercent >= 0 ? "+" : ""}${pnlPercent.toFixed(1)}%) ${tpInfo}`);
+
+      // Stop Loss
+      if (pnlPercent <= -STOP_LOSS_PERCENT) {
+        console.log(`📉 SL triggered for ${pos.question?.slice(0, 30)}...`);
+        
+        // Cancel TP order if exists
+        if (pos.tpOrderId) {
+          await service.cancelOrder(pos.tpOrderId);
+        }
+
+        // Place sell order
+        await service.placeSellOrder(pos.tokenId, currentPrice - 0.01, pos.size);
+        service.closePosition(pos.id, currentPrice, `SL ${pnlPercent.toFixed(1)}%`);
+      }
+
+      // Take Profit (if no TP order placed)
+      if (!pos.tpOrderId && pos.tpPrice && currentPrice >= pos.tpPrice) {
+        console.log(`📈 TP triggered for ${pos.question?.slice(0, 30)}...`);
+        await service.placeSellOrder(pos.tokenId, currentPrice, pos.size);
+        service.closePosition(pos.id, currentPrice, `TP +${pnlPercent.toFixed(1)}%`);
+      }
+    } catch (e: any) {
+      console.error(`Error checking ${pos.id}: ${e.message}`);
+    }
+  }
+}
+
+// ============================================================
+// AUTONOMY LOOP
+// ============================================================
+
+async function executeAutonomyCycle(): Promise<void> {
+  if (!service) return;
 
   totalScans++;
   console.log(`\n🔄 === AUTONOMY CYCLE #${totalScans} ===`);
   console.log(`📅 ${new Date().toISOString()}`);
 
+  const openCount = service.getOpenPositions().length;
+  const openElonCount = service.getOpenElonPositions();
+
   try {
+    // STEP 1: Check positions for TP/SL
+    await checkPositionsTPSL();
 
-    // Check current positions
-    const openPositions = service.getOpenPositions();
-    console.log(`📊 Open positions: ${openPositions.length}/${MAX_POSITIONS}`);
+    // STEP 2: Elon Auto-Trade (with edge)
+    if (openCount < MAX_POSITIONS && openElonCount < MAX_ELON_POSITIONS) {
+      console.log(`\n🐦 === ELON AUTO-TRADE ===`);
+      await autoTradeElonMarket();
+    } else if (openElonCount >= MAX_ELON_POSITIONS) {
+      console.log(`🐦 Elon positions maxed (${openElonCount}/${MAX_ELON_POSITIONS})`);
+    }
 
-    // Check TP/SL for existing positions
-    await checkPositionsTPSL(service);
-
-    // If we have room for more positions, scan for opportunities
-    if (openPositions.length < MAX_POSITIONS) {
-      console.log("\n🔍 Scanning for opportunities...");
-      
-      const opportunities = await service.scanOpportunities(50, 0.6);
-      console.log(`📈 Found ${opportunities.length} opportunities`);
-
-      if (opportunities.length > 0) {
-        // Use ElizaOS message pipeline for AI decision
-        const decision = await makeTradeDecision(opportunities[0]);
-        
-        if (decision.shouldTrade && decision.action === "BUY") {
-          console.log(`\n🎯 AI Decision: BUY`);
-          console.log(`   Market: ${decision.market?.question?.slice(0, 50)}...`);
-          console.log(`   Confidence: ${decision.confidence}%`);
-          console.log(`   Reasoning: ${decision.reasoning}`);
-
-          // Execute trade
-          const result = await service.placeBuyOrder(
-            decision.tokenId!,
-            decision.price!,
-            decision.size!
-          );
-
-          if (result.success) {
-            totalTrades++;
-            console.log(`✅ Trade executed: ${result.orderId}`);
-            
-            // Track position
-            service.addPosition({
-              id: crypto.randomUUID(),
-              marketId: decision.market?.id || "",
-              question: decision.market?.question || "",
-              slug: decision.market?.slug || "",
-              side: "BUY",
-              entryPrice: decision.price!,
-              size: decision.size!,
-              amount: decision.price! * decision.size!,
-              tokenId: decision.tokenId!,
-              openedAt: new Date().toISOString(),
-              status: "open",
-              category: opportunities[0].category,
-            });
-          } else {
-            console.log(`❌ Trade failed: ${result.error}`);
-          }
-        } else {
-          console.log(`\n🤖 AI Decision: HOLD`);
-          console.log(`   Reasoning: ${decision.reasoning}`);
-        }
-      }
-    } else {
-      console.log("⚠️ Max positions reached, skipping scan");
+    // STEP 3: Claude AI for other markets
+    if (ANTHROPIC_API_KEY && openCount < MAX_POSITIONS) {
+      console.log(`\n🤖 === AI MARKET ANALYSIS ===`);
+      await aiTradeNonElon();
     }
 
     // Summary
-    console.log(`\n📊 Cycle Summary:`);
-    console.log(`   Scans: ${totalScans} | Trades: ${totalTrades}`);
-    console.log(`   Positions: ${service.getOpenPositions().length}/${MAX_POSITIONS}`);
+    const finalOpenCount = service.getOpenPositions().length;
+    const finalElonCount = service.getOpenElonPositions();
+    console.log(`\n📊 ${totalScans} scans | ${totalTrades} trades | ${finalOpenCount} open (${finalElonCount} elon) | $${service.getTotalPnl().toFixed(2)}`);
 
-  } catch (error: any) {
-    console.error(`❌ Cycle error: ${error.message}`);
+  } catch (e: any) {
+    console.error("Cycle error:", e.message);
   }
 }
 
-/**
- * Make a trade decision using ElizaOS AI
- */
-async function makeTradeDecision(opportunity: any): Promise<any> {
-  if (!service) {
-    return { shouldTrade: false, action: "HOLD", reasoning: "Service not initialized", confidence: 0 };
-  }
-
-  const { market, spread, midpoint, score, category, tokenId } = opportunity;
-
-  // Simple scoring logic (can be enhanced with LLM call)
-  let shouldTrade = false;
-  let confidence = 0;
-  let reasoning = "";
-
-  if (score >= 0.8 && spread <= 0.03) {
-    shouldTrade = true;
-    confidence = 85;
-    reasoning = `Excellent opportunity: ${(spread * 100).toFixed(1)}% spread, score ${score.toFixed(2)}`;
-  } else if (score >= 0.7 && spread <= 0.05) {
-    shouldTrade = true;
-    confidence = 70;
-    reasoning = `Good opportunity: ${(spread * 100).toFixed(1)}% spread, score ${score.toFixed(2)}`;
-  } else if (score >= 0.6 && spread <= 0.08) {
-    const openCount = service.getOpenPositions().length;
-    shouldTrade = openCount < 10;
-    confidence = 55;
-    reasoning = `Moderate opportunity, portfolio has room`;
-  } else {
-    shouldTrade = false;
-    confidence = 40;
-    reasoning = `Spread too wide (${(spread * 100).toFixed(1)}%) or score too low (${score.toFixed(2)})`;
-  }
-
-  // Calculate trade size
-  const tradeAmount = category === "elon" ? 20 : 2; // $20 for Elon, $2 for others
-  const size = tradeAmount / midpoint;
-
-  return {
-    shouldTrade,
-    action: shouldTrade ? "BUY" : "HOLD",
-    market,
-    tokenId,
-    price: midpoint,
-    size,
-    reasoning,
-    confidence,
-  };
-}
-
-/**
- * Check positions for TP/SL
- */
-async function checkPositionsTPSL(service: PolymarketService): Promise<void> {
-  const positions = service.getOpenPositions();
-  
-  for (const position of positions) {
-    try {
-      // Get current price (simplified - would need actual price fetch)
-      const currentPrice = position.entryPrice; // TODO: fetch actual price
-      
-      const pnlPercent = ((currentPrice - position.entryPrice) / position.entryPrice) * 100;
-      
-      if (pnlPercent >= TAKE_PROFIT_PERCENT) {
-        console.log(`📈 TP hit for ${position.question.slice(0, 30)}... (+${pnlPercent.toFixed(1)}%)`);
-        // Place sell order
-        await service.placeSellOrder(position.tokenId, currentPrice, position.size);
-        service.closePosition(position.id, currentPrice, "Take Profit");
-      } else if (pnlPercent <= -STOP_LOSS_PERCENT) {
-        console.log(`📉 SL hit for ${position.question.slice(0, 30)}... (${pnlPercent.toFixed(1)}%)`);
-        await service.placeSellOrder(position.tokenId, currentPrice, position.size);
-        service.closePosition(position.id, currentPrice, "Stop Loss");
-      }
-    } catch (error: any) {
-      console.error(`Error checking position ${position.id}: ${error.message}`);
-    }
-  }
-}
-
-/**
- * Start the autonomy loop
- */
 export async function startAutonomy(): Promise<void> {
   if (autonomyRunning) {
     console.log("⚠️ Autonomy already running");
@@ -234,6 +455,9 @@ export async function startAutonomy(): Promise<void> {
   autonomyEnabled = true;
   autonomyRunning = true;
 
+  const openCount = service!.getOpenPositions().length;
+  const elonCount = service!.getOpenElonPositions();
+
   console.log(`
 ╔════════════════════════════════════════════════════════════════════════╗
 ║                    ElizaBAO AUTONOMY v2.0.0                            ║
@@ -243,15 +467,19 @@ export async function startAutonomy(): Promise<void> {
 ║  ⏰ Interval: ${(AUTONOMY_INTERVAL_MS / 1000).toString().padEnd(4)}s                                                     ║
 ║  🎯 TP: +${TAKE_PROFIT_PERCENT}% | SL: -${STOP_LOSS_PERCENT}%                                                ║
 ║  📊 Max Positions: ${MAX_POSITIONS} | Max Elon: ${MAX_ELON_POSITIONS}                                       ║
+║  💰 Trade Size: Elon $${ELON_TRADE_SIZE} | Regular $${REGULAR_TRADE_SIZE}                                    ║
+║  🧠 Claude AI: ${ANTHROPIC_API_KEY ? "Enabled" : "Disabled"}                                                  ║
+║  📈 Edge Thresholds: ${(ELON_EDGE_CONFIG.minEdge * 100).toFixed(0)}% min | ${(ELON_EDGE_CONFIG.mediumEdge * 100).toFixed(0)}% medium | ${(ELON_EDGE_CONFIG.highEdge * 100).toFixed(0)}% high         ║
+║  💾 Loaded: ${openCount} positions | Elon: ${elonCount}/${MAX_ELON_POSITIONS}                                ║
 ╚════════════════════════════════════════════════════════════════════════╝
 `);
 
   while (autonomyEnabled) {
     await executeAutonomyCycle();
-    
+
     if (autonomyEnabled) {
       console.log(`\n⏳ Next cycle in ${AUTONOMY_INTERVAL_MS / 1000}s...`);
-      await new Promise(r => setTimeout(r, AUTONOMY_INTERVAL_MS));
+      await new Promise((r) => setTimeout(r, AUTONOMY_INTERVAL_MS));
     }
   }
 
@@ -259,17 +487,11 @@ export async function startAutonomy(): Promise<void> {
   console.log("🛑 Autonomy stopped");
 }
 
-/**
- * Stop the autonomy loop
- */
 export function stopAutonomy(): void {
   autonomyEnabled = false;
   console.log("🛑 Stopping autonomy...");
 }
 
-/**
- * Get autonomy status
- */
 export function getAutonomyStatus() {
   return {
     enabled: autonomyEnabled,
@@ -278,8 +500,13 @@ export function getAutonomyStatus() {
     totalTrades,
     intervalMs: AUTONOMY_INTERVAL_MS,
     maxPositions: MAX_POSITIONS,
+    maxElonPositions: MAX_ELON_POSITIONS,
     takeProfitPercent: TAKE_PROFIT_PERCENT,
     stopLossPercent: STOP_LOSS_PERCENT,
+    elonTradeSize: ELON_TRADE_SIZE,
+    regularTradeSize: REGULAR_TRADE_SIZE,
+    claudeEnabled: !!ANTHROPIC_API_KEY,
+    edgeConfig: ELON_EDGE_CONFIG,
   };
 }
 
@@ -288,7 +515,6 @@ if (import.meta.main) {
   console.log("Starting ElizaBAO Autonomy v2.0.0...");
   startAutonomy().catch(console.error);
 
-  // Handle shutdown
   process.on("SIGINT", () => {
     console.log("\n👋 Shutting down...");
     stopAutonomy();

@@ -1,28 +1,38 @@
 /**
  * Polymarket Service
- * Handles all Polymarket API interactions
+ * 
+ * Handles all Polymarket API interactions with full feature support:
+ * - Market scanning and opportunity detection
+ * - Order placement with postOnly fix for TP orders
+ * - Position management with TP/SL
+ * - Position persistence to JSON file
+ * 
+ * @author ElizaBAO
  */
 
 import { ethers } from "ethers";
 import { ClobClient, OrderType } from "@polymarket/clob-client";
+import * as fs from "fs";
+import * as path from "path";
 import type {
   PolymarketConfig,
   Market,
   OrderBook,
   MarketOpportunity,
   Position,
-  TradeDecision,
 } from "../types.js";
 
 const DEFAULT_GAMMA_API_URL = "https://gamma-api.polymarket.com";
 const DEFAULT_CLOB_API_URL = "https://clob.polymarket.com";
 const DEFAULT_XTRACKER_API_URL = "https://xtracker.polymarket.com/api";
+const POSITIONS_FILE = "positions.json";
 
 export class PolymarketService {
   private config: PolymarketConfig;
   private clobClient: ClobClient | null = null;
   private positions: Position[] = [];
   private tradedMarkets: Set<string> = new Set();
+  private totalPnl: number = 0;
 
   constructor(config: PolymarketConfig) {
     this.config = {
@@ -34,6 +44,9 @@ export class PolymarketService {
   }
 
   async initialize(): Promise<void> {
+    // Load positions from file
+    this.loadPositions();
+    
     if (this.config.privateKey && this.config.clobApiKey) {
       await this.initClobClient();
     }
@@ -65,12 +78,55 @@ export class PolymarketService {
     );
 
     console.log("✅ CLOB client initialized");
+    if (this.config.proxyWallet) {
+      console.log(`🏦 Proxy wallet: ${this.config.proxyWallet}`);
+    }
     return this.clobClient;
   }
 
-  /**
-   * Fetch active markets from Polymarket
-   */
+  // ============================================================
+  // POSITION PERSISTENCE
+  // ============================================================
+
+  private loadPositions(): void {
+    try {
+      if (fs.existsSync(POSITIONS_FILE)) {
+        const data = JSON.parse(fs.readFileSync(POSITIONS_FILE, "utf-8"));
+        this.positions = data.positions || [];
+        this.totalPnl = data.totalPnl || 0;
+        
+        // Rebuild traded markets set
+        for (const pos of this.positions) {
+          this.tradedMarkets.add(pos.marketId);
+        }
+        
+        const openCount = this.positions.filter(p => p.status === "open").length;
+        console.log(`📂 Loaded ${this.positions.length} positions (${openCount} open)`);
+        console.log(`📂 tradedMarkets: ${this.tradedMarkets.size} unique markets`);
+      }
+    } catch (e) {
+      console.log("📂 No existing positions file, starting fresh");
+      this.positions = [];
+    }
+  }
+
+  private savePositions(): void {
+    try {
+      const data = {
+        positions: this.positions,
+        totalPnl: this.totalPnl,
+        lastSaved: new Date().toISOString(),
+      };
+      fs.writeFileSync(POSITIONS_FILE, JSON.stringify(data, null, 2));
+    } catch (e) {
+      console.error("Failed to save positions:", e);
+    }
+  }
+
+  // ============================================================
+  // MARKET DATA
+  // ============================================================
+
   async fetchMarkets(limit = 100): Promise<Market[]> {
     const url = `${this.config.gammaApiUrl}/markets?limit=${limit}&active=true&closed=false&order=volume24hr&ascending=false`;
     const res = await fetch(url);
@@ -85,28 +141,40 @@ export class PolymarketService {
       outcomePrices: m.outcomePrices ? JSON.parse(m.outcomePrices) : [],
       volume24hr: parseFloat(m.volume24hr || "0"),
       liquidity: parseFloat(m.liquidity || "0"),
+      liquidityNum: parseFloat(m.liquidityNum || m.liquidity || "0"),
       endDate: m.endDate,
       active: m.active,
       closed: m.closed,
       tokens: m.tokens,
+      clobTokenIds: m.clobTokenIds,
+      eventSlug: m.eventSlug,
+      eventTitle: m.groupItemTitle,
     }));
   }
 
-  /**
-   * Search markets by query
-   */
   async searchMarkets(query: string, limit = 20): Promise<Market[]> {
-    const markets = await this.fetchMarkets(limit * 2);
-    return markets.filter(
-      (m) =>
-        m.question?.toLowerCase().includes(query.toLowerCase()) ||
-        m.slug?.toLowerCase().includes(query.toLowerCase())
-    );
+    try {
+      const url = `${this.config.gammaApiUrl}/markets?limit=${limit}&active=true&closed=false&_q=${encodeURIComponent(query)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      return data.map((m: any) => ({
+        id: m.id,
+        question: m.question,
+        slug: m.slug,
+        outcomePrices: m.outcomePrices ? JSON.parse(m.outcomePrices) : [],
+        volume24hr: parseFloat(m.volume24hr || "0"),
+        liquidity: parseFloat(m.liquidity || "0"),
+        liquidityNum: parseFloat(m.liquidityNum || m.liquidity || "0"),
+        tokens: m.tokens,
+        clobTokenIds: m.clobTokenIds,
+        eventSlug: m.eventSlug,
+        eventTitle: m.groupItemTitle,
+      }));
+    } catch {
+      return [];
+    }
   }
 
-  /**
-   * Get order book for a market
-   */
   async getOrderBook(tokenId: string): Promise<OrderBook | null> {
     try {
       const url = `${this.config.clobApiUrl}/book?token_id=${tokenId}`;
@@ -118,53 +186,84 @@ export class PolymarketService {
     }
   }
 
-  /**
-   * Scan markets and find trading opportunities
-   */
-  async scanOpportunities(
-    limit = 50,
-    minScore = 0.5
-  ): Promise<MarketOpportunity[]> {
+  async getMarketPrice(marketId: string): Promise<number | null> {
+    try {
+      const url = `${this.config.gammaApiUrl}/markets/${marketId}`;
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const data = await res.json();
+      return parseFloat(JSON.parse(data.outcomePrices)[0]);
+    } catch {
+      return null;
+    }
+  }
+
+  // ============================================================
+  // OPPORTUNITY SCANNING
+  // ============================================================
+
+  async scanOpportunities(limit = 50, minScore = 0.5): Promise<MarketOpportunity[]> {
     const markets = await this.fetchMarkets(limit);
+    const cryptoMarkets = await this.searchMarkets("bitcoin", 20);
+    const elonMarkets = await this.searchMarkets("elon", 20);
+    
+    const allMarkets = [...markets, ...cryptoMarkets, ...elonMarkets];
+    const seen = new Set<string>();
     const opportunities: MarketOpportunity[] = [];
 
-    for (const market of markets) {
-      if (!market.tokens?.length) continue;
+    for (const market of allMarkets) {
+      if (seen.has(market.id)) continue;
+      seen.add(market.id);
+      
       if (this.tradedMarkets.has(market.id)) continue;
+      if (!market.clobTokenIds && !market.tokens?.length) continue;
 
-      const tokenId = market.tokens[0].token_id;
-      const orderBook = await this.getOrderBook(tokenId);
-      if (!orderBook) continue;
+      let yesPrice = 0.5;
+      try {
+        yesPrice = market.outcomePrices[0] || parseFloat(JSON.parse(String(market.outcomePrices))[0]);
+      } catch {}
 
-      const bestBid = orderBook.bids[0]?.price || 0;
-      const bestAsk = orderBook.asks[0]?.price || 1;
-      const spread = bestAsk - bestBid;
-      const midpoint = (bestBid + bestAsk) / 2;
+      // Price filter
+      if (yesPrice < 0.08 || yesPrice > 0.85) continue;
+      if ((market.liquidityNum || market.liquidity || 0) < 100) continue;
 
-      // Score based on spread, midpoint, and depth
-      const spreadScore = Math.max(0, 1 - spread * 10); // 0-10% spread
-      const midpointScore = 1 - Math.abs(midpoint - 0.5) * 2; // Closer to 50% is better
-      const depthScore = Math.min(1, (orderBook.bids.length + orderBook.asks.length) / 20);
+      // Get token ID
+      let tokenId = "";
+      if (market.clobTokenIds) {
+        try {
+          const ids = typeof market.clobTokenIds === "string" 
+            ? JSON.parse(market.clobTokenIds) 
+            : market.clobTokenIds;
+          tokenId = Array.isArray(ids) ? ids[0] : ids;
+        } catch {}
+      } else if (market.tokens?.length) {
+        tokenId = market.tokens[0].token_id;
+      }
+      if (!tokenId) continue;
 
-      const score = spreadScore * 0.55 + midpointScore * 0.30 + depthScore * 0.15;
+      // Determine category
+      let category = "other";
+      const q = (market.question || "").toLowerCase();
+      if (q.includes("bitcoin") || q.includes("crypto") || q.includes("ethereum")) {
+        category = "crypto";
+      } else if (q.includes("elon") || q.includes("musk") || q.includes("tweet")) {
+        category = "elon";
+      } else if (q.includes("trump") || q.includes("biden") || q.includes("election")) {
+        category = "politics";
+      } else if (q.includes("nba") || q.includes("nfl") || q.includes("soccer")) {
+        category = "sports";
+      }
+
+      // Score calculation
+      const score = (1 - Math.abs(yesPrice - 0.5) * 2) * 0.5 + 
+                   Math.min(1, (market.volume24hr || 0) / 500000) * 0.5;
 
       if (score >= minScore) {
-        // Determine category
-        let category = "general";
-        const q = market.question.toLowerCase();
-        if (q.includes("elon") || q.includes("musk") || q.includes("tweet")) {
-          category = "elon";
-        } else if (q.includes("bitcoin") || q.includes("btc") || q.includes("crypto") || q.includes("eth")) {
-          category = "crypto";
-        } else if (q.includes("trump") || q.includes("biden") || q.includes("election") || q.includes("president")) {
-          category = "politics";
-        }
-
         opportunities.push({
           market,
-          orderBook,
-          spread,
-          midpoint,
+          orderBook: null,
+          spread: 0,
+          midpoint: yesPrice,
           score,
           category,
           tokenId,
@@ -175,29 +274,74 @@ export class PolymarketService {
     return opportunities.sort((a, b) => b.score - a.score);
   }
 
+  // ============================================================
+  // ORDER PLACEMENT (with postOnly fix)
+  // ============================================================
+
   /**
-   * Place a buy order
+   * Place a buy order with optional TP limit order
    */
   async placeBuyOrder(
     tokenId: string,
     price: number,
-    size: number
-  ): Promise<{ success: boolean; orderId?: string; error?: string }> {
+    size: number,
+    options?: {
+      placeTPOrder?: boolean;
+      tpPrice?: number;
+      postOnly?: boolean;
+    }
+  ): Promise<{ success: boolean; orderId?: string; tpOrderId?: string; error?: string }> {
     const client = await this.initClobClient();
     if (!client) {
       return { success: false, error: "CLOB client not initialized" };
     }
 
     try {
-      const order = await client.createAndPostOrder({
+      // Create and post buy order
+      const order = await client.createOrder({
         tokenID: tokenId,
         price,
-        side: "BUY",
         size,
-        orderType: OrderType.GTC,
+        side: "BUY",
       });
 
-      return { success: true, orderId: order.id };
+      // Use correct postOrder signature: (order, orderType, deferExec, postOnly)
+      const result = await client.postOrder(order, OrderType.GTC);
+
+      if (result.error || result.success === false) {
+        return { success: false, error: result.error || "Order failed" };
+      }
+
+      const orderId = result.orderID || result.id || "";
+      let tpOrderId = "";
+
+      // Place TP limit order if requested
+      if (options?.placeTPOrder && options?.tpPrice && size >= 5) {
+        console.log(`📈 Placing TP SELL limit @ ${options.tpPrice}...`);
+        
+        // Wait for shares to be credited
+        await new Promise(r => setTimeout(r, 45000));
+
+        const tpOrder = await client.createOrder({
+          tokenID: tokenId,
+          price: options.tpPrice,
+          size: Math.floor(size), // Integer shares for sell
+          side: "SELL",
+        });
+
+        // CRITICAL: postOnly is 4th parameter!
+        // postOrder(order, orderType, deferExec, postOnly)
+        const tpResult = await client.postOrder(tpOrder, OrderType.GTC, false, true);
+
+        if (!tpResult.error && tpResult.success !== false) {
+          tpOrderId = tpResult.orderID || tpResult.id || "";
+          console.log(`✅ TP order placed: ${tpOrderId}`);
+        } else {
+          console.log(`⚠️ TP order failed: ${tpResult.error}`);
+        }
+      }
+
+      return { success: true, orderId, tpOrderId };
     } catch (error: any) {
       return { success: false, error: error.message };
     }
@@ -209,7 +353,8 @@ export class PolymarketService {
   async placeSellOrder(
     tokenId: string,
     price: number,
-    size: number
+    size: number,
+    postOnly: boolean = false
   ): Promise<{ success: boolean; orderId?: string; error?: string }> {
     const client = await this.initClobClient();
     if (!client) {
@@ -217,38 +362,38 @@ export class PolymarketService {
     }
 
     try {
-      const order = await client.createAndPostOrder({
+      const order = await client.createOrder({
         tokenID: tokenId,
         price,
-        side: "SELL",
         size,
-        orderType: OrderType.GTC,
+        side: "SELL",
       });
 
-      return { success: true, orderId: order.id };
+      // postOrder(order, orderType, deferExec, postOnly)
+      const result = await client.postOrder(order, OrderType.GTC, false, postOnly);
+
+      if (result.error || result.success === false) {
+        return { success: false, error: result.error || "Order failed" };
+      }
+
+      return { success: true, orderId: result.orderID || result.id };
     } catch (error: any) {
       return { success: false, error: error.message };
     }
   }
 
-  /**
-   * Cancel an order
-   */
   async cancelOrder(orderId: string): Promise<boolean> {
     const client = await this.initClobClient();
     if (!client) return false;
 
     try {
-      await client.cancelOrder(orderId);
+      await client.cancelOrder({ orderID: orderId });
       return true;
     } catch {
       return false;
     }
   }
 
-  /**
-   * Get open orders
-   */
   async getOpenOrders(): Promise<any[]> {
     const client = await this.initClobClient();
     if (!client) return [];
@@ -260,31 +405,49 @@ export class PolymarketService {
     }
   }
 
-  /**
-   * Get positions
-   */
+  // ============================================================
+  // POSITION MANAGEMENT
+  // ============================================================
+
   getPositions(): Position[] {
     return this.positions;
   }
 
-  /**
-   * Get open positions
-   */
   getOpenPositions(): Position[] {
     return this.positions.filter((p) => p.status === "open");
   }
 
-  /**
-   * Add a position
-   */
+  getClosedPositions(): Position[] {
+    return this.positions.filter((p) => p.status === "closed");
+  }
+
+  getOpenElonPositions(): number {
+    return this.positions.filter(p => p.status === "open" && p.category === "elon").length;
+  }
+
+  getTotalPnl(): number {
+    return this.totalPnl;
+  }
+
+  getTradedMarkets(): string[] {
+    return Array.from(this.tradedMarkets);
+  }
+
   addPosition(position: Position): void {
     this.positions.push(position);
     this.tradedMarkets.add(position.marketId);
+    this.savePositions();
   }
 
-  /**
-   * Close a position
-   */
+  updatePosition(positionId: string, updates: Partial<Position>): Position | null {
+    const position = this.positions.find((p) => p.id === positionId);
+    if (!position) return null;
+
+    Object.assign(position, updates);
+    this.savePositions();
+    return position;
+  }
+
   closePosition(
     positionId: string,
     exitPrice: number,
@@ -299,13 +462,29 @@ export class PolymarketService {
     position.pnl = (exitPrice - position.entryPrice) * position.size;
     position.closeReason = reason;
 
+    this.totalPnl += position.pnl;
+    this.savePositions();
+
     return position;
   }
 
-  /**
-   * Check if a market has been traded
-   */
   hasTraded(marketId: string): boolean {
     return this.tradedMarkets.has(marketId);
+  }
+
+  // ============================================================
+  // CONFIG ACCESS
+  // ============================================================
+
+  getConfig(): PolymarketConfig {
+    return this.config;
+  }
+
+  getProxyWallet(): string | undefined {
+    return this.config.proxyWallet;
+  }
+
+  getWalletAddress(): string {
+    return this.config.walletAddress;
   }
 }

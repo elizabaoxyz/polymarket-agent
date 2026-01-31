@@ -1,10 +1,20 @@
-# elizaOS Polymarket Trading Agent (TypeScript)
+# ElizaBAO - Polymarket Trading Agent
 
-An **AI-powered trading agent** that analyzes Polymarket prediction markets and makes strategic trading decisions using elizaOS.
+An **AI-powered autonomous trading agent** for Polymarket prediction markets, built on **ElizaOS v2.0.0**.
+
+> Combining ElizaOS + Claude + Polymarket for autonomous prediction market trading.
+
+## What's New in v2.0.0
+
+- **ElizaOS v2.0.0 Integration** - Full plugin architecture with actions, providers, and evaluators
+- **Modular Plugin System** - `@elizabao/plugin-polymarket` as a standalone npm package
+- **Character-based AI** - Configurable agent personality and trading style
+- **Multi-platform Support** - Telegram, Discord, and direct API access
+- **Moltbot-style Messaging** - Chat with your agent via messaging platforms
 
 ## Features
 
-This demo showcases core elizaOS capabilities:
+This agent showcases ElizaOS v2.0.0 capabilities:
 
 - **AgentRuntime** with multiple plugins (SQL, OpenAI, EVM, Polymarket)
 - **Message Service Pipeline** for AI decision making via `handleMessage()`
@@ -23,47 +33,83 @@ This demo showcases core elizaOS capabilities:
 
 The AI agent ("Poly the Trader") receives market data as messages and responds with trading decisions, using the same pattern as the text-adventure example.
 
-## Setup
+## Quick Start
 
-Create a `.env` file (or export environment variables):
+### 1. Clone and Install
 
 ```bash
-# Required
-export OPENAI_API_KEY="sk-..."        # For AI decision making
-export EVM_PRIVATE_KEY="0x..."        # Wallet for Polymarket
-
-# Optional (defaults shown)
-export CLOB_API_URL="https://clob.polymarket.com"
-export GAMMA_API_URL="https://gamma-api.polymarket.com"
-export PGLITE_DATA_DIR="memory://"    # Use "./polymarket-db" for persistence
-
-# Required only for live trading (--execute)
-export CLOB_API_KEY="..."
-export CLOB_API_SECRET="..."
-export CLOB_API_PASSPHRASE="..."
+git clone https://github.com/yourusername/polymarket-agent.git
+cd polymarket-agent
+bun install
 ```
 
-## Usage
+### 2. Configure Environment
 
 ```bash
-cd examples/polymarket/typescript
-bun install
+cp .env.example .env
+# Edit .env with your API keys
+```
 
-# Verify configuration (offline by default)
-bun run start verify
-bun run start verify --network  # Also test API connectivity
+Required environment variables:
 
-# AI analyzes markets (dry-run, no real orders)
-bun run start once --network
+```bash
+# AI Provider
+ANTHROPIC_API_KEY=sk-ant-...         # Claude API key
 
-# AI analyzes and places real orders
-bun run start once --network --execute
+# Polymarket Wallet
+EVM_PRIVATE_KEY=0x...                # Your Polygon wallet
+WALLET_ADDRESS=0x...
 
-# Continuous trading loop (10 iterations, 30s interval)
-bun run start run --network --iterations 10 --interval-ms 30000
+# Trading (required for live orders)
+CLOB_API_KEY=...
+CLOB_API_SECRET=...
+CLOB_API_PASSPHRASE=...
+```
 
-# Live continuous trading
-bun run start run --network --execute --iterations 10
+### 3. Run the Agent
+
+```bash
+# Start the ElizaOS agent
+bun run start
+
+# Or run the API server
+bun run start:elizaos
+
+# Or use a custom character
+bun run start -- --character characters/elizabao.json
+```
+
+## Project Structure
+
+```
+polymarket-agent/
+├── packages/
+│   └── plugin-polymarket/        # ElizaOS v2.0.0 plugin
+│       ├── src/
+│       │   ├── actions/          # Trading actions
+│       │   ├── providers/        # Data providers
+│       │   ├── services/         # Polymarket service
+│       │   └── index.ts          # Plugin entry
+│       └── package.json
+├── characters/
+│   └── elizabao.json             # Agent character config
+├── src/
+│   └── agent.ts                  # Agent entry point
+├── api-server-elizaos.ts         # API server (legacy)
+└── package.json
+```
+
+## Usage (ElizaOS v2.0.0)
+
+```bash
+# Build the plugin
+bun run build:plugin
+
+# Start the agent
+bun run start
+
+# Start with API server
+bun run start:elizaos
 ```
 
 ## CLI Flags
@@ -119,18 +165,40 @@ The agent evaluates markets using:
 - **Midpoint Score** (30%): Prices near 0.5 suggest market uncertainty (good for trading)
 - **Depth Score** (15%): More orders on both sides = more reliable pricing
 
-## Architecture
+## Architecture (ElizaOS v2.0.0)
 
 ```
-polymarket-demo.ts   → Entry point, CLI parsing
-runner.ts            → TradingAgent class with elizaOS integration
-lib.ts               → Configuration and argument parsing
+src/agent.ts                         → ElizaOS agent entry point
+packages/plugin-polymarket/          → Polymarket plugin
+├── src/actions/                     → Trading actions (scan, buy, sell, analyze)
+├── src/providers/                   → Context providers (portfolio, market data)
+├── src/services/                    → Polymarket API service
+└── src/index.ts                     → Plugin registration
 
-Key elizaOS patterns:
-- AgentRuntime initialization with plugins
-- createMessageMemory() for market analysis messages
-- runtime.messageService.handleMessage() for AI decisions
-- runtime.createMemory() for persisting trading history
+characters/elizabao.json             → Agent character configuration
+
+Key ElizaOS v2.0.0 patterns:
+- Plugin-based architecture with hot-swappable modules
+- Actions with arguments for tool-like invocation
+- Providers for context injection
+- Character-based personality and behavior
+```
+
+## Plugin Development
+
+Create your own plugin:
+
+```typescript
+import type { Plugin, Action } from "@elizaos/core";
+
+export const myPlugin: Plugin = {
+  name: "my-plugin",
+  actions: [myAction],
+  providers: [myProvider],
+  init: async (runtime) => {
+    // Initialize your plugin
+  },
+};
 ```
 
 ## Advanced elizaOS Features
@@ -161,3 +229,20 @@ For continuous trading mode (`run` command), autonomy is enabled:
 ```bash
 bun test
 ```
+
+## Credits
+
+- **ElizaOS** - AI agent framework by [@ai16zdao](https://twitter.com/ai16zdao)
+- **Anthropic Claude** - AI reasoning engine
+- **Polymarket** - Prediction market platform
+- **Moltbot/OpenClaw** - Inspiration for messaging-first agents
+
+## License
+
+MIT License - see [LICENSE](LICENSE)
+
+## Links
+
+- Twitter: [@elizabaoxyz](https://twitter.com/elizabaoxyz)
+- GitHub: [elizabaoxyz/polymarket-agent](https://github.com/elizabaoxyz/polymarket-agent)
+- ElizaOS: [elizaOS/eliza](https://github.com/elizaOS/eliza)

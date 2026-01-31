@@ -1,27 +1,59 @@
 {
-  "name": "polymarket-agent-api",
+  "name": "elizabao-polymarket-agent",
   "version": "2.0.0",
-  "description": "AI-powered Polymarket trading agent API",
+  "description": "ElizaBAO - AI-powered Polymarket trading agent built on ElizaOS v2.0.0",
   "type": "module",
-  "private": false,
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "start": "bun run api-server.ts",
-    "dev": "bun run --watch api-server.ts",
+    "start": "bun run src/agent.ts",
+    "dev": "bun run --watch src/agent.ts",
+    "start:api": "bun run api-server.ts",
+    "start:elizaos": "bun run api-server-elizaos.ts",
+    "build": "bun run build:plugin",
+    "build:plugin": "cd packages/plugin-polymarket && bun run build",
+    "test": "bun test",
     "cli": "bun run polymarket-demo.ts",
-    "test": "bun test"
+    "lint": "eslint . --ext .ts",
+    "clean": "rm -rf node_modules packages/*/node_modules packages/*/dist"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.9",
+    "@elizaos/core": "2.0.0-alpha.1",
+    "@elizabao/plugin-polymarket": "workspace:*",
     "@polymarket/clob-client": "^5.2.1",
+    "@hono/node-server": "^1.19.9",
     "dotenv": "^16.6.1",
     "ethers": "5.7.2",
-    "hono": "^4.11.7"
+    "hono": "^4.11.7",
+    "uuid": "^10.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "typescript": "^5.6.0"
+    "@types/uuid": "^10.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^1.0.0"
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "keywords": [
+    "elizaos",
+    "polymarket",
+    "prediction-market",
+    "ai-agent",
+    "trading",
+    "autonomous-agent",
+    "claude",
+    "moltbot"
+  ],
+  "author": "ElizaBAO",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/elizabaoxyz/polymarket-agent"
+  },
+  "homepage": "https://elizabao.xyz"
 }

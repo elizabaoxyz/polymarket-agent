@@ -58,6 +58,31 @@ import {
   MAKER_REBATES_CONFIG,
 } from "../packages/plugin-polymarket/src/strategies/maker-rebates.js";
 
+// NEW: Smart Trading Modules
+import {
+  loadTradeAnalytics,
+  recordTradeEntry,
+  recordTradeExit,
+  getTradingInsights,
+  getTradeRecommendation,
+  detectMarketType,
+} from "../packages/plugin-polymarket/src/trade-analytics.js";
+import {
+  getNewsSignal,
+  getNewsForMarket,
+} from "../packages/plugin-polymarket/src/news-feed.js";
+import {
+  predictCryptoMarket,
+  calculateCryptoEdge,
+  shouldTradeCryptoMarket,
+  parseCryptoMarket,
+  CRYPTO_CONFIG,
+} from "../packages/plugin-polymarket/src/crypto-prediction.js";
+import {
+  getDynamicTPSL,
+  TPSL_CONFIG,
+} from "../packages/plugin-polymarket/src/dynamic-tpsl.js";
+
 // ============================================================
 // CONFIGURATION
 // ============================================================
@@ -86,6 +111,9 @@ let service: PolymarketService | null = null;
 export async function initializeService(): Promise<PolymarketService> {
   console.log("🔧 Initializing Polymarket Service (ElizaOS v2.0.0)...");
 
+  // Load trade analytics for learning
+  loadTradeAnalytics();
+
   const config: PolymarketConfig = {
     privateKey: process.env.EVM_PRIVATE_KEY || "",
     walletAddress: process.env.WALLET_ADDRESS || "",
@@ -102,6 +130,7 @@ export async function initializeService(): Promise<PolymarketService> {
   console.log("✅ Polymarket Service initialized");
   console.log(`🤖 Agent: ElizaBAO`);
   console.log(`📦 Plugin: @elizabao/plugin-polymarket`);
+  console.log(`📈 Smart: Trade Analytics, News Feed, Crypto Prediction, Dynamic TP/SL`);
 
   return service;
 }
@@ -273,6 +302,160 @@ async function autoTradeElonMarket(): Promise<boolean> {
 }
 
 // ============================================================
+// CRYPTO AUTO-TRADE (statistical prediction)
+// ============================================================
+
+async function autoTradeCryptoMarket(): Promise<boolean> {
+  if (!service) return false;
+
+  try {
+    // Search for crypto price markets
+    const cryptoSearches = ["bitcoin price", "ethereum price", "crypto"];
+    let cryptoMarkets: any[] = [];
+    
+    for (const query of cryptoSearches) {
+      const markets = await service.searchMarkets(query, 20);
+      cryptoMarkets.push(...markets.filter(m => {
+        const q = (m.question || "").toLowerCase();
+        return (q.includes("price") || q.includes("$")) && 
+               (q.includes("bitcoin") || q.includes("btc") || 
+                q.includes("ethereum") || q.includes("eth") ||
+                q.includes("solana") || q.includes("sol"));
+      }));
+    }
+
+    // Remove duplicates
+    cryptoMarkets = cryptoMarkets.filter((m, i, arr) => 
+      arr.findIndex(x => x.id === m.id) === i
+    );
+
+    console.log(`💎 Found ${cryptoMarkets.length} crypto price markets`);
+
+    if (cryptoMarkets.length === 0) {
+      console.log(`💎 No crypto markets found`);
+      return false;
+    }
+
+    for (const market of cryptoMarkets) {
+      if (service.hasTraded(market.id)) continue;
+
+      const question = market.question || "";
+      const parsed = parseCryptoMarket(question);
+      if (!parsed) continue;
+
+      // Get YES price
+      let yesPrice = 0.5;
+      try {
+        yesPrice = parseFloat(market.outcomePrices[0]) || 0.5;
+      } catch {}
+
+      // Skip if price too extreme
+      if (yesPrice < 0.1 || yesPrice > 0.9) continue;
+
+      // Calculate hours to expiry (default 48h if unknown)
+      let hoursToExpiry = 48;
+      if (market.endDate) {
+        hoursToExpiry = Math.max(1, (new Date(market.endDate).getTime() - Date.now()) / (1000 * 60 * 60));
+      }
+
+      // Get crypto edge
+      const tradeSignal = await shouldTradeCryptoMarket(question, yesPrice, hoursToExpiry);
+
+      console.log(`💎 ${parsed.symbol.toUpperCase()} → $${parsed.targetPrice.toLocaleString()}:`);
+      console.log(`   Market: ${(yesPrice * 100).toFixed(1)}% | Edge: ${(tradeSignal.edge * 100).toFixed(1)}%`);
+      console.log(`   Signal: ${tradeSignal.shouldBuy ? "BUY" : "SKIP"} | ${tradeSignal.reason.slice(0, 60)}`);
+
+      if (!tradeSignal.shouldBuy || tradeSignal.edge < CRYPTO_CONFIG.minEdge) {
+        continue;
+      }
+
+      // Get recommendation from trade analytics (learning)
+      const recommendation = getTradeRecommendation(
+        question,
+        yesPrice,
+        tradeSignal.edge,
+        REGULAR_TRADE_SIZE * 2
+      );
+
+      console.log(`📊 Learning: ${recommendation.confidence} confidence - ${recommendation.reason}`);
+
+      if (!recommendation.shouldTrade) {
+        console.log(`💎 ⚠️ SKIP: Learning says no (${recommendation.reason})`);
+        continue;
+      }
+
+      // Get token ID
+      let tokenId = "";
+      try {
+        const ids = typeof market.clobTokenIds === "string" 
+          ? JSON.parse(market.clobTokenIds) 
+          : market.clobTokenIds;
+        tokenId = Array.isArray(ids) ? (tradeSignal.side === "YES" ? ids[0] : ids[1]) : ids;
+      } catch {}
+
+      if (!tokenId) continue;
+
+      // Calculate dynamic TP/SL
+      const dynamicTPSL = getDynamicTPSL(yesPrice, question, tradeSignal.edge, hoursToExpiry);
+      const tradeSize = (REGULAR_TRADE_SIZE * 2) * recommendation.suggestedSize;
+      const size = tradeSize / yesPrice;
+
+      console.log(`💎 🎯 BUYING ${parsed.symbol.toUpperCase()} ${tradeSignal.side} for $${tradeSize.toFixed(2)}!`);
+      console.log(`   ${dynamicTPSL.reason}`);
+
+      // Execute buy with dynamic TP
+      const result = await service.placeBuyOrder(tokenId, yesPrice + 0.02, size, {
+        placeTPOrder: true,
+        tpPrice: dynamicTPSL.takeProfitPrice,
+      });
+
+      if (result.success) {
+        totalTrades++;
+        
+        const posId = `pos_${Date.now()}`;
+        
+        // Record trade for learning
+        recordTradeEntry(
+          posId,
+          market.id,
+          question,
+          yesPrice,
+          tradeSignal.side,
+          size,
+          tradeSignal.edge
+        );
+        
+        service.addPosition({
+          id: posId,
+          marketId: market.id,
+          question: question,
+          slug: market.slug || "",
+          side: "BUY",
+          entryPrice: yesPrice,
+          size,
+          amount: tradeSize,
+          tokenId,
+          openedAt: new Date().toISOString(),
+          status: "open",
+          category: "crypto",
+          tpOrderId: result.tpOrderId,
+          tpPrice: dynamicTPSL.takeProfitPrice,
+        });
+
+        console.log(`💎 ✅ BOUGHT! Edge: ${(tradeSignal.edge * 100).toFixed(1)}% | TP: ${(dynamicTPSL.takeProfitPercent * 100).toFixed(0)}%`);
+        return true;
+      }
+    }
+
+    console.log(`💎 No crypto opportunity with sufficient edge`);
+    return false;
+  } catch (e: any) {
+    console.error("💎 Crypto auto-trade error:", e.message);
+    return false;
+  }
+}
+
+// ============================================================
 // CLAUDE AI TRADING (for non-Elon markets)
 // ============================================================
 
@@ -335,34 +518,71 @@ async function aiTradeNonElon(): Promise<boolean> {
       const opp = nonElonOpps.find(o => o.market.id === decision.market.id);
       if (!opp) return false;
 
-      const size = REGULAR_TRADE_SIZE / opp.midpoint;
-      const tpPrice = Math.min(0.99, Math.round((opp.midpoint * (1 + TAKE_PROFIT_PERCENT / 100)) * 100) / 100);
+      // NEW: Get news signal for the market
+      const newsSignal = await getNewsSignal(opp.market.question || "");
+      console.log(`📰 News: ${newsSignal.direction} (${(newsSignal.strength * 100).toFixed(0)}%) - ${newsSignal.reason.slice(0, 50)}`);
 
-      console.log(`🤖 🎯 BUYING "${opp.market.question?.slice(0, 40)}..." for $${REGULAR_TRADE_SIZE}`);
+      // Check if news contradicts AI decision
+      if (newsSignal.direction === "sell" && newsSignal.strength > 0.5) {
+        console.log(`🤖 ⚠️ SKIP: News is bearish, overriding AI decision`);
+        return false;
+      }
+
+      // NEW: Get learning recommendation
+      const edge = (decision.confidence - 50) / 100; // Convert confidence to edge-like value
+      const recommendation = getTradeRecommendation(
+        opp.market.question || "",
+        opp.midpoint,
+        edge,
+        REGULAR_TRADE_SIZE
+      );
+
+      console.log(`📊 Learning: ${recommendation.confidence} confidence - ${recommendation.reason}`);
+
+      // NEW: Calculate dynamic TP/SL
+      const dynamicTPSL = getDynamicTPSL(opp.midpoint, opp.market.question || "", edge, 48);
+      const adjustedSize = REGULAR_TRADE_SIZE * recommendation.suggestedSize;
+      const size = adjustedSize / opp.midpoint;
+
+      console.log(`🤖 🎯 BUYING "${opp.market.question?.slice(0, 40)}..." for $${adjustedSize.toFixed(2)}`);
+      console.log(`   ${dynamicTPSL.reason}`);
 
       const result = await service.placeBuyOrder(opp.tokenId, opp.midpoint + 0.02, size, {
         placeTPOrder: size >= 5,
-        tpPrice,
+        tpPrice: dynamicTPSL.takeProfitPrice,
       });
 
       if (result.success) {
         totalTrades++;
         
+        const posId = `pos_${Date.now()}`;
+        
+        // Record trade for learning
+        recordTradeEntry(
+          posId,
+          opp.market.id,
+          opp.market.question || "",
+          opp.midpoint,
+          "YES",
+          size,
+          edge
+        );
+        
         service.addPosition({
-          id: `pos_${Date.now()}`,
+          id: posId,
           marketId: opp.market.id,
           question: opp.market.question || "",
           slug: opp.market.slug || "",
           side: "BUY",
           entryPrice: opp.midpoint,
           size,
-          amount: REGULAR_TRADE_SIZE,
+          amount: adjustedSize,
           tokenId: opp.tokenId,
           openedAt: new Date().toISOString(),
           status: "open",
           category: opp.category,
           tpOrderId: result.tpOrderId,
-          tpPrice,
+          tpPrice: dynamicTPSL.takeProfitPrice,
         });
 
         console.log(`✅ Trade executed!`);
@@ -413,6 +633,8 @@ async function checkPositionsTPSL(): Promise<void> {
         // Place sell order
         const sellResult = await service.placeSellOrder(pos.tokenId, currentPrice - 0.01, pos.size);
         if (sellResult.success) {
+          // Record exit for learning
+          recordTradeExit(pos.id, currentPrice, "sl");
           service.closePosition(pos.id, currentPrice, `SL ${pnlPercent.toFixed(1)}%`);
         } else {
           console.log(`⚠️ SL sell failed: ${sellResult.error}`);
@@ -428,6 +650,8 @@ async function checkPositionsTPSL(): Promise<void> {
         
         const sellResult = await service.placeSellOrder(pos.tokenId, currentPrice, pos.size);
         if (sellResult.success) {
+          // Record exit for learning
+          recordTradeExit(pos.id, currentPrice, "tp");
           service.closePosition(pos.id, currentPrice, `TP +${pnlPercent.toFixed(1)}%`);
         } else {
           console.log(`⚠️ TP sell failed: ${sellResult.error}`);
@@ -465,7 +689,13 @@ async function executeAutonomyCycle(): Promise<void> {
       console.log(`🐦 Elon positions maxed (${openElonCount}/${MAX_ELON_POSITIONS})`);
     }
 
-    // STEP 3: Claude AI for other markets
+    // STEP 3: Crypto Auto-Trade (new!)
+    if (openCount < MAX_POSITIONS) {
+      console.log(`\n💎 === CRYPTO AUTO-TRADE ===`);
+      await autoTradeCryptoMarket();
+    }
+
+    // STEP 4: Claude AI for other markets (with news)
     if (ANTHROPIC_API_KEY && openCount < MAX_POSITIONS) {
       console.log(`\n🤖 === AI MARKET ANALYSIS ===`);
       await aiTradeNonElon();
@@ -515,24 +745,32 @@ export async function startAutonomy(): Promise<void> {
   const openCount = service!.getOpenPositions().length;
   const elonCount = service!.getOpenElonPositions();
 
+  // Get trading insights for display
+  const insights = getTradingInsights();
+
   console.log(`
 ╔════════════════════════════════════════════════════════════════════════╗
-║                    ElizaBAO AUTONOMY v2.0.0 - FULL SUITE               ║
+║             ElizaBAO AUTONOMY v2.1.0 - SMART TRADING SUITE             ║
 ╠════════════════════════════════════════════════════════════════════════╣
 ║  🤖 ElizaOS Runtime: Active                                            ║
 ║  📦 Plugin: @elizabao/plugin-polymarket                                ║
 ╠════════════════════════════════════════════════════════════════════════╣
 ║  STRATEGIES:                                                           ║
 ║  🐦 Elon Tweet: Bayesian AI Prediction + Edge Calculation              ║
+║  💎 Crypto: Statistical Price Prediction (BTC, ETH, SOL)               ║
 ║  💧 Liquidity Mining: ${LIQUIDITY_CONFIG.enabled ? "ENABLED" : "DISABLED"} ($${LIQUIDITY_CONFIG.budget} budget)                             ║
 ║  📈 Holding Rewards: ${HOLDING_CONFIG.enabled ? "ENABLED" : "DISABLED"} ($${HOLDING_CONFIG.budget} budget, 4% APY)                        ║
 ║  🎲 Maker Rebates: ${MAKER_REBATES_CONFIG.enabled ? "ENABLED" : "DISABLED"} ($${MAKER_REBATES_CONFIG.budget} budget)                              ║
 ╠════════════════════════════════════════════════════════════════════════╣
+║  SMART FEATURES:                                                       ║
+║  📊 Trade Analytics: Learning from ${insights.overallWinRate > 0 ? `${(insights.overallWinRate * 100).toFixed(0)}% win rate` : "building data"}               ║
+║  📰 News Feed: Real-time sentiment analysis                            ║
+║  🎯 Dynamic TP/SL: Volatility-adjusted (${(TPSL_CONFIG.baseTakeProfit * 100).toFixed(0)}%/${(TPSL_CONFIG.baseStopLoss * 100).toFixed(0)}% base)                ║
+╠════════════════════════════════════════════════════════════════════════╣
 ║  CONFIG:                                                               ║
-║  ⏰ Interval: ${(AUTONOMY_INTERVAL_MS / 1000).toString().padEnd(4)}s | 🎯 TP: +${TAKE_PROFIT_PERCENT}% | SL: -${STOP_LOSS_PERCENT}%                           ║
-║  🌐 Proxy: ${getProxyInfo().configured ? `${getProxyInfo().host}:${getProxyInfo().port}` : "Not configured"}                                  ║
+║  ⏰ Interval: ${(AUTONOMY_INTERVAL_MS / 1000).toString().padEnd(4)}s | 🌐 Proxy: ${getProxyInfo().configured ? "Active" : "None"}                          ║
 ║  📊 Max: ${MAX_POSITIONS} positions | ${MAX_ELON_POSITIONS} Elon | Edge: ${(ELON_EDGE_CONFIG.minEdge * 100).toFixed(0)}%/${(ELON_EDGE_CONFIG.mediumEdge * 100).toFixed(0)}%/${(ELON_EDGE_CONFIG.highEdge * 100).toFixed(0)}%                  ║
-║  💰 Trade: Elon $${ELON_TRADE_SIZE} | Regular $${REGULAR_TRADE_SIZE}                                         ║
+║  💰 Trade: Elon $${ELON_TRADE_SIZE} | Regular $${REGULAR_TRADE_SIZE} | Crypto $${REGULAR_TRADE_SIZE * 2}                            ║
 ║  🧠 Claude AI: ${ANTHROPIC_API_KEY ? "Enabled" : "Disabled"}                                                  ║
 ║  💾 Loaded: ${openCount} positions | Elon: ${elonCount}/${MAX_ELON_POSITIONS}                                ║
 ╚════════════════════════════════════════════════════════════════════════╝

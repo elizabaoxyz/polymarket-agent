@@ -28,6 +28,18 @@ export * from "./xtracker.js";
 // Claude AI
 export * from "./claude-ai.js";
 
+// Trade Analytics (Learning)
+export * from "./trade-analytics.js";
+
+// News Feed
+export * from "./news-feed.js";
+
+// Crypto Prediction
+export * from "./crypto-prediction.js";
+
+// Dynamic TP/SL
+export * from "./dynamic-tpsl.js";
+
 // Strategies
 export * from "./strategies/index.js";
 
@@ -103,7 +115,8 @@ export const polymarketPlugin: Plugin = {
     polymarketServiceInstance = service;
 
     console.log("✅ Polymarket Plugin initialized");
-    console.log("📊 Features: Elon Prediction, XTracker, Claude AI, Position Persistence");
+    console.log("📊 Features: Elon Prediction, XTracker, Claude AI, Crypto Prediction");
+    console.log("📈 Smart: Trade Analytics, News Feed, Dynamic TP/SL");
   },
 };
 

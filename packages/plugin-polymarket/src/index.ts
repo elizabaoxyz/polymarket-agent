@@ -37,6 +37,15 @@ export * from "./news-feed.js";
 // News Intelligence (multi-source)
 export * from "./news-intelligence.js";
 
+// Social Media Tracker (Twitter/X)
+export * from "./social-tracker.js";
+
+// Whale Tracker (Polymarket smart money)
+export * from "./whale-tracker.js";
+
+// Event Calendar
+export * from "./event-calendar.js";
+
 // Crypto Prediction
 export * from "./crypto-prediction.js";
 
@@ -119,7 +128,8 @@ export const polymarketPlugin: Plugin = {
 
     console.log("✅ Polymarket Plugin initialized");
     console.log("📊 Features: Elon Prediction, XTracker, Claude AI, Crypto Prediction");
-    console.log("📈 Smart: Trade Analytics, News Feed, Dynamic TP/SL");
+    console.log("📈 Smart: Trade Analytics, News Intelligence, Dynamic TP/SL");
+    console.log("🔍 Tracking: Social Media, Whales, Event Calendar");
   },
 };
 

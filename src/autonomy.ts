@@ -77,6 +77,22 @@ import {
   getNewsAPIStatus,
 } from "../packages/plugin-polymarket/src/news-intelligence.js";
 import {
+  getSocialIntelligence,
+  getSocialTradingSignal,
+  INFLUENCERS,
+} from "../packages/plugin-polymarket/src/social-tracker.js";
+import {
+  getWhaleIntelligence,
+  getWhaleTradingSignal,
+  getCopyTradeRecommendation,
+} from "../packages/plugin-polymarket/src/whale-tracker.js";
+import {
+  getEventIntelligence,
+  getEventTradingSignal,
+  getEventsForMarket,
+  formatEventCalendar,
+} from "../packages/plugin-polymarket/src/event-calendar.js";
+import {
   predictCryptoMarket,
   calculateCryptoEdge,
   shouldTradeCryptoMarket,
@@ -389,7 +405,31 @@ async function autoTradeCryptoMarket(): Promise<boolean> {
         continue;
       }
 
-      // Get token ID
+      // NEW: Get whale trading signal
+      let tokenId = "";
+      try {
+        const ids = typeof market.clobTokenIds === "string" 
+          ? JSON.parse(market.clobTokenIds) 
+          : market.clobTokenIds;
+        tokenId = Array.isArray(ids) ? ids[0] : ids;
+      } catch {}
+
+      if (tokenId) {
+        const whaleSignal = await getWhaleTradingSignal(market.id, tokenId, question);
+        console.log(`🐋 Whales: ${whaleSignal.direction} (${(whaleSignal.confidence * 100).toFixed(0)}% confidence)`);
+        if (whaleSignal.reason) console.log(`   ${whaleSignal.reason}`);
+
+        // Boost or reduce size based on whale activity
+        if (whaleSignal.direction === "buy" && whaleSignal.confidence > 0.5) {
+          recommendation.suggestedSize *= 1.2; // Boost 20% if whales agree
+          console.log(`💎 Boosting size: Whales are bullish`);
+        } else if (whaleSignal.direction === "sell" && whaleSignal.confidence > 0.5) {
+          console.log(`💎 ⚠️ SKIP: Whales are bearish`);
+          continue;
+        }
+      }
+
+      // Get token ID (may have been set above)
       let tokenId = "";
       try {
         const ids = typeof market.clobTokenIds === "string" 
@@ -528,9 +568,32 @@ async function aiTradeNonElon(): Promise<boolean> {
       console.log(`📰 News: ${newsSignal.direction} (${(newsSignal.strength * 100).toFixed(0)}% strength, ${(newsSignal.confidence * 100).toFixed(0)}% confidence)`);
       console.log(`   Sources: ${newsSignal.sources.join(", ") || "none"} - ${newsSignal.reason.slice(0, 60)}`);
 
-      // Check if news contradicts AI decision with high confidence
-      if (newsSignal.direction === "sell" && newsSignal.confidence > 0.4) {
-        console.log(`🤖 ⚠️ SKIP: News is bearish with high confidence, overriding AI decision`);
+      // NEW: Get social media sentiment
+      const socialSignal = await getSocialTradingSignal(opp.market.question || "");
+      console.log(`🐦 Social: ${socialSignal.direction} (${(socialSignal.strength * 100).toFixed(0)}%) ${socialSignal.influencerAlert ? "⚠️ INFLUENCER ALERT" : ""}`);
+      if (socialSignal.reason) console.log(`   ${socialSignal.reason.slice(0, 70)}`);
+
+      // NEW: Check event calendar
+      const eventSignal = getEventTradingSignal(opp.market.question || "");
+      if (eventSignal.hasRelevantEvent) {
+        console.log(`📅 Event: ${eventSignal.eventName} in ${eventSignal.daysUntilEvent}d [${eventSignal.riskLevel} risk]`);
+        console.log(`   ${eventSignal.recommendation.slice(0, 60)}`);
+      }
+
+      // Check if signals contradict AI decision
+      const bearishSignals = [
+        newsSignal.direction === "sell" && newsSignal.confidence > 0.4,
+        socialSignal.direction === "sell" && socialSignal.confidence > 0.4,
+      ].filter(Boolean).length;
+
+      if (bearishSignals >= 2) {
+        console.log(`🤖 ⚠️ SKIP: Multiple bearish signals (news + social), overriding AI decision`);
+        return false;
+      }
+
+      // Be cautious near major events
+      if (eventSignal.hasRelevantEvent && eventSignal.riskLevel === "high" && eventSignal.marketImpact === "volatile") {
+        console.log(`🤖 ⚠️ SKIP: High-risk event imminent (${eventSignal.eventName})`);
         return false;
       }
 
@@ -770,7 +833,10 @@ export async function startAutonomy(): Promise<void> {
 ╠════════════════════════════════════════════════════════════════════════╣
 ║  SMART FEATURES:                                                       ║
 ║  📊 Trade Analytics: Learning from ${insights.overallWinRate > 0 ? `${(insights.overallWinRate * 100).toFixed(0)}% win rate` : "building data"}               ║
-║  📰 News Intelligence: ${Object.entries(getNewsAPIStatus()).filter(([k, v]) => v).map(([k]) => k).join(", ") || "RSS only"}  ║
+║  📰 News Intelligence: ${Object.entries(getNewsAPIStatus()).filter(([k, v]) => v).length} sources active                    ║
+║  🐦 Social Tracker: ${INFLUENCERS.length} influencers monitored                             ║
+║  🐋 Whale Tracker: Smart money following                               ║
+║  📅 Event Calendar: ${getEventIntelligence().thisWeekEvents.length} events this week                             ║
 ║  🎯 Dynamic TP/SL: Volatility-adjusted (${(TPSL_CONFIG.baseTakeProfit * 100).toFixed(0)}%/${(TPSL_CONFIG.baseStopLoss * 100).toFixed(0)}% base)                ║
 ╠════════════════════════════════════════════════════════════════════════╣
 ║  CONFIG:                                                               ║

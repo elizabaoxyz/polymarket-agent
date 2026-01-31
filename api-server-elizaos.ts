@@ -63,6 +63,12 @@ const HOLDING_ELIGIBLE_SLUGS = [
 const MAKER_REBATES_ENABLED = true;
 const MAKER_REBATES_BUDGET = 15;           // $15 for maker rebates (TEST MODE)
 
+// ELON EDGE THRESHOLDS (probability edge over market price)
+const ELON_EDGE_ENABLED = true;            // Enable edge filtering for Elon trades
+const ELON_MEDIUM_EDGE = 0.10;             // 10% edge = MEDIUM confidence
+const ELON_HIGH_EDGE = 0.20;               // 20% edge = HIGH confidence
+const ELON_MIN_EDGE = 0.05;                // Minimum 5% edge required to trade
+
 // Track liquidity orders and holding positions
 interface LiquidityOrder {
   marketId: string;
@@ -742,8 +748,36 @@ async function autoTradeElonMarket(): Promise<boolean> {
             continue;
           }
           
+          // ============================================================
+          // EDGE CALCULATION: Calculate probability and compare to market
+          // ============================================================
+          // Calculate standard deviation from historical data
+          const rates = ELON_HISTORICAL_DATA.historicalPeriods.map(p => p.rate);
+          const avgRate = rates.reduce((a, b) => a + b, 0) / rates.length;
+          const variance = rates.reduce((sum, r) => sum + Math.pow(r - avgRate, 2), 0) / rates.length;
+          const stdDev = Math.sqrt(variance) * totalHours;
+          
+          // Calculate probability this bucket wins
+          const bucketProbability = calculateBucketProbability(lowerRange, upperRange, prediction.predicted, stdDev);
+          const edge = bucketProbability - yesPrice;
+          
+          // Determine edge level
+          let edgeLevel = "LOW";
+          if (edge >= ELON_HIGH_EDGE) edgeLevel = "HIGH";
+          else if (edge >= ELON_MEDIUM_EDGE) edgeLevel = "MEDIUM";
+          else if (edge >= ELON_MIN_EDGE) edgeLevel = "LOW";
+          
           console.log(`🐦 Market price: ${(yesPrice*100).toFixed(1)}%`);
-          console.log(`🐦 🎯 BUYING bucket ${lowerRange}-${upperRange} for $${ELON_TRADE_SIZE}!`);
+          console.log(`🐦 Our probability: ${(bucketProbability*100).toFixed(1)}%`);
+          console.log(`🐦 Edge: ${(edge*100).toFixed(1)}% [${edgeLevel}]`);
+          
+          // Skip if edge is below minimum threshold
+          if (ELON_EDGE_ENABLED && edge < ELON_MIN_EDGE) {
+            console.log(`🐦 ⚠️ SKIP: Edge ${(edge*100).toFixed(1)}% < ${(ELON_MIN_EDGE*100).toFixed(0)}% minimum`);
+            continue;
+          }
+          
+          console.log(`🐦 🎯 BUYING bucket ${lowerRange}-${upperRange} for $${ELON_TRADE_SIZE}! [${edgeLevel} EDGE]`);
           
           let tokenIds = market.clobTokenIds;
           try { if (typeof tokenIds === 'string') tokenIds = JSON.parse(tokenIds); } catch {}
@@ -759,6 +793,7 @@ async function autoTradeElonMarket(): Promise<boolean> {
           if (pos) {
             console.log(`🐦 ✅ BOUGHT! ${eventTitle}`);
             console.log(`🐦 Prediction: ${prediction.predicted} → Bucket: ${lowerRange}-${upperRange}`);
+            console.log(`🐦 Edge: ${(edge*100).toFixed(1)}% [${edgeLevel}] | Prob: ${(bucketProbability*100).toFixed(1)}% vs Price: ${(yesPrice*100).toFixed(1)}%`);
             return true;
           }
         }
@@ -1777,6 +1812,117 @@ app.get("/api/elon-prediction", async (c) => {
         remainingHours: Math.round(totalHours - elapsedHours),
         ...prediction,
         historicalPeriodsUsed: ELON_HISTORICAL_DATA.historicalPeriods.length
+      }
+    });
+  } catch (e: any) {
+    return c.json({ success: false, error: e.message });
+  }
+});
+
+// Elon Edge Analysis - Shows all buckets with edge calculations
+app.get("/api/elon-edge", async (c) => {
+  try {
+    const allMarkets = await getAllElonTweetMarkets();
+    const bucketRegex = /(\d+)-(\d+)\s*tweets?/i;
+    const results: any[] = [];
+    
+    // Group by event
+    const eventGroups: {[key: string]: any[]} = {};
+    for (const m of allMarkets) {
+      const eventSlug = m.eventSlug || 'unknown';
+      if (!eventGroups[eventSlug]) eventGroups[eventSlug] = [];
+      eventGroups[eventSlug].push(m);
+    }
+    
+    for (const [eventSlug, markets] of Object.entries(eventGroups)) {
+      const firstMarket = markets[0];
+      const marketDates = extractDateRange(firstMarket.question || '');
+      if (!marketDates) continue;
+      
+      const months: {[key: string]: number} = {
+        'january': 0, 'february': 1, 'march': 2, 'april': 3, 'may': 4, 'june': 5,
+        'july': 6, 'august': 7, 'september': 8, 'october': 9, 'november': 10, 'december': 11
+      };
+      
+      const year = 2026;
+      const startDate = new Date(year, months[marketDates.startMonth], marketDates.startDay, 12, 0, 0);
+      const endDate = new Date(year, months[marketDates.endMonth], marketDates.endDay, 12, 0, 0);
+      if (endDate < startDate) endDate.setFullYear(year + 1);
+      
+      const now = Date.now();
+      const elapsedHours = Math.max(0, (now - startDate.getTime()) / (1000 * 60 * 60));
+      const totalHours = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60);
+      
+      let currentCount = 0;
+      if (now > startDate.getTime()) {
+        try {
+          const trackings = await getAllElonTrackings();
+          for (const t of trackings) {
+            const startDiff = Math.abs(t.startDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24);
+            const endDiff = Math.abs(t.endDate.getTime() - endDate.getTime()) / (1000 * 60 * 60 * 24);
+            if (startDiff < 3 && endDiff < 3) { currentCount = t.count; break; }
+          }
+        } catch {}
+      }
+      
+      const prediction = predictElonTweets(currentCount, elapsedHours, totalHours);
+      const rates = ELON_HISTORICAL_DATA.historicalPeriods.map(p => p.rate);
+      const avgRate = rates.reduce((a, b) => a + b, 0) / rates.length;
+      const variance = rates.reduce((sum, r) => sum + Math.pow(r - avgRate, 2), 0) / rates.length;
+      const stdDev = Math.sqrt(variance) * totalHours;
+      
+      const eventResult = {
+        event: firstMarket.eventTitle || eventSlug,
+        prediction: prediction.predicted,
+        currentCount,
+        elapsedHours: Math.round(elapsedHours),
+        totalHours: Math.round(totalHours),
+        buckets: [] as any[]
+      };
+      
+      for (const market of markets) {
+        const bucketMatch = market.question?.match(bucketRegex);
+        if (!bucketMatch) continue;
+        
+        const lowerRange = parseInt(bucketMatch[1]);
+        const upperRange = parseInt(bucketMatch[2]);
+        
+        let yesPrice = 0.5;
+        try { yesPrice = parseFloat(JSON.parse(market.outcomePrices)[0]); } catch {}
+        
+        const bucketProb = calculateBucketProbability(lowerRange, upperRange, prediction.predicted, stdDev);
+        const edge = bucketProb - yesPrice;
+        
+        let edgeLevel = "LOW";
+        if (edge >= ELON_HIGH_EDGE) edgeLevel = "HIGH";
+        else if (edge >= ELON_MEDIUM_EDGE) edgeLevel = "MEDIUM";
+        else if (edge >= ELON_MIN_EDGE) edgeLevel = "LOW";
+        else edgeLevel = "NONE";
+        
+        const alreadyTraded = tradedMarkets.has(market.id);
+        
+        eventResult.buckets.push({
+          range: `${lowerRange}-${upperRange}`,
+          marketPrice: Math.round(yesPrice * 100) + "%",
+          ourProbability: Math.round(bucketProb * 100) + "%",
+          edge: Math.round(edge * 100) + "%",
+          edgeLevel,
+          shouldTrade: edge >= ELON_MIN_EDGE && !alreadyTraded,
+          alreadyTraded,
+          marketId: market.id
+        });
+      }
+      
+      // Sort by edge descending
+      eventResult.buckets.sort((a, b) => parseFloat(b.edge) - parseFloat(a.edge));
+      results.push(eventResult);
+    }
+    
+    return c.json({
+      success: true,
+      data: {
+        edgeConfig: { minEdge: ELON_MIN_EDGE * 100, mediumEdge: ELON_MEDIUM_EDGE * 100, highEdge: ELON_HIGH_EDGE * 100 },
+        events: results
       }
     });
   } catch (e: any) {

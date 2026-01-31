@@ -10,7 +10,6 @@ An **AI-powered autonomous trading agent** for Polymarket prediction markets, bu
 - **Modular Plugin System** - `@elizabao/plugin-polymarket` as a standalone npm package
 - **Character-based AI** - Configurable agent personality and trading style
 - **Multi-platform Support** - Telegram, Discord, and direct API access
-- **Moltbot-style Messaging** - Chat with your agent via messaging platforms
 
 ## Features
 
@@ -235,7 +234,6 @@ bun test
 - **ElizaOS** - AI agent framework by [@ai16zdao](https://twitter.com/ai16zdao)
 - **Anthropic Claude** - AI reasoning engine
 - **Polymarket** - Prediction market platform
-- **Moltbot/OpenClaw** - Inspiration for messaging-first agents
 
 ## License
 

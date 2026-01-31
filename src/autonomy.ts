@@ -7,6 +7,9 @@
  * - XTracker live tweet counting
  * - TP limit orders with postOnly
  * - Position persistence
+ * - Liquidity Mining (earn rewards)
+ * - Holding Rewards (4% APY)
+ * - Maker Rebates (15-min crypto)
  * 
  * @author ElizaBAO
  */
@@ -33,6 +36,24 @@ import {
   analyzeWithAI,
   type AnalysisContext,
 } from "../packages/plugin-polymarket/src/claude-ai.js";
+
+// Strategies
+import {
+  runLiquidityMiningStrategy,
+  getLiquidityOrders,
+  LIQUIDITY_CONFIG,
+} from "../packages/plugin-polymarket/src/strategies/liquidity-mining.js";
+import {
+  runHoldingRewardsStrategy,
+  getHoldingPositions,
+  getEstimatedDailyRewards,
+  HOLDING_CONFIG,
+} from "../packages/plugin-polymarket/src/strategies/holding-rewards.js";
+import {
+  runMakerRebatesStrategy,
+  getMakerOrders,
+  MAKER_REBATES_CONFIG,
+} from "../packages/plugin-polymarket/src/strategies/maker-rebates.js";
 
 // ============================================================
 // CONFIGURATION
@@ -432,10 +453,28 @@ async function executeAutonomyCycle(): Promise<void> {
       await aiTradeNonElon();
     }
 
+    // STEP 4: Liquidity Mining (every 5 scans)
+    if (LIQUIDITY_CONFIG.enabled && totalScans % LIQUIDITY_CONFIG.runEveryNScans === 0) {
+      await runLiquidityMiningStrategy(service);
+    }
+
+    // STEP 5: Holding Rewards (every 10 scans)
+    if (HOLDING_CONFIG.enabled && totalScans % HOLDING_CONFIG.runEveryNScans === 0) {
+      await runHoldingRewardsStrategy(service);
+    }
+
+    // STEP 6: Maker Rebates (every scan for short-term markets)
+    if (MAKER_REBATES_CONFIG.enabled && totalScans % 3 === 0) {
+      await runMakerRebatesStrategy(service);
+    }
+
     // Summary
     const finalOpenCount = service.getOpenPositions().length;
     const finalElonCount = service.getOpenElonPositions();
+    const dailyRewards = getEstimatedDailyRewards();
+    
     console.log(`\n📊 ${totalScans} scans | ${totalTrades} trades | ${finalOpenCount} open (${finalElonCount} elon) | $${service.getTotalPnl().toFixed(2)}`);
+    console.log(`💧 Liquidity: ${getLiquidityOrders().length} | 📈 Holding: ${getHoldingPositions().length} (~$${dailyRewards.toFixed(3)}/day) | 🎲 Maker: ${getMakerOrders().length}`);
 
   } catch (e: any) {
     console.error("Cycle error:", e.message);
@@ -460,16 +499,22 @@ export async function startAutonomy(): Promise<void> {
 
   console.log(`
 ╔════════════════════════════════════════════════════════════════════════╗
-║                    ElizaBAO AUTONOMY v2.0.0                            ║
+║                    ElizaBAO AUTONOMY v2.0.0 - FULL SUITE               ║
 ╠════════════════════════════════════════════════════════════════════════╣
 ║  🤖 ElizaOS Runtime: Active                                            ║
 ║  📦 Plugin: @elizabao/plugin-polymarket                                ║
-║  ⏰ Interval: ${(AUTONOMY_INTERVAL_MS / 1000).toString().padEnd(4)}s                                                     ║
-║  🎯 TP: +${TAKE_PROFIT_PERCENT}% | SL: -${STOP_LOSS_PERCENT}%                                                ║
-║  📊 Max Positions: ${MAX_POSITIONS} | Max Elon: ${MAX_ELON_POSITIONS}                                       ║
-║  💰 Trade Size: Elon $${ELON_TRADE_SIZE} | Regular $${REGULAR_TRADE_SIZE}                                    ║
+╠════════════════════════════════════════════════════════════════════════╣
+║  STRATEGIES:                                                           ║
+║  🐦 Elon Tweet: Bayesian AI Prediction + Edge Calculation              ║
+║  💧 Liquidity Mining: ${LIQUIDITY_CONFIG.enabled ? "ENABLED" : "DISABLED"} ($${LIQUIDITY_CONFIG.budget} budget)                             ║
+║  📈 Holding Rewards: ${HOLDING_CONFIG.enabled ? "ENABLED" : "DISABLED"} ($${HOLDING_CONFIG.budget} budget, 4% APY)                        ║
+║  🎲 Maker Rebates: ${MAKER_REBATES_CONFIG.enabled ? "ENABLED" : "DISABLED"} ($${MAKER_REBATES_CONFIG.budget} budget)                              ║
+╠════════════════════════════════════════════════════════════════════════╣
+║  CONFIG:                                                               ║
+║  ⏰ Interval: ${(AUTONOMY_INTERVAL_MS / 1000).toString().padEnd(4)}s | 🎯 TP: +${TAKE_PROFIT_PERCENT}% | SL: -${STOP_LOSS_PERCENT}%                           ║
+║  📊 Max: ${MAX_POSITIONS} positions | ${MAX_ELON_POSITIONS} Elon | Edge: ${(ELON_EDGE_CONFIG.minEdge * 100).toFixed(0)}%/${(ELON_EDGE_CONFIG.mediumEdge * 100).toFixed(0)}%/${(ELON_EDGE_CONFIG.highEdge * 100).toFixed(0)}%                  ║
+║  💰 Trade: Elon $${ELON_TRADE_SIZE} | Regular $${REGULAR_TRADE_SIZE}                                         ║
 ║  🧠 Claude AI: ${ANTHROPIC_API_KEY ? "Enabled" : "Disabled"}                                                  ║
-║  📈 Edge Thresholds: ${(ELON_EDGE_CONFIG.minEdge * 100).toFixed(0)}% min | ${(ELON_EDGE_CONFIG.mediumEdge * 100).toFixed(0)}% medium | ${(ELON_EDGE_CONFIG.highEdge * 100).toFixed(0)}% high         ║
 ║  💾 Loaded: ${openCount} positions | Elon: ${elonCount}/${MAX_ELON_POSITIONS}                                ║
 ╚════════════════════════════════════════════════════════════════════════╝
 `);

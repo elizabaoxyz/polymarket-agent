@@ -28,6 +28,9 @@ export * from "./xtracker.js";
 // Claude AI
 export * from "./claude-ai.js";
 
+// Strategies
+export * from "./strategies/index.js";
+
 // Types
 export * from "./types.js";
 

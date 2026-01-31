@@ -6,6 +6,7 @@
 import axios from "axios";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import https from "https";
+import http from "http";
 
 // Proxy configuration from environment
 const PROXY_HOST = process.env.HTTP_PROXY_HOST || "";
@@ -57,6 +58,35 @@ export function configureHttpProxy(): boolean {
 
     // Set global HTTPS agent - this affects ALL https requests
     https.globalAgent = httpsAgent as any;
+    http.globalAgent = httpsAgent as any;
+
+    // Monkey-patch https.request to always use our agent for polymarket
+    const originalHttpsRequest = https.request;
+    https.request = function(options: any, callback?: any) {
+      const url = typeof options === 'string' ? options : 
+                  options.href || `${options.protocol || 'https:'}//${options.host || options.hostname}${options.path || ''}`;
+      
+      if (url.includes('polymarket.com') || url.includes('clob.polymarket')) {
+        if (typeof options === 'object') {
+          options.agent = httpsAgent;
+        }
+      }
+      return originalHttpsRequest.call(this, options, callback);
+    } as typeof https.request;
+
+    // Also patch https.get
+    const originalHttpsGet = https.get;
+    https.get = function(options: any, callback?: any) {
+      const url = typeof options === 'string' ? options : 
+                  options.href || `${options.protocol || 'https:'}//${options.host || options.hostname}${options.path || ''}`;
+      
+      if (url.includes('polymarket.com') || url.includes('clob.polymarket')) {
+        if (typeof options === 'object') {
+          options.agent = httpsAgent;
+        }
+      }
+      return originalHttpsGet.call(this, options, callback);
+    } as typeof https.get;
 
     // Set environment variables - many libraries check these
     process.env.HTTPS_PROXY = proxyUrl;

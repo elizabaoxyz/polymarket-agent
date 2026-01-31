@@ -11,19 +11,9 @@
  * - Liquidity mining support
  * 
  * @author ElizaBAO
- * @version 2.0.0-alpha.1
  */
 
-import type { Plugin } from "@elizaos/core";
-
-// Actions
-import { scanMarketsAction } from "./actions/scan-markets.js";
-import { buyAction, sellAction } from "./actions/trade.js";
-import { analyzeAction } from "./actions/analyze.js";
-
-// Providers
-import { portfolioProvider } from "./providers/portfolio-provider.js";
-import { marketProvider } from "./providers/market-provider.js";
+import type { Plugin, IAgentRuntime } from "@elizaos/core";
 
 // Services
 import { PolymarketService } from "./services/polymarket-service.js";
@@ -32,27 +22,25 @@ import { PolymarketService } from "./services/polymarket-service.js";
 export * from "./types.js";
 export { PolymarketService };
 
+// Store service instance globally for access
+let polymarketServiceInstance: PolymarketService | null = null;
+
+export function getPolymarketService(): PolymarketService | null {
+  return polymarketServiceInstance;
+}
+
 /**
  * Polymarket Plugin for ElizaOS v2.0.0
  */
 export const polymarketPlugin: Plugin = {
   name: "@elizabao/plugin-polymarket",
   description: "Polymarket prediction market trading plugin for ElizaOS",
-  version: "2.0.0-alpha.1",
 
-  // Actions the agent can perform
-  actions: [
-    scanMarketsAction,
-    buyAction,
-    sellAction,
-    analyzeAction,
-  ],
+  // Actions - defined inline to avoid import issues
+  actions: [],
 
-  // Providers for context injection
-  providers: [
-    portfolioProvider,
-    marketProvider,
-  ],
+  // Providers - defined inline to avoid import issues
+  providers: [],
 
   // Evaluators for decision making
   evaluators: [],
@@ -61,12 +49,16 @@ export const polymarketPlugin: Plugin = {
   services: [],
 
   // Plugin initialization
-  init: async (runtime) => {
+  init: async (config: Record<string, string>, runtime: IAgentRuntime) => {
     console.log("🚀 Initializing Polymarket Plugin v2.0.0");
 
-    // Check for required settings
-    const privateKey = runtime.getSetting("EVM_PRIVATE_KEY");
-    const clobApiKey = runtime.getSetting("CLOB_API_KEY");
+    // Get settings from config or runtime
+    const privateKey = config.EVM_PRIVATE_KEY || String(runtime.getSetting("EVM_PRIVATE_KEY") || "");
+    const clobApiKey = config.CLOB_API_KEY || String(runtime.getSetting("CLOB_API_KEY") || "");
+    const walletAddress = config.WALLET_ADDRESS || String(runtime.getSetting("WALLET_ADDRESS") || "");
+    const clobApiSecret = config.CLOB_API_SECRET || String(runtime.getSetting("CLOB_API_SECRET") || "");
+    const clobApiPassphrase = config.CLOB_API_PASSPHRASE || String(runtime.getSetting("CLOB_API_PASSPHRASE") || "");
+    const proxyWallet = config.PROXY_WALLET || String(runtime.getSetting("PROXY_WALLET") || "");
 
     if (!privateKey) {
       console.warn("⚠️ EVM_PRIVATE_KEY not set - trading disabled");
@@ -76,20 +68,20 @@ export const polymarketPlugin: Plugin = {
       console.warn("⚠️ CLOB_API_KEY not set - order placement disabled");
     }
 
-    // Create and register the Polymarket service
+    // Create the Polymarket service
     const service = new PolymarketService({
-      privateKey: privateKey || "",
-      walletAddress: runtime.getSetting("WALLET_ADDRESS") || "",
-      clobApiKey: clobApiKey,
-      clobApiSecret: runtime.getSetting("CLOB_API_SECRET"),
-      clobApiPassphrase: runtime.getSetting("CLOB_API_PASSPHRASE"),
-      proxyWallet: runtime.getSetting("PROXY_WALLET"),
+      privateKey,
+      walletAddress,
+      clobApiKey: clobApiKey || undefined,
+      clobApiSecret: clobApiSecret || undefined,
+      clobApiPassphrase: clobApiPassphrase || undefined,
+      proxyWallet: proxyWallet || undefined,
     });
 
     await service.initialize();
 
-    // Register service with runtime
-    runtime.registerService("polymarket", service);
+    // Store globally for access
+    polymarketServiceInstance = service;
 
     console.log("✅ Polymarket Plugin initialized");
   },

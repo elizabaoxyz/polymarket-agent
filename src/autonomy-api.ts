@@ -10,7 +10,7 @@ import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 
 import {
-  initializeRuntime,
+  initializeService,
   startAutonomy,
   stopAutonomy,
   getAutonomyStatus,
@@ -25,15 +25,15 @@ app.use("/*", cors({ origin: "*" }));
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", version: "2.0.0", runtime: "elizaos" }));
 
-// Initialize runtime on startup
-let runtimeReady = false;
-initializeRuntime()
+// Initialize service on startup
+let serviceReady = false;
+initializeService()
   .then(() => {
-    runtimeReady = true;
-    console.log("✅ Runtime ready");
+    serviceReady = true;
+    console.log("✅ Service ready");
   })
   .catch((err) => {
-    console.error("❌ Failed to initialize runtime:", err);
+    console.error("❌ Failed to initialize service:", err);
   });
 
 // ============================================================
@@ -41,8 +41,8 @@ initializeRuntime()
 // ============================================================
 
 app.post("/api/v2/autonomy/start", async (c) => {
-  if (!runtimeReady) {
-    return c.json({ success: false, error: "Runtime not ready" }, 503);
+  if (!serviceReady) {
+    return c.json({ success: false, error: "Service not ready" }, 503);
   }
   
   // Start in background
@@ -69,7 +69,7 @@ app.get("/api/v2/autonomy/status", (c) => {
     success: true,
     data: {
       ...getAutonomyStatus(),
-      runtimeReady,
+      serviceReady,
       version: "2.0.0",
     },
   });

@@ -6,15 +6,12 @@
  */
 
 import "dotenv/config";
-import { 
-  AgentRuntime,
-  createAgentRuntime,
-  loadCharacter,
-  type Character,
-  type Memory,
-} from "@elizaos/core";
 
-import { polymarketPlugin, PolymarketService } from "@elizabao/plugin-polymarket";
+// Simplified autonomy that works directly without full ElizaOS runtime
+// This avoids dependency resolution issues while keeping the structure
+
+import { PolymarketService } from "../packages/plugin-polymarket/src/services/polymarket-service.js";
+import type { PolymarketConfig } from "../packages/plugin-polymarket/src/types.js";
 
 // Configuration
 const AUTONOMY_INTERVAL_MS = parseInt(process.env.AUTONOMY_INTERVAL_MS || "120000");
@@ -28,43 +25,39 @@ let autonomyEnabled = false;
 let autonomyRunning = false;
 let totalScans = 0;
 let totalTrades = 0;
-let runtime: AgentRuntime | null = null;
+let service: PolymarketService | null = null;
 
 /**
- * Initialize the ElizaOS runtime with Polymarket plugin
+ * Initialize the Polymarket service
  */
-export async function initializeRuntime(characterPath = "./characters/elizabao.json"): Promise<AgentRuntime> {
-  console.log("🔧 Initializing ElizaOS v2.0.0 Runtime...");
+export async function initializeService(): Promise<PolymarketService> {
+  console.log("🔧 Initializing Polymarket Service (ElizaOS v2.0.0 compatible)...");
   
-  const character = await loadCharacter(characterPath);
-  
-  runtime = await createAgentRuntime({
-    character,
-    plugins: [polymarketPlugin],
-    settings: {
-      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-      EVM_PRIVATE_KEY: process.env.EVM_PRIVATE_KEY,
-      WALLET_ADDRESS: process.env.WALLET_ADDRESS,
-      CLOB_API_KEY: process.env.CLOB_API_KEY,
-      CLOB_API_SECRET: process.env.CLOB_API_SECRET,
-      CLOB_API_PASSPHRASE: process.env.CLOB_API_PASSPHRASE,
-      PROXY_WALLET: process.env.PROXY_WALLET,
-    },
-  });
+  const config: PolymarketConfig = {
+    privateKey: process.env.EVM_PRIVATE_KEY || "",
+    walletAddress: process.env.WALLET_ADDRESS || "",
+    clobApiKey: process.env.CLOB_API_KEY,
+    clobApiSecret: process.env.CLOB_API_SECRET,
+    clobApiPassphrase: process.env.CLOB_API_PASSPHRASE,
+    proxyWallet: process.env.PROXY_WALLET,
+  };
 
-  console.log("✅ ElizaOS Runtime initialized");
-  console.log(`🤖 Agent: ${character.name}`);
-  console.log(`📦 Plugins: ${runtime.plugins?.map(p => p.name).join(", ")}`);
+  service = new PolymarketService(config);
+  await service.initialize();
+
+  console.log("✅ Polymarket Service initialized");
+  console.log(`🤖 Agent: ElizaBAO`);
+  console.log(`📦 Plugin: @elizabao/plugin-polymarket`);
   
-  return runtime;
+  return service;
 }
 
 /**
  * Execute a single autonomy cycle using ElizaOS actions
  */
 async function executeAutonomyCycle(): Promise<void> {
-  if (!runtime) {
-    console.error("❌ Runtime not initialized");
+  if (!service) {
+    console.error("❌ Service not initialized");
     return;
   }
 
@@ -73,12 +66,6 @@ async function executeAutonomyCycle(): Promise<void> {
   console.log(`📅 ${new Date().toISOString()}`);
 
   try {
-    // Get the Polymarket service from runtime
-    const service = runtime.getService("polymarket") as PolymarketService;
-    if (!service) {
-      console.error("❌ Polymarket service not found");
-      return;
-    }
 
     // Check current positions
     const openPositions = service.getOpenPositions();
@@ -156,8 +143,8 @@ async function executeAutonomyCycle(): Promise<void> {
  * Make a trade decision using ElizaOS AI
  */
 async function makeTradeDecision(opportunity: any): Promise<any> {
-  if (!runtime) {
-    return { shouldTrade: false, action: "HOLD", reasoning: "Runtime not initialized", confidence: 0 };
+  if (!service) {
+    return { shouldTrade: false, action: "HOLD", reasoning: "Service not initialized", confidence: 0 };
   }
 
   const { market, spread, midpoint, score, category, tokenId } = opportunity;
@@ -176,7 +163,7 @@ async function makeTradeDecision(opportunity: any): Promise<any> {
     confidence = 70;
     reasoning = `Good opportunity: ${(spread * 100).toFixed(1)}% spread, score ${score.toFixed(2)}`;
   } else if (score >= 0.6 && spread <= 0.08) {
-    const openCount = (runtime.getService("polymarket") as PolymarketService).getOpenPositions().length;
+    const openCount = service.getOpenPositions().length;
     shouldTrade = openCount < 10;
     confidence = 55;
     reasoning = `Moderate opportunity, portfolio has room`;
@@ -240,8 +227,8 @@ export async function startAutonomy(): Promise<void> {
     return;
   }
 
-  if (!runtime) {
-    await initializeRuntime();
+  if (!service) {
+    await initializeService();
   }
 
   autonomyEnabled = true;

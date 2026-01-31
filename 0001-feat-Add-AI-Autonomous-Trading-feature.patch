@@ -1,0 +1,1376 @@
+From 8937b3220dc6bc6bbb9480115abc43eccbcb5df5 Mon Sep 17 00:00:00 2001
+From: Lee Sheng Bin <baoger@Lees-MacBook-Air.local>
+Date: Wed, 28 Jan 2026 10:08:49 +0700
+Subject: [PATCH] feat: Add AI Autonomous Trading feature
+
+- Add polymarket-autonomous Supabase Edge Function for AI-powered market analysis
+- Add AutonomousTrading component with full control panel
+- Add AutonomousTradingCompact widget for sidebar
+- Add /autonomous page with full dashboard
+- Integrate AI trading widget into MainTerminal sidebar
+
+Features:
+- Market scanning with opportunity scoring (spread, liquidity, midpoint)
+- AI analysis using GPT-4o-mini for trade decisions
+- Configurable risk levels (conservative, moderate, aggressive)
+- Auto-execute toggle with safety limits
+- Activity logging and real-time status
+---
+ src/App.tsx                                   |   2 +
+ .../autonomous/AutonomousTrading.tsx          | 504 ++++++++++++++++++
+ .../autonomous/AutonomousTradingCompact.tsx   | 164 ++++++
+ src/components/autonomous/index.ts            |   2 +
+ src/components/terminal/MainTerminal.tsx      |   6 +
+ src/pages/Autonomous.tsx                      |  97 ++++
+ .../functions/polymarket-autonomous/index.ts  | 500 +++++++++++++++++
+ 7 files changed, 1275 insertions(+)
+ create mode 100644 src/components/autonomous/AutonomousTrading.tsx
+ create mode 100644 src/components/autonomous/AutonomousTradingCompact.tsx
+ create mode 100644 src/components/autonomous/index.ts
+ create mode 100644 src/pages/Autonomous.tsx
+ create mode 100644 supabase/functions/polymarket-autonomous/index.ts
+
+diff --git a/src/App.tsx b/src/App.tsx
+index e1c9619..65fdfd0 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -16,6 +16,7 @@ import Settings from "./pages/Settings";
+ import Credits from "./pages/Credits";
+ import Markets from "./pages/Markets";
+ import Builder from "./pages/Builder";
++import Autonomous from "./pages/Autonomous";
+ const queryClient = new QueryClient();
+ 
+ const App = () => (
+@@ -35,6 +36,7 @@ const App = () => (
+               <Route path="/credits" element={<Credits />} />
+               <Route path="/markets" element={<Markets />} />
+               <Route path="/builder" element={<Builder />} />
++              <Route path="/autonomous" element={<Autonomous />} />
+               <Route path="/legal/transparency" element={<Transparency />} />
+               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+               <Route path="*" element={<NotFound />} />
+diff --git a/src/components/autonomous/AutonomousTrading.tsx b/src/components/autonomous/AutonomousTrading.tsx
+new file mode 100644
+index 0000000..031efc0
+--- /dev/null
++++ b/src/components/autonomous/AutonomousTrading.tsx
+@@ -0,0 +1,504 @@
++// Autonomous Trading Panel Component
++// Add this to your elizabao project: src/components/autonomous/AutonomousTrading.tsx
++
++import { useState, useEffect, useRef } from "react";
++import { supabase } from "@/integrations/supabase/client";
++import { toast } from "sonner";
++import { 
++  Bot, 
++  Play, 
++  Pause, 
++  Settings, 
++  TrendingUp, 
++  AlertTriangle,
++  CheckCircle,
++  Clock,
++  DollarSign,
++  Activity,
++  RefreshCw,
++  ChevronDown,
++  ChevronUp
++} from "lucide-react";
++import { Switch } from "@/components/ui/switch";
++import { Slider } from "@/components/ui/slider";
++import { Button } from "@/components/ui/button";
++import {
++  Select,
++  SelectContent,
++  SelectItem,
++  SelectTrigger,
++  SelectValue,
++} from "@/components/ui/select";
++import {
++  Collapsible,
++  CollapsibleContent,
++  CollapsibleTrigger,
++} from "@/components/ui/collapsible";
++
++// Types
++interface AutonomousConfig {
++  enabled: boolean;
++  maxOrderSize: number;
++  maxDailyTrades: number;
++  minSpread: number;
++  maxSpread: number;
++  riskLevel: "conservative" | "moderate" | "aggressive";
++  autoExecute: boolean;
++  scanIntervalMs: number;
++}
++
++interface MarketOpportunity {
++  id: string;
++  question: string;
++  tokenId: string;
++  outcome: string;
++  bestBid: number;
++  bestAsk: number;
++  spread: number;
++  spreadPercent: number;
++  midpoint: number;
++  volume24h: number;
++  score: number;
++}
++
++interface TradeDecision {
++  shouldTrade: boolean;
++  action: "BUY" | "SELL" | "HOLD";
++  market: MarketOpportunity | null;
++  price: number;
++  size: number;
++  reasoning: string;
++  confidence: number;
++}
++
++interface ScanResult {
++  timestamp: string;
++  marketsScanned: number;
++  opportunitiesFound: number;
++  topOpportunities: MarketOpportunity[];
++  aiDecision: TradeDecision | null;
++  executedTrade: any | null;
++}
++
++interface ActivityLog {
++  id: string;
++  timestamp: Date;
++  type: "scan" | "decision" | "trade" | "error";
++  message: string;
++  details?: any;
++}
++
++const DEFAULT_CONFIG: AutonomousConfig = {
++  enabled: false,
++  maxOrderSize: 10,
++  maxDailyTrades: 5,
++  minSpread: 0.5,
++  maxSpread: 10,
++  riskLevel: "moderate",
++  autoExecute: false,
++  scanIntervalMs: 60000, // 1 minute
++};
++
++export default function AutonomousTrading() {
++  const [config, setConfig] = useState<AutonomousConfig>(DEFAULT_CONFIG);
++  const [isRunning, setIsRunning] = useState(false);
++  const [isLoading, setIsLoading] = useState(false);
++  const [lastScan, setLastScan] = useState<ScanResult | null>(null);
++  const [activityLog, setActivityLog] = useState<ActivityLog[]>([]);
++  const [settingsOpen, setSettingsOpen] = useState(false);
++  const [tradesToday, setTradesToday] = useState(0);
++  
++  const intervalRef = useRef<NodeJS.Timeout | null>(null);
++
++  // Add activity to log
++  const addActivity = (type: ActivityLog["type"], message: string, details?: any) => {
++    const newActivity: ActivityLog = {
++      id: crypto.randomUUID(),
++      timestamp: new Date(),
++      type,
++      message,
++      details,
++    };
++    setActivityLog(prev => [newActivity, ...prev].slice(0, 50)); // Keep last 50
++  };
++
++  // Run a single scan cycle
++  const runScan = async (execute = false) => {
++    setIsLoading(true);
++    addActivity("scan", "Starting market scan...");
++
++    try {
++      const { data, error } = await supabase.functions.invoke("polymarket-autonomous", {
++        body: {
++          action: execute ? "execute" : "analyze",
++          config: {
++            ...config,
++            enabled: execute && config.autoExecute,
++          },
++        },
++      });
++
++      if (error) throw error;
++
++      if (data?.success) {
++        const result = data.data as ScanResult;
++        setLastScan(result);
++
++        addActivity("scan", `Scanned ${result.marketsScanned} markets, found ${result.opportunitiesFound} opportunities`);
++
++        if (result.aiDecision) {
++          const { aiDecision } = result;
++          if (aiDecision.shouldTrade && aiDecision.market) {
++            addActivity(
++              "decision",
++              `AI recommends ${aiDecision.action} on "${aiDecision.market.question.slice(0, 50)}..." (${aiDecision.confidence}% confidence)`,
++              aiDecision
++            );
++          } else {
++            addActivity("decision", `AI decision: HOLD - ${aiDecision.reasoning}`);
++          }
++        }
++
++        if (result.executedTrade) {
++          if (result.executedTrade.success) {
++            addActivity("trade", `Trade executed: ${result.aiDecision?.action}`, result.executedTrade);
++            setTradesToday(prev => prev + 1);
++            toast.success("Trade executed successfully!");
++          } else {
++            addActivity("error", `Trade failed: ${result.executedTrade.error}`);
++          }
++        }
++      }
++    } catch (error) {
++      const message = error instanceof Error ? error.message : "Unknown error";
++      addActivity("error", `Scan failed: ${message}`);
++      toast.error(`Scan failed: ${message}`);
++    } finally {
++      setIsLoading(false);
++    }
++  };
++
++  // Start autonomous loop
++  const startAutonomous = () => {
++    if (isRunning) return;
++    
++    setIsRunning(true);
++    addActivity("scan", "Autonomous trading started");
++    toast.success("Autonomous trading started");
++
++    // Run immediately
++    runScan(config.autoExecute);
++
++    // Set up interval
++    intervalRef.current = setInterval(() => {
++      if (tradesToday >= config.maxDailyTrades) {
++        addActivity("decision", "Daily trade limit reached, pausing...");
++        stopAutonomous();
++        return;
++      }
++      runScan(config.autoExecute);
++    }, config.scanIntervalMs);
++  };
++
++  // Stop autonomous loop
++  const stopAutonomous = () => {
++    if (intervalRef.current) {
++      clearInterval(intervalRef.current);
++      intervalRef.current = null;
++    }
++    setIsRunning(false);
++    addActivity("scan", "Autonomous trading stopped");
++    toast.info("Autonomous trading stopped");
++  };
++
++  // Toggle autonomous mode
++  const toggleAutonomous = () => {
++    if (isRunning) {
++      stopAutonomous();
++    } else {
++      startAutonomous();
++    }
++  };
++
++  // Cleanup on unmount
++  useEffect(() => {
++    return () => {
++      if (intervalRef.current) {
++        clearInterval(intervalRef.current);
++      }
++    };
++  }, []);
++
++  // Format time ago
++  const formatTimeAgo = (date: Date) => {
++    const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
++    if (seconds < 60) return `${seconds}s ago`;
++    const minutes = Math.floor(seconds / 60);
++    if (minutes < 60) return `${minutes}m ago`;
++    const hours = Math.floor(minutes / 60);
++    return `${hours}h ago`;
++  };
++
++  return (
++    <div className="bg-card border border-border rounded-lg p-4 space-y-4">
++      {/* Header */}
++      <div className="flex items-center justify-between">
++        <div className="flex items-center gap-2">
++          <Bot className="w-5 h-5 text-primary" />
++          <h3 className="font-semibold">Autonomous Trading</h3>
++          {isRunning && (
++            <span className="flex items-center gap-1 text-xs text-green-500">
++              <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
++              LIVE
++            </span>
++          )}
++        </div>
++        <div className="flex items-center gap-2">
++          <Button
++            variant="outline"
++            size="sm"
++            onClick={() => runScan(false)}
++            disabled={isLoading}
++          >
++            {isLoading ? (
++              <RefreshCw className="w-4 h-4 animate-spin" />
++            ) : (
++              <RefreshCw className="w-4 h-4" />
++            )}
++            <span className="ml-1">Scan</span>
++          </Button>
++          <Button
++            variant={isRunning ? "destructive" : "default"}
++            size="sm"
++            onClick={toggleAutonomous}
++          >
++            {isRunning ? (
++              <>
++                <Pause className="w-4 h-4 mr-1" />
++                Stop
++              </>
++            ) : (
++              <>
++                <Play className="w-4 h-4 mr-1" />
++                Start
++              </>
++            )}
++          </Button>
++        </div>
++      </div>
++
++      {/* Stats Row */}
++      <div className="grid grid-cols-4 gap-2 text-sm">
++        <div className="bg-muted/50 rounded p-2 text-center">
++          <div className="text-muted-foreground text-xs">Trades Today</div>
++          <div className="font-bold">{tradesToday}/{config.maxDailyTrades}</div>
++        </div>
++        <div className="bg-muted/50 rounded p-2 text-center">
++          <div className="text-muted-foreground text-xs">Max Size</div>
++          <div className="font-bold">${config.maxOrderSize}</div>
++        </div>
++        <div className="bg-muted/50 rounded p-2 text-center">
++          <div className="text-muted-foreground text-xs">Risk</div>
++          <div className="font-bold capitalize">{config.riskLevel}</div>
++        </div>
++        <div className="bg-muted/50 rounded p-2 text-center">
++          <div className="text-muted-foreground text-xs">Auto-Execute</div>
++          <div className="font-bold">{config.autoExecute ? "ON" : "OFF"}</div>
++        </div>
++      </div>
++
++      {/* Last AI Decision */}
++      {lastScan?.aiDecision && (
++        <div className={`rounded-lg p-3 border ${
++          lastScan.aiDecision.shouldTrade 
++            ? "bg-green-500/10 border-green-500/30" 
++            : "bg-muted/50 border-border"
++        }`}>
++          <div className="flex items-center justify-between mb-2">
++            <div className="flex items-center gap-2">
++              <Activity className="w-4 h-4" />
++              <span className="font-medium">AI Decision</span>
++            </div>
++            <span className={`text-xs px-2 py-0.5 rounded ${
++              lastScan.aiDecision.shouldTrade 
++                ? "bg-green-500/20 text-green-500" 
++                : "bg-muted text-muted-foreground"
++            }`}>
++              {lastScan.aiDecision.action}
++            </span>
++          </div>
++          {lastScan.aiDecision.market && (
++            <div className="text-sm mb-1">
++              <span className="font-medium">{lastScan.aiDecision.market.question.slice(0, 60)}...</span>
++            </div>
++          )}
++          <div className="text-xs text-muted-foreground">
++            {lastScan.aiDecision.reasoning}
++          </div>
++          {lastScan.aiDecision.shouldTrade && (
++            <div className="flex items-center gap-4 mt-2 text-xs">
++              <span>Price: {(lastScan.aiDecision.price * 100).toFixed(1)}%</span>
++              <span>Size: ${lastScan.aiDecision.size}</span>
++              <span>Confidence: {lastScan.aiDecision.confidence}%</span>
++            </div>
++          )}
++        </div>
++      )}
++
++      {/* Top Opportunities */}
++      {lastScan?.topOpportunities && lastScan.topOpportunities.length > 0 && (
++        <div className="space-y-2">
++          <div className="text-sm font-medium flex items-center gap-2">
++            <TrendingUp className="w-4 h-4" />
++            Top Opportunities
++          </div>
++          <div className="space-y-1 max-h-32 overflow-y-auto">
++            {lastScan.topOpportunities.slice(0, 3).map((opp, i) => (
++              <div key={opp.id} className="text-xs bg-muted/30 rounded p-2 flex items-center justify-between">
++                <div className="flex-1 truncate">
++                  <span className="text-muted-foreground mr-2">#{i + 1}</span>
++                  {opp.question.slice(0, 40)}...
++                </div>
++                <div className="flex items-center gap-2 text-muted-foreground">
++                  <span>{(opp.midpoint * 100).toFixed(0)}%</span>
++                  <span className="text-green-500">+{opp.spreadPercent.toFixed(1)}%</span>
++                </div>
++              </div>
++            ))}
++          </div>
++        </div>
++      )}
++
++      {/* Settings */}
++      <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
++        <CollapsibleTrigger asChild>
++          <Button variant="ghost" size="sm" className="w-full justify-between">
++            <span className="flex items-center gap-2">
++              <Settings className="w-4 h-4" />
++              Settings
++            </span>
++            {settingsOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
++          </Button>
++        </CollapsibleTrigger>
++        <CollapsibleContent className="space-y-4 pt-4">
++          {/* Auto-Execute Toggle */}
++          <div className="flex items-center justify-between">
++            <div>
++              <div className="text-sm font-medium">Auto-Execute Trades</div>
++              <div className="text-xs text-muted-foreground">Automatically place orders</div>
++            </div>
++            <Switch
++              checked={config.autoExecute}
++              onCheckedChange={(checked) => setConfig(prev => ({ ...prev, autoExecute: checked }))}
++            />
++          </div>
++
++          {config.autoExecute && (
++            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded p-2 text-xs text-yellow-500 flex items-center gap-2">
++              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
++              <span>Auto-execute is ON. The AI will place real trades automatically.</span>
++            </div>
++          )}
++
++          {/* Max Order Size */}
++          <div className="space-y-2">
++            <div className="flex justify-between text-sm">
++              <span>Max Order Size</span>
++              <span>${config.maxOrderSize}</span>
++            </div>
++            <Slider
++              value={[config.maxOrderSize]}
++              onValueChange={([value]) => setConfig(prev => ({ ...prev, maxOrderSize: value }))}
++              min={1}
++              max={100}
++              step={1}
++            />
++          </div>
++
++          {/* Max Daily Trades */}
++          <div className="space-y-2">
++            <div className="flex justify-between text-sm">
++              <span>Max Daily Trades</span>
++              <span>{config.maxDailyTrades}</span>
++            </div>
++            <Slider
++              value={[config.maxDailyTrades]}
++              onValueChange={([value]) => setConfig(prev => ({ ...prev, maxDailyTrades: value }))}
++              min={1}
++              max={20}
++              step={1}
++            />
++          </div>
++
++          {/* Risk Level */}
++          <div className="space-y-2">
++            <div className="text-sm">Risk Level</div>
++            <Select
++              value={config.riskLevel}
++              onValueChange={(value: any) => setConfig(prev => ({ ...prev, riskLevel: value }))}
++            >
++              <SelectTrigger>
++                <SelectValue />
++              </SelectTrigger>
++              <SelectContent>
++                <SelectItem value="conservative">Conservative</SelectItem>
++                <SelectItem value="moderate">Moderate</SelectItem>
++                <SelectItem value="aggressive">Aggressive</SelectItem>
++              </SelectContent>
++            </Select>
++          </div>
++
++          {/* Scan Interval */}
++          <div className="space-y-2">
++            <div className="flex justify-between text-sm">
++              <span>Scan Interval</span>
++              <span>{config.scanIntervalMs / 1000}s</span>
++            </div>
++            <Slider
++              value={[config.scanIntervalMs / 1000]}
++              onValueChange={([value]) => setConfig(prev => ({ ...prev, scanIntervalMs: value * 1000 }))}
++              min={30}
++              max={300}
++              step={30}
++            />
++          </div>
++        </CollapsibleContent>
++      </Collapsible>
++
++      {/* Activity Log */}
++      <div className="space-y-2">
++        <div className="text-sm font-medium flex items-center gap-2">
++          <Clock className="w-4 h-4" />
++          Activity Log
++        </div>
++        <div className="bg-muted/30 rounded p-2 max-h-32 overflow-y-auto space-y-1">
++          {activityLog.length === 0 ? (
++            <div className="text-xs text-muted-foreground text-center py-2">
++              No activity yet. Click "Scan" or "Start" to begin.
++            </div>
++          ) : (
++            activityLog.map((log) => (
++              <div key={log.id} className="text-xs flex items-start gap-2">
++                <span className="text-muted-foreground whitespace-nowrap">
++                  {formatTimeAgo(log.timestamp)}
++                </span>
++                <span className={`flex-shrink-0 ${
++                  log.type === "error" ? "text-red-500" :
++                  log.type === "trade" ? "text-green-500" :
++                  log.type === "decision" ? "text-blue-500" :
++                  "text-muted-foreground"
++                }`}>
++                  {log.type === "error" && "⚠️"}
++                  {log.type === "trade" && "✅"}
++                  {log.type === "decision" && "🤖"}
++                  {log.type === "scan" && "🔍"}
++                </span>
++                <span className="text-foreground">{log.message}</span>
++              </div>
++            ))
++          )}
++        </div>
++      </div>
++    </div>
++  );
++}
+diff --git a/src/components/autonomous/AutonomousTradingCompact.tsx b/src/components/autonomous/AutonomousTradingCompact.tsx
+new file mode 100644
+index 0000000..1a0c135
+--- /dev/null
++++ b/src/components/autonomous/AutonomousTradingCompact.tsx
+@@ -0,0 +1,164 @@
++// Compact Autonomous Trading Widget (for sidebar)
++// Add this to your elizabao project: src/components/autonomous/AutonomousTradingCompact.tsx
++
++import { useState } from "react";
++import { Link } from "react-router-dom";
++import { supabase } from "@/integrations/supabase/client";
++import { toast } from "sonner";
++import { 
++  Bot, 
++  Play, 
++  Pause, 
++  TrendingUp, 
++  RefreshCw,
++  Zap,
++  ExternalLink
++} from "lucide-react";
++import { Button } from "@/components/ui/button";
++import { useTranslation } from "react-i18next";
++
++interface MarketOpportunity {
++  question: string;
++  midpoint: number;
++  spreadPercent: number;
++  score: number;
++}
++
++interface TradeDecision {
++  shouldTrade: boolean;
++  action: "BUY" | "SELL" | "HOLD";
++  market: MarketOpportunity | null;
++  reasoning: string;
++  confidence: number;
++}
++
++export default function AutonomousTradingCompact() {
++  const { t } = useTranslation();
++  const [isLoading, setIsLoading] = useState(false);
++  const [decision, setDecision] = useState<TradeDecision | null>(null);
++  const [opportunities, setOpportunities] = useState<MarketOpportunity[]>([]);
++
++  const runAnalysis = async () => {
++    setIsLoading(true);
++    
++    try {
++      const { data, error } = await supabase.functions.invoke("polymarket-autonomous", {
++        body: {
++          action: "analyze",
++          config: {
++            maxOrderSize: 10,
++            riskLevel: "moderate",
++            minSpread: 0.5,
++            maxSpread: 10,
++          },
++        },
++      });
++
++      if (error) throw error;
++
++      if (data?.success) {
++        setDecision(data.data.aiDecision);
++        setOpportunities(data.data.topOpportunities?.slice(0, 3) || []);
++        
++        if (data.data.aiDecision?.shouldTrade) {
++          toast.success(`AI found opportunity: ${data.data.aiDecision.action}`);
++        } else {
++          toast.info("AI: No strong opportunities right now");
++        }
++      }
++    } catch (error) {
++      const message = error instanceof Error ? error.message : "Analysis failed";
++      toast.error(message);
++    } finally {
++      setIsLoading(false);
++    }
++  };
++
++  return (
++    <div className="bg-card/50 border border-border rounded-lg p-3 space-y-3">
++      {/* Header */}
++      <div className="flex items-center justify-between">
++        <div className="flex items-center gap-2">
++          <Bot className="w-4 h-4 text-primary" />
++          <span className="text-sm font-medium">AI Trading</span>
++        </div>
++        <Button
++          variant="ghost"
++          size="sm"
++          onClick={runAnalysis}
++          disabled={isLoading}
++          className="h-7 px-2"
++        >
++          {isLoading ? (
++            <RefreshCw className="w-3 h-3 animate-spin" />
++          ) : (
++            <Zap className="w-3 h-3" />
++          )}
++          <span className="ml-1 text-xs">Analyze</span>
++        </Button>
++      </div>
++
++      {/* AI Decision */}
++      {decision && (
++        <div className={`rounded p-2 text-xs ${
++          decision.shouldTrade 
++            ? "bg-green-500/10 border border-green-500/30" 
++            : "bg-muted/50"
++        }`}>
++          <div className="flex items-center justify-between mb-1">
++            <span className="font-medium">
++              {decision.shouldTrade ? "🎯 Opportunity Found" : "⏸️ Hold"}
++            </span>
++            {decision.shouldTrade && (
++              <span className="text-green-500 font-bold">
++                {decision.action}
++              </span>
++            )}
++          </div>
++          {decision.market && (
++            <div className="text-muted-foreground truncate">
++              {decision.market.question.slice(0, 35)}...
++            </div>
++          )}
++          <div className="text-muted-foreground mt-1">
++            {decision.reasoning.slice(0, 60)}...
++          </div>
++        </div>
++      )}
++
++      {/* Top Markets */}
++      {opportunities.length > 0 && (
++        <div className="space-y-1">
++          <div className="text-xs text-muted-foreground flex items-center gap-1">
++            <TrendingUp className="w-3 h-3" />
++            Top Markets
++          </div>
++          {opportunities.map((opp, i) => (
++            <div key={i} className="text-xs flex items-center justify-between bg-muted/30 rounded px-2 py-1">
++              <span className="truncate flex-1">{opp.question.slice(0, 25)}...</span>
++              <span className="text-green-500 ml-2">
++                {(opp.score * 100).toFixed(0)}
++              </span>
++            </div>
++          ))}
++        </div>
++      )}
++
++      {/* Empty State */}
++      {!decision && !isLoading && (
++        <div className="text-xs text-muted-foreground text-center py-2">
++          Click "Analyze" to scan markets
++        </div>
++      )}
++
++      {/* Link to Full Dashboard */}
++      <Link 
++        to="/autonomous" 
++        className="flex items-center justify-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors pt-1"
++      >
++        <span>Full Dashboard</span>
++        <ExternalLink className="w-3 h-3" />
++      </Link>
++    </div>
++  );
++}
+diff --git a/src/components/autonomous/index.ts b/src/components/autonomous/index.ts
+new file mode 100644
+index 0000000..e0702e4
+--- /dev/null
++++ b/src/components/autonomous/index.ts
+@@ -0,0 +1,2 @@
++export { default as AutonomousTrading } from './AutonomousTrading';
++export { default as AutonomousTradingCompact } from './AutonomousTradingCompact';
+diff --git a/src/components/terminal/MainTerminal.tsx b/src/components/terminal/MainTerminal.tsx
+index a05bef4..a4a1b6d 100644
+--- a/src/components/terminal/MainTerminal.tsx
++++ b/src/components/terminal/MainTerminal.tsx
+@@ -1,6 +1,7 @@
+ import PluginCard from "./PluginCard";
+ import AsciiMouseEffect from "./AsciiMouseEffect";
+ import ElizaChat from "./ElizaChat";
++import AutonomousTradingCompact from "@/components/autonomous/AutonomousTradingCompact";
+ import { useTranslation } from "react-i18next";
+ import { ChevronLeft, ChevronRight, Plug, Hammer } from "lucide-react";
+ import { useState } from "react";
+@@ -121,6 +122,11 @@ const MainTerminal = () => {
+           ))}
+         </div>
+ 
++        {/* AI Autonomous Trading Panel */}
++        <div className="p-3 border-t border-border shrink-0">
++          <AutonomousTradingCompact />
++        </div>
++
+         {/* Polymarket Builder - Standalone Entry */}
+         <div className="p-3 border-t border-border shrink-0">
+           <Link to="/builder">
+diff --git a/src/pages/Autonomous.tsx b/src/pages/Autonomous.tsx
+new file mode 100644
+index 0000000..62f0de3
+--- /dev/null
++++ b/src/pages/Autonomous.tsx
+@@ -0,0 +1,97 @@
++import { useTranslation } from 'react-i18next';
++import { Link } from 'react-router-dom';
++import { ArrowLeft, Bot } from 'lucide-react';
++import AutonomousTrading from '@/components/autonomous/AutonomousTrading';
++import { Button } from '@/components/ui/button';
++
++const Autonomous = () => {
++  const { t } = useTranslation();
++
++  return (
++    <div className="min-h-screen bg-background text-foreground">
++      {/* Header */}
++      <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
++        <div className="container mx-auto px-4 py-3 flex items-center justify-between">
++          <div className="flex items-center gap-4">
++            <Link to="/">
++              <Button variant="ghost" size="sm" className="gap-2">
++                <ArrowLeft className="w-4 h-4" />
++                {t('back')}
++              </Button>
++            </Link>
++            <div className="flex items-center gap-2">
++              <Bot className="w-5 h-5 text-primary" />
++              <span className="font-semibold">AI Autonomous Trading</span>
++            </div>
++          </div>
++        </div>
++      </header>
++
++      {/* Main Content */}
++      <main className="container mx-auto px-4 py-6 max-w-2xl">
++        <div className="space-y-6">
++          {/* Info Banner */}
++          <div className="bg-primary/10 border border-primary/30 rounded-lg p-4">
++            <h2 className="font-semibold mb-2 flex items-center gap-2">
++              <Bot className="w-5 h-5" />
++              AI-Powered Trading Agent
++            </h2>
++            <p className="text-sm text-muted-foreground">
++              This autonomous agent scans Polymarket for trading opportunities, 
++              analyzes them using AI, and can execute trades automatically based on your settings.
++            </p>
++          </div>
++
++          {/* Trading Panel */}
++          <AutonomousTrading />
++
++          {/* How It Works */}
++          <div className="bg-card border border-border rounded-lg p-4">
++            <h3 className="font-semibold mb-3">How It Works</h3>
++            <div className="space-y-3 text-sm">
++              <div className="flex items-start gap-3">
++                <span className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold">1</span>
++                <div>
++                  <p className="font-medium">Market Scanning</p>
++                  <p className="text-muted-foreground">Agent scans 100+ active Polymarket markets</p>
++                </div>
++              </div>
++              <div className="flex items-start gap-3">
++                <span className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold">2</span>
++                <div>
++                  <p className="font-medium">Opportunity Scoring</p>
++                  <p className="text-muted-foreground">Markets scored by spread, liquidity, and uncertainty</p>
++                </div>
++              </div>
++              <div className="flex items-start gap-3">
++                <span className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold">3</span>
++                <div>
++                  <p className="font-medium">AI Analysis</p>
++                  <p className="text-muted-foreground">GPT analyzes top opportunities and decides action</p>
++                </div>
++              </div>
++              <div className="flex items-start gap-3">
++                <span className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold">4</span>
++                <div>
++                  <p className="font-medium">Trade Execution</p>
++                  <p className="text-muted-foreground">If enabled, trades are placed automatically</p>
++                </div>
++              </div>
++            </div>
++          </div>
++
++          {/* Risk Warning */}
++          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
++            <h3 className="font-semibold text-yellow-500 mb-2">⚠️ Risk Warning</h3>
++            <p className="text-sm text-muted-foreground">
++              Autonomous trading involves financial risk. Only enable auto-execute with funds you can afford to lose. 
++              Start with small order sizes and monitor the agent's decisions before increasing limits.
++            </p>
++          </div>
++        </div>
++      </main>
++    </div>
++  );
++};
++
++export default Autonomous;
+diff --git a/supabase/functions/polymarket-autonomous/index.ts b/supabase/functions/polymarket-autonomous/index.ts
+new file mode 100644
+index 0000000..7358c35
+--- /dev/null
++++ b/supabase/functions/polymarket-autonomous/index.ts
+@@ -0,0 +1,500 @@
++// Polymarket Autonomous Trading Agent - Supabase Edge Function
++// Add this to your elizabao project: supabase/functions/polymarket-autonomous/index.ts
++
++import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
++
++const corsHeaders = {
++  "Access-Control-Allow-Origin": "*",
++  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
++};
++
++const CLOB_API_URL = "https://clob.polymarket.com";
++const GAMMA_API_URL = "https://gamma-api.polymarket.com";
++
++// =============================================================================
++// Types
++// =============================================================================
++
++interface MarketOpportunity {
++  id: string;
++  conditionId: string;
++  question: string;
++  tokenId: string;
++  outcome: string;
++  bestBid: number;
++  bestAsk: number;
++  spread: number;
++  spreadPercent: number;
++  midpoint: number;
++  volume24h: number;
++  score: number;
++  reasoning?: string;
++}
++
++interface AutonomousConfig {
++  enabled: boolean;
++  maxOrderSize: number;      // Max USDC per trade
++  maxDailyTrades: number;    // Max trades per day
++  minSpread: number;         // Minimum spread % to consider
++  maxSpread: number;         // Maximum spread % (avoid illiquid)
++  riskLevel: "conservative" | "moderate" | "aggressive";
++  allowedMarketTypes: string[]; // e.g., ["politics", "crypto", "sports"]
++}
++
++interface TradeDecision {
++  shouldTrade: boolean;
++  action: "BUY" | "SELL" | "HOLD";
++  market: MarketOpportunity | null;
++  price: number;
++  size: number;
++  reasoning: string;
++  confidence: number; // 0-100
++}
++
++interface ScanResult {
++  timestamp: string;
++  marketsScanned: number;
++  opportunitiesFound: number;
++  topOpportunities: MarketOpportunity[];
++  aiDecision: TradeDecision | null;
++  executedTrade: any | null;
++}
++
++// =============================================================================
++// Market Scanning & Scoring
++// =============================================================================
++
++async function fetchActiveMarkets(limit = 50): Promise<any[]> {
++  const url = new URL(`${GAMMA_API_URL}/markets`);
++  url.searchParams.set("limit", String(limit));
++  url.searchParams.set("active", "true");
++  url.searchParams.set("closed", "false");
++  url.searchParams.set("order", "volume24hr");
++  url.searchParams.set("ascending", "false");
++
++  const response = await fetch(url.toString(), {
++    headers: { "Accept": "application/json" },
++  });
++
++  if (!response.ok) {
++    throw new Error(`Failed to fetch markets: ${response.status}`);
++  }
++
++  return await response.json();
++}
++
++async function getOrderBook(tokenId: string): Promise<{
++  bestBid: number | null;
++  bestAsk: number | null;
++  bidDepth: number;
++  askDepth: number;
++}> {
++  const url = new URL(`${CLOB_API_URL}/book`);
++  url.searchParams.set("token_id", tokenId);
++
++  const response = await fetch(url.toString(), {
++    headers: { "Accept": "application/json" },
++  });
++
++  if (!response.ok) {
++    return { bestBid: null, bestAsk: null, bidDepth: 0, askDepth: 0 };
++  }
++
++  const book = await response.json();
++  const bids = book.bids || [];
++  const asks = book.asks || [];
++
++  return {
++    bestBid: bids.length > 0 ? parseFloat(bids[0].price) : null,
++    bestAsk: asks.length > 0 ? parseFloat(asks[0].price) : null,
++    bidDepth: bids.length,
++    askDepth: asks.length,
++  };
++}
++
++function scoreOpportunity(
++  spread: number,
++  spreadPercent: number,
++  midpoint: number,
++  volume24h: number,
++  bidDepth: number,
++  askDepth: number
++): number {
++  // Scoring weights (matching polymarket-agent logic)
++  const SPREAD_WEIGHT = 0.55;
++  const MIDPOINT_WEIGHT = 0.30;
++  const DEPTH_WEIGHT = 0.15;
++
++  // Spread score: tighter is better (0.01-0.10 range)
++  const spreadScore = Math.max(0, 1 - (spreadPercent / 10));
++
++  // Midpoint score: closer to 0.5 means more uncertainty (tradeable)
++  const midpointScore = 1 - Math.abs(midpoint - 0.5) * 2;
++
++  // Depth score: more orders = better liquidity
++  const minDepth = Math.min(bidDepth, askDepth);
++  const depthScore = Math.min(1, minDepth / 10);
++
++  // Volume bonus (high volume = more reliable)
++  const volumeBonus = Math.min(0.1, volume24h / 1000000);
++
++  return (
++    spreadScore * SPREAD_WEIGHT +
++    midpointScore * MIDPOINT_WEIGHT +
++    depthScore * DEPTH_WEIGHT +
++    volumeBonus
++  );
++}
++
++async function scanAndScoreMarkets(config: AutonomousConfig): Promise<MarketOpportunity[]> {
++  console.log("[scanAndScoreMarkets] Starting market scan...");
++  
++  const markets = await fetchActiveMarkets(100);
++  const opportunities: MarketOpportunity[] = [];
++
++  for (const market of markets) {
++    // Parse token IDs from market
++    let tokenIds: string[] = [];
++    try {
++      if (market.clobTokenIds) {
++        tokenIds = JSON.parse(market.clobTokenIds);
++      } else if (market.tokens) {
++        tokenIds = market.tokens.map((t: any) => t.token_id);
++      }
++    } catch {
++      continue;
++    }
++
++    if (tokenIds.length === 0) continue;
++
++    // Get order book for YES token (first token)
++    const tokenId = tokenIds[0];
++    const orderBook = await getOrderBook(tokenId);
++
++    if (!orderBook.bestBid || !orderBook.bestAsk) continue;
++
++    const spread = orderBook.bestAsk - orderBook.bestBid;
++    const midpoint = (orderBook.bestBid + orderBook.bestAsk) / 2;
++    const spreadPercent = (spread / midpoint) * 100;
++    const volume24h = market.volume24hr || 0;
++
++    // Filter by config
++    if (spreadPercent < config.minSpread || spreadPercent > config.maxSpread) {
++      continue;
++    }
++
++    const score = scoreOpportunity(
++      spread,
++      spreadPercent,
++      midpoint,
++      volume24h,
++      orderBook.bidDepth,
++      orderBook.askDepth
++    );
++
++    opportunities.push({
++      id: market.id,
++      conditionId: market.conditionId || market.condition_id || market.id,
++      question: market.question,
++      tokenId,
++      outcome: "YES",
++      bestBid: orderBook.bestBid,
++      bestAsk: orderBook.bestAsk,
++      spread,
++      spreadPercent,
++      midpoint,
++      volume24h,
++      score,
++    });
++  }
++
++  // Sort by score descending
++  opportunities.sort((a, b) => b.score - a.score);
++
++  console.log(`[scanAndScoreMarkets] Found ${opportunities.length} opportunities`);
++  return opportunities.slice(0, 10); // Top 10
++}
++
++// =============================================================================
++// AI Decision Making
++// =============================================================================
++
++async function getAIDecision(
++  opportunities: MarketOpportunity[],
++  config: AutonomousConfig
++): Promise<TradeDecision> {
++  const openaiKey = Deno.env.get("OPENAI_API_KEY");
++  
++  if (!openaiKey || opportunities.length === 0) {
++    return {
++      shouldTrade: false,
++      action: "HOLD",
++      market: null,
++      price: 0,
++      size: 0,
++      reasoning: openaiKey ? "No suitable opportunities found" : "OpenAI API key not configured",
++      confidence: 0,
++    };
++  }
++
++  const topOpportunities = opportunities.slice(0, 5);
++  
++  const prompt = `You are an AI trading agent analyzing Polymarket prediction markets.
++
++## Your Configuration
++- Risk Level: ${config.riskLevel}
++- Max Order Size: $${config.maxOrderSize}
++- Strategy: Find opportunities with good risk/reward based on market inefficiencies
++
++## Top Market Opportunities (sorted by score)
++${topOpportunities.map((o, i) => `
++${i + 1}. "${o.question}"
++   - Current Price: YES @ ${(o.midpoint * 100).toFixed(1)}%
++   - Spread: ${o.spreadPercent.toFixed(2)}% (Bid: ${o.bestBid.toFixed(3)}, Ask: ${o.bestAsk.toFixed(3)})
++   - 24h Volume: $${o.volume24h.toLocaleString()}
++   - Opportunity Score: ${(o.score * 100).toFixed(1)}/100
++   - Token ID: ${o.tokenId.slice(0, 20)}...
++`).join("\n")}
++
++## Decision Guidelines
++- CONSERVATIVE: Only trade if spread < 3% and confidence > 80%
++- MODERATE: Trade if spread < 5% and score > 0.7
++- AGGRESSIVE: Trade opportunities with score > 0.6
++
++## Your Task
++Analyze these markets and decide:
++1. Should we trade? (YES/NO)
++2. If YES, which market and why?
++3. BUY or SELL? At what price?
++4. Confidence level (0-100)?
++
++Respond in JSON format:
++{
++  "shouldTrade": boolean,
++  "action": "BUY" | "SELL" | "HOLD",
++  "marketIndex": number (0-4, which market from the list),
++  "price": number (limit price 0-1),
++  "sizePercent": number (percentage of maxOrderSize to use, 10-100),
++  "reasoning": "string explaining your decision",
++  "confidence": number (0-100)
++}`;
++
++  try {
++    const response = await fetch("https://api.openai.com/v1/chat/completions", {
++      method: "POST",
++      headers: {
++        "Authorization": `Bearer ${openaiKey}`,
++        "Content-Type": "application/json",
++      },
++      body: JSON.stringify({
++        model: "gpt-4o-mini",
++        messages: [
++          { role: "system", content: "You are a quantitative trading analyst specializing in prediction markets. Always respond with valid JSON." },
++          { role: "user", content: prompt },
++        ],
++        temperature: 0.3,
++        max_tokens: 500,
++      }),
++    });
++
++    if (!response.ok) {
++      throw new Error(`OpenAI API error: ${response.status}`);
++    }
++
++    const data = await response.json();
++    const content = data.choices?.[0]?.message?.content || "";
++    
++    // Parse JSON from response
++    const jsonMatch = content.match(/\{[\s\S]*\}/);
++    if (!jsonMatch) {
++      throw new Error("No JSON found in AI response");
++    }
++
++    const decision = JSON.parse(jsonMatch[0]);
++    
++    const selectedMarket = decision.shouldTrade && decision.marketIndex >= 0
++      ? topOpportunities[decision.marketIndex]
++      : null;
++
++    return {
++      shouldTrade: decision.shouldTrade,
++      action: decision.action || "HOLD",
++      market: selectedMarket,
++      price: decision.price || (selectedMarket?.midpoint || 0),
++      size: Math.floor((decision.sizePercent || 50) / 100 * config.maxOrderSize),
++      reasoning: decision.reasoning || "No reasoning provided",
++      confidence: decision.confidence || 0,
++    };
++  } catch (error) {
++    console.error("[getAIDecision] Error:", error);
++    return {
++      shouldTrade: false,
++      action: "HOLD",
++      market: null,
++      price: 0,
++      size: 0,
++      reasoning: `AI analysis failed: ${error instanceof Error ? error.message : "Unknown error"}`,
++      confidence: 0,
++    };
++  }
++}
++
++// =============================================================================
++// Trade Execution (calls existing polymarket-actions function)
++// =============================================================================
++
++async function executeTrade(
++  decision: TradeDecision,
++  supabaseUrl: string,
++  supabaseKey: string
++): Promise<any> {
++  if (!decision.shouldTrade || !decision.market) {
++    return null;
++  }
++
++  try {
++    // Call the existing polymarket-actions function
++    const response = await fetch(`${supabaseUrl}/functions/v1/polymarket-actions`, {
++      method: "POST",
++      headers: {
++        "Authorization": `Bearer ${supabaseKey}`,
++        "Content-Type": "application/json",
++      },
++      body: JSON.stringify({
++        action: decision.action.toLowerCase(),
++        params: {
++          tokenId: decision.market.tokenId,
++          amount: decision.size,
++          price: decision.price,
++        },
++      }),
++    });
++
++    const result = await response.json();
++    return result;
++  } catch (error) {
++    console.error("[executeTrade] Error:", error);
++    return {
++      success: false,
++      error: error instanceof Error ? error.message : "Unknown error",
++    };
++  }
++}
++
++// =============================================================================
++// Main Handler
++// =============================================================================
++
++serve(async (req) => {
++  if (req.method === "OPTIONS") {
++    return new Response(null, { headers: corsHeaders });
++  }
++
++  try {
++    const { action, config } = await req.json();
++    console.log(`[polymarket-autonomous] Action: ${action}`);
++
++    const defaultConfig: AutonomousConfig = {
++      enabled: true,
++      maxOrderSize: 10,
++      maxDailyTrades: 5,
++      minSpread: 0.5,
++      maxSpread: 10,
++      riskLevel: "moderate",
++      allowedMarketTypes: [],
++    };
++
++    const mergedConfig = { ...defaultConfig, ...config };
++
++    switch (action) {
++      case "scan": {
++        // Just scan and score markets (no trading)
++        const opportunities = await scanAndScoreMarkets(mergedConfig);
++        return new Response(
++          JSON.stringify({
++            success: true,
++            data: {
++              timestamp: new Date().toISOString(),
++              marketsScanned: 100,
++              opportunities,
++            },
++          }),
++          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
++        );
++      }
++
++      case "analyze": {
++        // Scan + AI analysis (no execution)
++        const opportunities = await scanAndScoreMarkets(mergedConfig);
++        const decision = await getAIDecision(opportunities, mergedConfig);
++        
++        return new Response(
++          JSON.stringify({
++            success: true,
++            data: {
++              timestamp: new Date().toISOString(),
++              marketsScanned: 100,
++              opportunitiesFound: opportunities.length,
++              topOpportunities: opportunities.slice(0, 5),
++              aiDecision: decision,
++            },
++          }),
++          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
++        );
++      }
++
++      case "execute": {
++        // Full autonomous cycle: scan + analyze + execute
++        const opportunities = await scanAndScoreMarkets(mergedConfig);
++        const decision = await getAIDecision(opportunities, mergedConfig);
++        
++        let executedTrade = null;
++        if (decision.shouldTrade && mergedConfig.enabled) {
++          const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
++          const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
++          executedTrade = await executeTrade(decision, supabaseUrl, supabaseKey);
++        }
++
++        const result: ScanResult = {
++          timestamp: new Date().toISOString(),
++          marketsScanned: 100,
++          opportunitiesFound: opportunities.length,
++          topOpportunities: opportunities.slice(0, 5),
++          aiDecision: decision,
++          executedTrade,
++        };
++
++        return new Response(
++          JSON.stringify({ success: true, data: result }),
++          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
++        );
++      }
++
++      case "status": {
++        // Return agent status
++        return new Response(
++          JSON.stringify({
++            success: true,
++            data: {
++              enabled: mergedConfig.enabled,
++              config: mergedConfig,
++              openaiConfigured: !!Deno.env.get("OPENAI_API_KEY"),
++              walletConfigured: !!Deno.env.get("WALLET_PRIVATE_KEY"),
++            },
++          }),
++          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
++        );
++      }
++
++      default:
++        throw new Error(`Unknown action: ${action}`);
++    }
++  } catch (error) {
++    const errorMessage = error instanceof Error ? error.message : "Unknown error";
++    console.error("[polymarket-autonomous] Error:", errorMessage);
++    return new Response(
++      JSON.stringify({ success: false, error: errorMessage }),
++      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
++    );
++  }
++});
+-- 
+2.50.1 (Apple Git-155)
+

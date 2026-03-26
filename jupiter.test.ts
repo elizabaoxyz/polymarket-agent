@@ -20,3 +20,17 @@ describe("jupiter-prediction plugin", () => {
     expect(names).toContain("CLAIM_JUPITER_WINNINGS");
   });
 });
+
+describe("jupiter-runner module", () => {
+  test("exports jupiterVerify and jupiterChat", async () => {
+    const runner = await import("./jupiter-runner");
+    expect(typeof runner.jupiterVerify).toBe("function");
+    expect(typeof runner.jupiterChat).toBe("function");
+  });
+
+  test("exports are async functions", async () => {
+    const runner = await import("./jupiter-runner");
+    expect(runner.jupiterVerify.constructor.name).toBe("AsyncFunction");
+    expect(runner.jupiterChat.constructor.name).toBe("AsyncFunction");
+  });
+});

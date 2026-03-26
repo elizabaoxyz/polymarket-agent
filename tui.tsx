@@ -100,6 +100,7 @@ type TuiSession = {
   readonly worldId: UUID;
   readonly userId: UUID;
   readonly messageService: IMessageService;
+  readonly venue?: "polymarket" | "jupiter";
 };
 
 type StreamTagState = {
@@ -776,7 +777,9 @@ function FatalErrorDisplay({ error, columns, rows }: { error: string; columns: n
   );
 }
 
-function PolymarketTuiApp({ runtime, roomId, userId, messageService }: TuiSession): ReactNode {
+function PolymarketTuiApp(props: TuiSession): ReactNode {
+  const { runtime, roomId, userId, messageService } = props;
+  const venue = props.venue ?? "polymarket";
   const { exit } = useApp();
   const { stdout } = useStdout();
   
@@ -1926,9 +1929,10 @@ Decide on your next action and execute it. You have access to all your tools and
     () => {
       const autonomyIndicator = autonomyEnabled ? "🤖 Auto" : "💤 Manual";
       const processingIndicator = isProcessing ? "..." : "Idle";
-      return `Eliza Polymarket | ${balanceText} | ${autonomyIndicator} | ${processingIndicator} | Tab: Focus | /autonomy true|false`;
+      const venueName = venue === "jupiter" ? "Jupiter Prediction" : "Eliza Polymarket";
+      return `${venueName} | ${balanceText} | ${autonomyIndicator} | ${processingIndicator} | Tab: Focus | /autonomy true|false`;
     },
-    [balanceText, isProcessing, autonomyEnabled]
+    [balanceText, isProcessing, autonomyEnabled, venue]
   );
   const headerText = truncateText(statusText, Math.max(0, columns - 2));
 
@@ -2005,6 +2009,8 @@ export async function runPolymarketTui(session: TuiSession): Promise<void> {
     }
   }
 }
+
+export const runTradingTui = runPolymarketTui;
 
 export type SettingsField = {
   readonly key: string;

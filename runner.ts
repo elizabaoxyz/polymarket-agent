@@ -32,6 +32,8 @@ import {
   type LlmProvider,
 } from "./lib";
 import { runPolymarketTui, runSettingsWizard, setFatalError, type SettingsField } from "./tui";
+import { jupiterPredictionPlugin } from "./plugins/jupiter-prediction/index";
+import { JupiterPredictionService } from "./plugins/jupiter-prediction/service";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -233,8 +235,8 @@ function buildCharacter(config: CharacterConfig): Character {
     name: "Eliza",
     username: "eliza",
     bio: [
-      "An autonomous agent that explores Polymarket opportunities.",
-      "Uses available tools to scan markets and place orders responsibly.",
+      "Eliza v2 (elizaOS 2.0) — an autonomous agent that trades on Polymarket (Polygon) and Jupiter Prediction Markets (Solana).",
+      "Uses available tools to scan markets, analyze opportunities, and place orders responsibly across both venues.",
     ],
     adjectives: ["focused", "pragmatic", "direct"],
     style: {
@@ -558,7 +560,7 @@ async function createRuntimeSession(
 
   const runtime = new AgentRuntime({
     character,
-    plugins: [sqlPlugin, polymarketPlugin, ...llmPlugins],
+    plugins: [sqlPlugin, polymarketPlugin, jupiterPredictionPlugin, ...llmPlugins],
     settings: buildRuntimeSettings(llmProvider),
     logLevel: "error",
     enableAutonomy: true,
@@ -566,9 +568,18 @@ async function createRuntimeSession(
     checkShouldRespond: false,
   });
 
-  // Enable autonomy for action execution (user can toggle with /autonomy command)
-  // Don't disable by default - actions need autonomy service to execute
-  
+  // Register Jupiter Prediction service if Solana env vars are present
+  const jupiterApiKey = process.env.JUPITER_API_KEY?.trim();
+  const solanaPrivateKey = process.env.SOLANA_PRIVATE_KEY?.trim();
+  if (jupiterApiKey && solanaPrivateKey) {
+    const jupiterService = new JupiterPredictionService({
+      apiKey: jupiterApiKey,
+      solanaPrivateKey,
+      rpcUrl: process.env.SOLANA_RPC_URL?.trim() ?? undefined,
+    });
+    runtime.registerService(jupiterService as unknown as Parameters<typeof runtime.registerService>[0]);
+  }
+
   await runtime.initialize();
 
   await runtime.ensureConnection({

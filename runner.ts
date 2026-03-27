@@ -32,6 +32,7 @@ import {
 } from "./lib";
 import { runPolymarketTui, runSettingsWizard, setFatalError, type SettingsField } from "./tui";
 import { jupiterPredictionPlugin } from "./plugins/jupiter-prediction/index";
+import { polymarketExtPlugin } from "./plugins/polymarket-ext/index";
 import { x402SolanaPlugin } from "./plugins/x402-solana/index";
 import { X402SolanaService } from "./plugins/x402-solana/service";
 import { X402_SERVICE_TYPE } from "./plugins/x402-solana/types";
@@ -486,7 +487,7 @@ async function createRuntimeSession(
 
   const runtime = new AgentRuntime({
     character,
-    plugins: [sqlPlugin, polymarketPlugin, jupiterPredictionPlugin, x402SolanaPlugin, ...llmPlugins],
+    plugins: [sqlPlugin, polymarketPlugin, polymarketExtPlugin, jupiterPredictionPlugin, x402SolanaPlugin, ...llmPlugins],
     settings: buildLlmRuntimeSettings(llmProvider),
     logLevel: "error",
     enableAutonomy: true,

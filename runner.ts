@@ -577,10 +577,14 @@ async function createRuntimeSession(
 
   await runtime.initialize();
 
-  // Replace global fetch with x402-aware version if service started
-  const x402Svc = runtime.getService<X402SolanaService>(X402_SERVICE_TYPE);
-  if (x402Svc && x402Svc.isActive()) {
-    globalThis.fetch = x402Svc.getWrappedFetch();
+  // Wait for x402 service to start, then replace global fetch
+  try {
+    const x402Svc = await runtime.getServiceLoadPromise(X402_SERVICE_TYPE) as X402SolanaService | null;
+    if (x402Svc && x402Svc.isActive()) {
+      globalThis.fetch = x402Svc.getWrappedFetch();
+    }
+  } catch {
+    // x402 service not available, continue without it
   }
 
   await runtime.ensureConnection({
@@ -643,10 +647,14 @@ async function startChat(session: RuntimeSession): Promise<void> {
     startupInfo.push("Jupiter: not configured (set JUPITER_API_KEY + SOLANA_PRIVATE_KEY)");
   }
 
-  const x402StartupSvc = runtime.getService<X402SolanaService>(X402_SERVICE_TYPE);
-  if (x402StartupSvc && x402StartupSvc.isActive()) {
-    startupInfo.push(`x402: active | cap: $${x402StartupSvc.getMaxPaymentUsd().toFixed(2)}/request`);
-  } else {
+  try {
+    const x402StartupSvc = await runtime.getServiceLoadPromise(X402_SERVICE_TYPE) as X402SolanaService | null;
+    if (x402StartupSvc && x402StartupSvc.isActive()) {
+      startupInfo.push(`x402: active | cap: $${x402StartupSvc.getMaxPaymentUsd().toFixed(2)}/request`);
+    } else {
+      startupInfo.push("x402: disabled");
+    }
+  } catch {
     startupInfo.push("x402: disabled");
   }
 

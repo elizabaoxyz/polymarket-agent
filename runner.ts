@@ -289,15 +289,11 @@ ACTION SELECTION IS MANDATORY for trading requests. Always include TWO separate 
 2. Second action: the trading action
 
 If the user wants to trade but hasn't specified YES/NO or a market, pick one yourself — you are authorized.
-</instructions>
 
-{{actionsWithDescriptions}}
-
-<output>
-Respond using XML format. IMPORTANT: Each action MUST be a SEPARATE element. Never combine action names.
+RESPONSE FORMAT: Use XML. Each action MUST be a SEPARATE element. Never combine action names.
 
 Example for placing a bet:
-<response>
+<example_response>
     <thought>User wants to place a bet. I will acknowledge and execute.</thought>
     <actions>
         <action><name>REPLY</name></action>
@@ -305,10 +301,10 @@ Example for placing a bet:
     </actions>
     <providers></providers>
     <text>Placing $5 YES on Bitcoin market.</text>
-</response>
+</example_response>
 
 Example for checking positions:
-<response>
+<example_response>
     <thought>User wants to see positions.</thought>
     <actions>
         <action><name>REPLY</name></action>
@@ -316,8 +312,10 @@ Example for checking positions:
     </actions>
     <providers></providers>
     <text>Fetching your positions.</text>
-</response>
-</output>
+</example_response>
+</instructions>
+
+{{actionsWithDescriptions}}
 
 {{messageExamples}}
 {{recentMessages}}`,

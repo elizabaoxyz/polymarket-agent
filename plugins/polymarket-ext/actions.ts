@@ -40,7 +40,7 @@ export const cancelPolymarketOrder: Action = {
       { name: "assistant", content: { text: "Cancelling order abc-123-def.", action: "POLYMARKET_CANCEL_ORDER" } },
     ],
   ] as ActionExample[][],
-  validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
+  validate: async () => true,
   handler: async (runtime, message, _state, _options, callback) => {
     const svc = getService(runtime);
     if (!requireClob(svc, callback)) return false;
@@ -77,7 +77,7 @@ export const cancelAllPolymarketOrders: Action = {
       { name: "assistant", content: { text: "Cancelling all open orders.", action: "POLYMARKET_CANCEL_ALL" } },
     ],
   ] as ActionExample[][],
-  validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
+  validate: async () => true,
   handler: async (runtime, message, _state, _options, callback) => {
     const svc = getService(runtime);
     if (!requireClob(svc, callback)) return false;
@@ -111,7 +111,7 @@ export const getPolymarketOpenOrders: Action = {
       { name: "assistant", content: { text: "Fetching open orders.", action: "POLYMARKET_GET_ORDERS" } },
     ],
   ] as ActionExample[][],
-  validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
+  validate: async () => true,
   handler: async (runtime, message, _state, _options, callback) => {
     const svc = getService(runtime);
     if (!requireClob(svc, callback)) return false;
@@ -145,7 +145,7 @@ export const sellPolymarketPosition: Action = {
       { name: "assistant", content: { text: "Selling 50 shares.", action: "POLYMARKET_SELL" } },
     ],
   ] as ActionExample[][],
-  validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
+  validate: async () => true,
   handler: async (runtime, message, _state, _options, callback) => {
     const svc = getService(runtime);
     if (!requireClob(svc, callback)) return false;
@@ -213,7 +213,7 @@ export const getPolymarketPositions: Action = {
       { name: "assistant", content: { text: "Fetching positions.", action: "POLYMARKET_GET_POSITIONS" } },
     ],
   ] as ActionExample[][],
-  validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
+  validate: async () => true,
   handler: async (runtime, _message, _state, _options, callback) => {
     const svc = getService(runtime);
     if (!svc.walletAddress) {
@@ -255,7 +255,7 @@ export const getPolymarketTrades: Action = {
       { name: "assistant", content: { text: "Fetching trade history.", action: "POLYMARKET_GET_TRADES" } },
     ],
   ] as ActionExample[][],
-  validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
+  validate: async () => true,
   handler: async (runtime, message, _state, _options, callback) => {
     const svc = getService(runtime);
     if (!svc.walletAddress) {
@@ -298,7 +298,7 @@ export const getPolymarketPnl: Action = {
       { name: "assistant", content: { text: "Fetching PnL summary.", action: "POLYMARKET_GET_PNL" } },
     ],
   ] as ActionExample[][],
-  validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
+  validate: async () => true,
   handler: async (runtime, _message, _state, _options, callback) => {
     const svc = getService(runtime);
     if (!svc.walletAddress) {
@@ -361,7 +361,7 @@ export const placePolymarketOrder: Action = {
       { name: "assistant", content: { text: "Finding best market and placing $2 YES.", action: "POLYMARKET_PLACE_ORDER" } },
     ],
   ] as ActionExample[][],
-  validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
+  validate: async () => true,
   handler: async (runtime, message, _state, _options, callback) => {
     const svc = getService(runtime);
     if (!requireClob(svc, callback)) return false;

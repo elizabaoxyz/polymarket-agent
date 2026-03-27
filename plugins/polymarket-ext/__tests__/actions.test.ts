@@ -28,7 +28,7 @@ function collectCallback(): { calls: string[]; fn: (response: { text: string }) 
 
 // --- P0: Cancel Order ---
 
-describe("CANCEL_POLYMARKET_ORDER", () => {
+describe("POLYMARKET_CANCEL_ORDER", () => {
   test("cancels order by ID from message text", async () => {
     const cb = collectCallback();
     const svc = {
@@ -63,7 +63,7 @@ describe("CANCEL_POLYMARKET_ORDER", () => {
 
 // --- P0: Cancel All ---
 
-describe("CANCEL_ALL_POLYMARKET_ORDERS", () => {
+describe("POLYMARKET_CANCEL_ALL", () => {
   test("cancels all orders when no market specified", async () => {
     const cb = collectCallback();
     const svc = {
@@ -88,7 +88,7 @@ describe("CANCEL_ALL_POLYMARKET_ORDERS", () => {
 
 // --- P0: Open Orders ---
 
-describe("GET_POLYMARKET_OPEN_ORDERS", () => {
+describe("POLYMARKET_GET_ORDERS", () => {
   test("lists open orders", async () => {
     const cb = collectCallback();
     const svc = {
@@ -123,7 +123,7 @@ describe("GET_POLYMARKET_OPEN_ORDERS", () => {
 
 // --- P1: Sell Position ---
 
-describe("SELL_POLYMARKET_POSITION", () => {
+describe("POLYMARKET_SELL", () => {
   test("sells shares with explicit price", async () => {
     const cb = collectCallback();
     const svc = {
@@ -196,7 +196,7 @@ describe("SELL_POLYMARKET_POSITION", () => {
 
 // --- P2: Positions ---
 
-describe("GET_POLYMARKET_POSITIONS", () => {
+describe("POLYMARKET_GET_POSITIONS", () => {
   test("lists positions with PnL", async () => {
     const cb = collectCallback();
     const svc = {
@@ -233,7 +233,7 @@ describe("GET_POLYMARKET_POSITIONS", () => {
 
 // --- P2: Trades ---
 
-describe("GET_POLYMARKET_TRADES", () => {
+describe("POLYMARKET_GET_TRADES", () => {
   test("lists recent trades", async () => {
     const cb = collectCallback();
     const svc = {
@@ -270,7 +270,7 @@ describe("GET_POLYMARKET_TRADES", () => {
 
 // --- P3: PnL ---
 
-describe("GET_POLYMARKET_PNL", () => {
+describe("POLYMARKET_GET_PNL", () => {
   test("shows PnL summary", async () => {
     const cb = collectCallback();
     const svc = {
@@ -306,7 +306,7 @@ describe("GET_POLYMARKET_PNL", () => {
 
 // --- Place Order (with token resolution) ---
 
-describe("PLACE_POLYMARKET_EXT_ORDER", () => {
+describe("POLYMARKET_PLACE_ORDER", () => {
   test("searches market, resolves token, and places order", async () => {
     const cb = collectCallback();
     let capturedOrder: any;

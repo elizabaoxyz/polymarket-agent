@@ -31,13 +31,13 @@ function formatOrder(order: OpenOrder): string {
 // --- P0: Cancel Order ---
 
 export const cancelPolymarketOrder: Action = {
-  name: "CANCEL_POLYMARKET_ORDER",
+  name: "POLYMARKET_CANCEL_ORDER",
   description: "Cancel a specific open Polymarket order by ID.",
   similes: ["cancel order", "remove order", "withdraw order"],
   examples: [
     [
       { name: "user", content: { text: "Cancel order abc-123-def" } },
-      { name: "assistant", content: { text: "Cancelling order abc-123-def.", action: "CANCEL_POLYMARKET_ORDER" } },
+      { name: "assistant", content: { text: "Cancelling order abc-123-def.", action: "POLYMARKET_CANCEL_ORDER" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
@@ -68,13 +68,13 @@ export const cancelPolymarketOrder: Action = {
 // --- P0: Cancel All Orders ---
 
 export const cancelAllPolymarketOrders: Action = {
-  name: "CANCEL_ALL_POLYMARKET_ORDERS",
+  name: "POLYMARKET_CANCEL_ALL",
   description: "Cancel all open Polymarket orders, or all orders for a specific market.",
   similes: ["cancel all orders", "cancel everything", "clear all orders"],
   examples: [
     [
       { name: "user", content: { text: "Cancel all my orders" } },
-      { name: "assistant", content: { text: "Cancelling all open orders.", action: "CANCEL_ALL_POLYMARKET_ORDERS" } },
+      { name: "assistant", content: { text: "Cancelling all open orders.", action: "POLYMARKET_CANCEL_ALL" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
@@ -102,13 +102,13 @@ export const cancelAllPolymarketOrders: Action = {
 // --- P0: Get Open Orders ---
 
 export const getPolymarketOpenOrders: Action = {
-  name: "GET_POLYMARKET_OPEN_ORDERS",
+  name: "POLYMARKET_GET_ORDERS",
   description: "List all open Polymarket orders with status details.",
   similes: ["show orders", "my open orders", "list orders", "pending orders"],
   examples: [
     [
       { name: "user", content: { text: "Show my open orders" } },
-      { name: "assistant", content: { text: "Fetching open orders.", action: "GET_POLYMARKET_OPEN_ORDERS" } },
+      { name: "assistant", content: { text: "Fetching open orders.", action: "POLYMARKET_GET_ORDERS" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
@@ -136,13 +136,13 @@ export const getPolymarketOpenOrders: Action = {
 // --- P1: Sell Position ---
 
 export const sellPolymarketPosition: Action = {
-  name: "SELL_POLYMARKET_POSITION",
+  name: "POLYMARKET_SELL",
   description: "Sell shares to exit a Polymarket position. Specify token ID and number of shares. Uses best bid price if no price given.",
   similes: ["sell position", "exit position", "close position", "sell shares"],
   examples: [
     [
       { name: "user", content: { text: "Sell 50 shares of token token-abc at $0.60" } },
-      { name: "assistant", content: { text: "Selling 50 shares.", action: "SELL_POLYMARKET_POSITION" } },
+      { name: "assistant", content: { text: "Selling 50 shares.", action: "POLYMARKET_SELL" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
@@ -204,13 +204,13 @@ export const sellPolymarketPosition: Action = {
 // --- P2: Get Positions ---
 
 export const getPolymarketPositions: Action = {
-  name: "GET_POLYMARKET_POSITIONS",
+  name: "POLYMARKET_GET_POSITIONS",
   description: "Show current Polymarket portfolio positions with live pricing and unrealized PnL.",
   similes: ["my positions", "portfolio", "show holdings", "what do I own"],
   examples: [
     [
       { name: "user", content: { text: "Show my Polymarket positions" } },
-      { name: "assistant", content: { text: "Fetching positions.", action: "GET_POLYMARKET_POSITIONS" } },
+      { name: "assistant", content: { text: "Fetching positions.", action: "POLYMARKET_GET_POSITIONS" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
@@ -246,13 +246,13 @@ export const getPolymarketPositions: Action = {
 // --- P2: Get Trades ---
 
 export const getPolymarketTrades: Action = {
-  name: "GET_POLYMARKET_TRADES",
+  name: "POLYMARKET_GET_TRADES",
   description: "Show recent Polymarket trade history.",
   similes: ["trade history", "recent trades", "my trades", "show fills"],
   examples: [
     [
       { name: "user", content: { text: "Show my recent trades" } },
-      { name: "assistant", content: { text: "Fetching trade history.", action: "GET_POLYMARKET_TRADES" } },
+      { name: "assistant", content: { text: "Fetching trade history.", action: "POLYMARKET_GET_TRADES" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
@@ -289,13 +289,13 @@ export const getPolymarketTrades: Action = {
 // --- P3: Get PnL ---
 
 export const getPolymarketPnl: Action = {
-  name: "GET_POLYMARKET_PNL",
+  name: "POLYMARKET_GET_PNL",
   description: "Show Polymarket profit/loss summary including realized PnL, unrealized PnL, and volume.",
   similes: ["my pnl", "profit and loss", "how am I doing", "performance", "earnings"],
   examples: [
     [
       { name: "user", content: { text: "Show my PnL" } },
-      { name: "assistant", content: { text: "Fetching PnL summary.", action: "GET_POLYMARKET_PNL" } },
+      { name: "assistant", content: { text: "Fetching PnL summary.", action: "POLYMARKET_GET_PNL" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
@@ -334,7 +334,7 @@ function resolveToken(market: ClobMarket, outcome: string): ClobToken | null {
 }
 
 export const placePolymarketOrder: Action = {
-  name: "PLACE_POLYMARKET_EXT_ORDER",
+  name: "POLYMARKET_PLACE_ORDER",
   description:
     "Place a buy or sell order on Polymarket with correct token resolution. " +
     "Searches for the market by name, resolves the exact token ID, and places the order. " +
@@ -346,19 +346,19 @@ export const placePolymarketOrder: Action = {
   examples: [
     [
       { name: "user", content: { text: "Buy $5 YES on 'Will Jon Ossoff win the 2028 Democratic presidential nomination?'" } },
-      { name: "assistant", content: { text: "Placing $5 YES on Ossoff Democratic nomination.", action: "PLACE_POLYMARKET_EXT_ORDER" } },
+      { name: "assistant", content: { text: "Placing $5 YES on Ossoff Democratic nomination.", action: "POLYMARKET_PLACE_ORDER" } },
     ],
     [
       { name: "user", content: { text: "place a $3 bet on something interesting" } },
-      { name: "assistant", content: { text: "Placing $3 on a top-liquidity market.", action: "PLACE_POLYMARKET_EXT_ORDER" } },
+      { name: "assistant", content: { text: "Placing $3 on a top-liquidity market.", action: "POLYMARKET_PLACE_ORDER" } },
     ],
     [
       { name: "user", content: { text: "bet $10 NO on Bitcoin hitting 100k" } },
-      { name: "assistant", content: { text: "Placing $10 NO on Bitcoin 100k.", action: "PLACE_POLYMARKET_EXT_ORDER" } },
+      { name: "assistant", content: { text: "Placing $10 NO on Bitcoin 100k.", action: "POLYMARKET_PLACE_ORDER" } },
     ],
     [
       { name: "user", content: { text: "analyze markets and buy $2 YES on the best one" } },
-      { name: "assistant", content: { text: "Finding best market and placing $2 YES.", action: "PLACE_POLYMARKET_EXT_ORDER" } },
+      { name: "assistant", content: { text: "Finding best market and placing $2 YES.", action: "POLYMARKET_PLACE_ORDER" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,

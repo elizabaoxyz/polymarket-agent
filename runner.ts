@@ -243,35 +243,35 @@ function buildCharacter(config: CharacterConfig): Character {
     messageExamples: [
       [
         { user: "{{user1}}", content: { text: "buy $3 YES on Will Gavin Newsom win the Democratic nomination" } },
-        { user: "Eliza", content: { text: "Placing $3 YES on Gavin Newsom Democratic nomination.", action: "PLACE_POLYMARKET_EXT_ORDER" } },
+        { user: "Eliza", content: { text: "Placing $3 YES on Gavin Newsom Democratic nomination.", action: "POLYMARKET_PLACE_ORDER" } },
       ],
       [
         { user: "{{user1}}", content: { text: "place a $5 bet on something interesting" } },
-        { user: "Eliza", content: { text: "Placing $5 bet on best opportunity.", action: "PLACE_POLYMARKET_EXT_ORDER" } },
+        { user: "Eliza", content: { text: "Placing $5 bet on best opportunity.", action: "POLYMARKET_PLACE_ORDER" } },
       ],
       [
         { user: "{{user1}}", content: { text: "analyze markets and place a $2 bet" } },
-        { user: "Eliza", content: { text: "Finding best market and placing $2 order.", action: "PLACE_POLYMARKET_EXT_ORDER" } },
+        { user: "Eliza", content: { text: "Finding best market and placing $2 order.", action: "POLYMARKET_PLACE_ORDER" } },
       ],
       [
         { user: "{{user1}}", content: { text: "show my positions" } },
-        { user: "Eliza", content: { text: "Fetching positions.", action: "GET_POLYMARKET_POSITIONS" } },
+        { user: "Eliza", content: { text: "Fetching positions.", action: "POLYMARKET_GET_POSITIONS" } },
       ],
       [
         { user: "{{user1}}", content: { text: "cancel all my orders" } },
-        { user: "Eliza", content: { text: "Cancelling all orders.", action: "CANCEL_ALL_POLYMARKET_ORDERS" } },
+        { user: "Eliza", content: { text: "Cancelling all orders.", action: "POLYMARKET_CANCEL_ALL" } },
       ],
       [
         { user: "{{user1}}", content: { text: "show my PnL" } },
-        { user: "Eliza", content: { text: "Fetching PnL.", action: "GET_POLYMARKET_PNL" } },
+        { user: "Eliza", content: { text: "Fetching PnL.", action: "POLYMARKET_GET_PNL" } },
       ],
       [
         { user: "{{user1}}", content: { text: "what are my recent trades" } },
-        { user: "Eliza", content: { text: "Fetching trades.", action: "GET_POLYMARKET_TRADES" } },
+        { user: "Eliza", content: { text: "Fetching trades.", action: "POLYMARKET_GET_TRADES" } },
       ],
       [
         { user: "{{user1}}", content: { text: "show open orders" } },
-        { user: "Eliza", content: { text: "Fetching open orders.", action: "GET_POLYMARKET_OPEN_ORDERS" } },
+        { user: "Eliza", content: { text: "Fetching open orders.", action: "POLYMARKET_GET_ORDERS" } },
       ],
     ],
     settings: config.settings,

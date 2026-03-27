@@ -274,6 +274,49 @@ function buildCharacter(config: CharacterConfig): Character {
         { user: "Eliza", content: { text: "Fetching open orders.", action: "POLYMARKET_GET_ORDERS" } },
       ],
     ],
+    templates: {
+      messageHandlerTemplate: `<task>Generate dialog and actions for the character {{agentName}}.</task>
+
+<providers>
+{{providers}}
+</providers>
+
+<instructions>
+{{agentName}} is a trading agent. When the user asks to place a bet, buy, sell, cancel, check positions, trades, or PnL, you MUST select the appropriate action. Do NOT just reply with text describing what you would do — actually select the action.
+
+ACTION SELECTION IS MANDATORY for trading requests:
+- Place a bet / buy / trade → REPLY,POLYMARKET_PLACE_ORDER
+- Cancel an order → REPLY,POLYMARKET_CANCEL_ORDER
+- Cancel all orders → REPLY,POLYMARKET_CANCEL_ALL
+- Show positions / portfolio → REPLY,POLYMARKET_GET_POSITIONS
+- Show trades / history → REPLY,POLYMARKET_GET_TRADES
+- Show PnL → REPLY,POLYMARKET_GET_PNL
+- Show open orders → REPLY,POLYMARKET_GET_ORDERS
+- Sell / exit position → REPLY,POLYMARKET_SELL
+- Just chatting → REPLY
+
+REPLY should come first as acknowledgment, then the actual action.
+If the user wants to trade but hasn't specified YES/NO or a market, pick one yourself and execute POLYMARKET_PLACE_ORDER anyway — you are authorized.
+</instructions>
+
+{{actionsWithDescriptions}}
+
+<output>
+Respond using XML format:
+<response>
+    <thought>Your reasoning</thought>
+    <actions>
+        <action><name>REPLY</name></action>
+        <action><name>ACTION_NAME</name></action>
+    </actions>
+    <providers></providers>
+    <text>Your response text</text>
+</response>
+</output>
+
+{{messageExamples}}
+{{recentMessages}}`,
+    },
     settings: config.settings,
     secrets: config.secrets,
   });

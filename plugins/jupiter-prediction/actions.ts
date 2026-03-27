@@ -95,7 +95,7 @@ export const placeJupiterBet: Action = {
   handler: async (runtime, message, state, options, callback) => {
     const svc = getService(runtime);
     const text = typeof message.content === "string" ? message.content : message.content?.text ?? "";
-    const marketIdMatch = /market[:\s]+([a-zA-Z0-9]+)/i.exec(text);
+    const marketIdMatch = /market[:\s]+([a-zA-Z0-9_-]+)/i.exec(text);
     const amountMatch = /\$(\d+(?:\.\d+)?)/i.exec(text);
     const isYes = /\byes\b/i.test(text);
     const isNo = /\bno\b/i.test(text);

@@ -37,7 +37,7 @@ export const cancelPolymarketOrder: Action = {
   examples: [
     [
       { name: "user", content: { text: "Cancel order abc-123-def" } },
-      { name: "assistant", content: { text: "Cancelling order abc-123-def..." } },
+      { name: "assistant", content: { text: "Cancelling order abc-123-def.", action: "CANCEL_POLYMARKET_ORDER" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
@@ -74,7 +74,7 @@ export const cancelAllPolymarketOrders: Action = {
   examples: [
     [
       { name: "user", content: { text: "Cancel all my orders" } },
-      { name: "assistant", content: { text: "Cancelling all open orders..." } },
+      { name: "assistant", content: { text: "Cancelling all open orders.", action: "CANCEL_ALL_POLYMARKET_ORDERS" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
@@ -108,7 +108,7 @@ export const getPolymarketOpenOrders: Action = {
   examples: [
     [
       { name: "user", content: { text: "Show my open orders" } },
-      { name: "assistant", content: { text: "Fetching open orders..." } },
+      { name: "assistant", content: { text: "Fetching open orders.", action: "GET_POLYMARKET_OPEN_ORDERS" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
@@ -142,7 +142,7 @@ export const sellPolymarketPosition: Action = {
   examples: [
     [
       { name: "user", content: { text: "Sell 50 shares of token token-abc at $0.60" } },
-      { name: "assistant", content: { text: "Selling 50 shares..." } },
+      { name: "assistant", content: { text: "Selling 50 shares.", action: "SELL_POLYMARKET_POSITION" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
@@ -210,7 +210,7 @@ export const getPolymarketPositions: Action = {
   examples: [
     [
       { name: "user", content: { text: "Show my Polymarket positions" } },
-      { name: "assistant", content: { text: "Fetching positions..." } },
+      { name: "assistant", content: { text: "Fetching positions.", action: "GET_POLYMARKET_POSITIONS" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
@@ -252,7 +252,7 @@ export const getPolymarketTrades: Action = {
   examples: [
     [
       { name: "user", content: { text: "Show my recent trades" } },
-      { name: "assistant", content: { text: "Fetching trade history..." } },
+      { name: "assistant", content: { text: "Fetching trade history.", action: "GET_POLYMARKET_TRADES" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
@@ -295,7 +295,7 @@ export const getPolymarketPnl: Action = {
   examples: [
     [
       { name: "user", content: { text: "Show my PnL" } },
-      { name: "assistant", content: { text: "Fetching PnL summary..." } },
+      { name: "assistant", content: { text: "Fetching PnL summary.", action: "GET_POLYMARKET_PNL" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
@@ -346,7 +346,19 @@ export const placePolymarketOrder: Action = {
   examples: [
     [
       { name: "user", content: { text: "Buy $5 YES on 'Will Jon Ossoff win the 2028 Democratic presidential nomination?'" } },
-      { name: "assistant", content: { text: "Searching for the market and placing a $5 YES buy..." } },
+      { name: "assistant", content: { text: "Placing $5 YES on Ossoff Democratic nomination.", action: "PLACE_POLYMARKET_EXT_ORDER" } },
+    ],
+    [
+      { name: "user", content: { text: "place a $3 bet on something interesting" } },
+      { name: "assistant", content: { text: "Placing $3 on a top-liquidity market.", action: "PLACE_POLYMARKET_EXT_ORDER" } },
+    ],
+    [
+      { name: "user", content: { text: "bet $10 NO on Bitcoin hitting 100k" } },
+      { name: "assistant", content: { text: "Placing $10 NO on Bitcoin 100k.", action: "PLACE_POLYMARKET_EXT_ORDER" } },
+    ],
+    [
+      { name: "user", content: { text: "analyze markets and buy $2 YES on the best one" } },
+      { name: "assistant", content: { text: "Finding best market and placing $2 YES.", action: "PLACE_POLYMARKET_EXT_ORDER" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,

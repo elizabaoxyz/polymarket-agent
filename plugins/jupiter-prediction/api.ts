@@ -97,7 +97,8 @@ export class JupiterPredictionClient {
   }
 
   async getOrders(ownerPubkey: string): Promise<unknown[]> {
-    return this.request("/orders", z.array(z.unknown()), { query: { ownerPubkey } });
+    const response = await this.request("/orders", z.object({ data: z.array(z.unknown()) }).passthrough(), { query: { ownerPubkey } });
+    return response.data;
   }
 
   async getOrderStatus(orderPubkey: string): Promise<OrderStatus> {
@@ -105,7 +106,8 @@ export class JupiterPredictionClient {
   }
 
   async getPositions(ownerPubkey: string): Promise<Position[]> {
-    return this.request("/positions", z.array(PositionSchema), { query: { ownerPubkey } });
+    const response = await this.request("/positions", z.object({ data: z.array(PositionSchema) }).passthrough(), { query: { ownerPubkey } });
+    return response.data;
   }
 
   async closePosition(positionPubkey: string): Promise<PlaceOrderResponse> {

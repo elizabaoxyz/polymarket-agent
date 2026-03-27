@@ -107,10 +107,12 @@ describe("JupiterPredictionClient", () => {
   });
 
   test("getPositions fetches with ownerPubkey query", async () => {
-    setMock("/positions", [
-      { positionPubkey: "pos1", marketId: "m1", isYes: true, quantity: 5,
-        averagePrice: 400_000, currentPrice: 600_000, status: "open" },
-    ]);
+    setMock("/positions", {
+      data: [
+        { positionPubkey: "pos1", marketId: "m1", isYes: true, quantity: 5,
+          averagePrice: 400_000, currentPrice: 600_000, status: "open" },
+      ],
+    });
     const positions = await client.getPositions("wallet1");
     expect(positions).toHaveLength(1);
     expect(positions[0]!.positionPubkey).toBe("pos1");

@@ -1,7 +1,7 @@
 import type { Action, ActionExample } from "@elizaos/core";
 import { JupiterPredictionService, JUPITER_SERVICE_TYPE } from "./service";
 import { scanAndScore, formatOpportunitySummary } from "./scanner";
-import { microUsdToDollars, dollarsToMicroUsd, USDC_MINT } from "./types";
+import { microUsdToDollars, dollarsToMicroUsd, USDC_MINT, type Market } from "./types";
 
 const SERVICE_KEY = JUPITER_SERVICE_TYPE;
 
@@ -29,17 +29,43 @@ export const scanJupiterMarkets: Action = {
     const svc = getService(runtime);
     try {
       const events = await svc.client.getEvents({ status: "live" });
-      const entries = [];
+
+      // Pre-filter using pricing data (no orderbook fetch needed)
+      // Pick markets with tight spreads and midpoints near 0.50
+      const candidates: Array<{ market: Market; event: typeof events[0] }> = [];
       for (const event of events) {
         for (const market of event.markets) {
-          try {
-            const orderbook = await svc.client.getOrderbook(market.marketId);
-            entries.push({ market, orderbook, event });
-          } catch {
-            // Skip markets where orderbook fetch fails
+          const yes = market.pricing.buyYesPriceUsd / 1_000_000;
+          const no = market.pricing.buyNoPriceUsd / 1_000_000;
+          const spread = Math.abs(no - yes);
+          if (spread <= 0.15 && market.status === "open") {
+            candidates.push({ market, event });
           }
         }
       }
+
+      // Sort by spread (tightest first), take top 10 for orderbook fetch
+      candidates.sort((a, b) => {
+        const sa = Math.abs(a.market.pricing.buyNoPriceUsd - a.market.pricing.buyYesPriceUsd);
+        const sb = Math.abs(b.market.pricing.buyNoPriceUsd - b.market.pricing.buyYesPriceUsd);
+        return sa - sb;
+      });
+      const top = candidates.slice(0, 10);
+
+      // Fetch orderbooks with 1s delay between requests (free plan: 1 RPS)
+      const entries = [];
+      for (const { market, event } of top) {
+        try {
+          const orderbook = await svc.client.getOrderbook(market.marketId);
+          entries.push({ market, orderbook, event });
+        } catch {
+          // Skip on error
+        }
+        if (entries.length < top.length) {
+          await new Promise((r) => setTimeout(r, 1100));
+        }
+      }
+
       const opportunities = scanAndScore(entries, 5);
       const summary = formatOpportunitySummary(opportunities);
       if (callback) callback({ text: summary });

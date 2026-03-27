@@ -1,4 +1,4 @@
-import type { Market, Orderbook, ScoredOpportunity } from "./types";
+import type { Market, Orderbook, ScoredOpportunity, Event } from "./types";
 import { microUsdToDollars } from "./types";
 
 const MIN_DEPTH = 3;
@@ -12,27 +12,30 @@ const DEPTH_WEIGHT = 0.20;
 type MarketWithBook = {
   readonly market: Market;
   readonly orderbook: Orderbook;
+  readonly event?: Event;
 };
 
 function getSpread(market: Market): number {
-  const yes = microUsdToDollars(market.yesPrice);
-  const no = microUsdToDollars(market.noPrice);
+  // pricing values are in micro-USD
+  const yes = microUsdToDollars(market.pricing.buyYesPriceUsd);
+  const no = microUsdToDollars(market.pricing.buyNoPriceUsd);
   return Math.abs(no - yes);
 }
 
 function getMidpoint(market: Market): number {
-  const yes = microUsdToDollars(market.yesPrice);
-  const no = microUsdToDollars(market.noPrice);
+  const yes = microUsdToDollars(market.pricing.buyYesPriceUsd);
+  const no = microUsdToDollars(market.pricing.buyNoPriceUsd);
   return (yes + no) / 2;
 }
 
 function isExpiringSoon(market: Market): boolean {
-  const expiresAt = new Date(market.expiresAt).getTime();
-  return expiresAt - Date.now() < MIN_TIME_REMAINING_MS;
+  // closeTime is unix timestamp in seconds
+  const expiresAtMs = market.closeTime * 1000;
+  return expiresAtMs - Date.now() < MIN_TIME_REMAINING_MS;
 }
 
 function hasMinDepth(orderbook: Orderbook): boolean {
-  return orderbook.bids.length >= MIN_DEPTH && orderbook.asks.length >= MIN_DEPTH;
+  return orderbook.yes.length >= MIN_DEPTH && orderbook.no.length >= MIN_DEPTH;
 }
 
 export function filterMarkets(entries: MarketWithBook[]): MarketWithBook[] {
@@ -44,10 +47,10 @@ export function filterMarkets(entries: MarketWithBook[]): MarketWithBook[] {
   });
 }
 
-export function scoreOpportunity(market: Market, orderbook: Orderbook): ScoredOpportunity {
+export function scoreOpportunity(market: Market, orderbook: Orderbook, event?: Event): ScoredOpportunity {
   const spread = getSpread(market);
   const midpoint = getMidpoint(market);
-  const totalDepth = orderbook.bids.length + orderbook.asks.length;
+  const totalDepth = orderbook.yes.length + orderbook.no.length;
 
   const spreadScore = Math.max(0, 1 - spread / MAX_SPREAD);
   const midpointScore = 1 - Math.abs(midpoint - 0.5) * 2;
@@ -58,8 +61,13 @@ export function scoreOpportunity(market: Market, orderbook: Orderbook): ScoredOp
     midpointScore * MIDPOINT_WEIGHT +
     depthScore * DEPTH_WEIGHT;
 
+  const stubEvent: Event = event ?? {
+    eventId: "", isActive: false, isLive: false, category: "",
+    metadata: { title: "" }, markets: [],
+  };
+
   return {
-    event: { id: "", title: "", category: "", status: "", markets: [] },
+    event: stubEvent,
     market,
     orderbook,
     spread,
@@ -71,19 +79,23 @@ export function scoreOpportunity(market: Market, orderbook: Orderbook): ScoredOp
 
 export function scanAndScore(entries: MarketWithBook[], topN: number = 5): ScoredOpportunity[] {
   const filtered = filterMarkets(entries);
-  const scored = filtered.map(({ market, orderbook }) => scoreOpportunity(market, orderbook));
+  const scored = filtered.map(({ market, orderbook, event }) =>
+    scoreOpportunity(market, orderbook, event)
+  );
   scored.sort((a, b) => b.totalScore - a.totalScore);
   return scored.slice(0, topN);
 }
 
 export function formatOpportunity(opp: ScoredOpportunity): string {
-  const yes = microUsdToDollars(opp.market.yesPrice).toFixed(2);
-  const no = microUsdToDollars(opp.market.noPrice).toFixed(2);
+  const yes = microUsdToDollars(opp.market.pricing.buyYesPriceUsd).toFixed(2);
+  const no = microUsdToDollars(opp.market.pricing.buyNoPriceUsd).toFixed(2);
+  const title = opp.market.metadata.title;
+  const eventTitle = opp.event.metadata.title;
   return [
-    `Market: ${opp.market.question}`,
+    `Market: ${eventTitle} — ${title}`,
     `  YES: $${yes} | NO: $${no} | Spread: ${(opp.spread * 100).toFixed(1)}%`,
-    `  Midpoint: ${opp.midpoint.toFixed(3)} | Depth: ${opp.orderbook.bids.length}/${opp.orderbook.asks.length}`,
-    `  Score: ${opp.totalScore.toFixed(3)}`,
+    `  Midpoint: ${opp.midpoint.toFixed(3)} | Depth: ${opp.orderbook.yes.length}/${opp.orderbook.no.length}`,
+    `  Score: ${opp.totalScore.toFixed(3)} | ID: ${opp.market.marketId}`,
   ].join("\n");
 }
 

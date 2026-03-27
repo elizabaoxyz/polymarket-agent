@@ -36,6 +36,19 @@ function setMock(urlPattern: string, body: unknown, status = 200): void {
   mockResponses.set(urlPattern, { status, body });
 }
 
+const sampleMarket = {
+  marketId: "POLY-123",
+  status: "open",
+  closeTime: 1857168000,
+  metadata: { title: "Will it rain?" },
+  pricing: {
+    buyYesPriceUsd: 600_000,
+    sellYesPriceUsd: 598_000,
+    sellNoPriceUsd: 398_000,
+    buyNoPriceUsd: 400_000,
+  },
+};
+
 describe("JupiterPredictionClient", () => {
   const client = new JupiterPredictionClient("test-api-key");
 
@@ -51,30 +64,36 @@ describe("JupiterPredictionClient", () => {
     expect(result.operational).toBe(true);
   });
 
-  test("getEvents fetches live events", async () => {
-    setMock("/events", [
-      { id: "e1", title: "Test Event", category: "crypto", status: "live", markets: [] },
-    ]);
+  test("getEvents unwraps data array", async () => {
+    setMock("/events", {
+      data: [
+        {
+          eventId: "E1",
+          isActive: true,
+          isLive: true,
+          category: "crypto",
+          metadata: { title: "Test Event" },
+          markets: [],
+        },
+      ],
+    });
     const events = await client.getEvents({ status: "live" });
     expect(events).toHaveLength(1);
-    expect(events[0]!.title).toBe("Test Event");
+    expect(events[0]!.metadata.title).toBe("Test Event");
     expect(capturedRequests[0]!.url).toContain("status=live");
   });
 
   test("getMarket fetches single market", async () => {
-    setMock("/markets/m1", {
-      id: "m1", question: "Will it rain?", yesPrice: 600_000, noPrice: 400_000,
-      status: "active", expiresAt: "2026-12-31T00:00:00Z",
-    });
+    setMock("/markets/m1", sampleMarket);
     const market = await client.getMarket("m1");
-    expect(market.question).toBe("Will it rain?");
+    expect(market.metadata.title).toBe("Will it rain?");
   });
 
-  test("getOrderbook fetches bid/ask arrays", async () => {
-    setMock("/orderbook/m1", { bids: [[0.45, 100]], asks: [[0.55, 200]] });
+  test("getOrderbook fetches yes/no arrays", async () => {
+    setMock("/orderbook/m1", { yes: [[24, 100]], no: [[76, 200]] });
     const book = await client.getOrderbook("m1");
-    expect(book.bids).toHaveLength(1);
-    expect(book.asks[0]![1]).toBe(200);
+    expect(book.yes).toHaveLength(1);
+    expect(book.no[0]![1]).toBe(200);
   });
 
   test("placeOrder sends POST with body", async () => {

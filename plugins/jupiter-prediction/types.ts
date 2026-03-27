@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+// --- Monetary conversion ---
+
 const MICRO_USD_FACTOR = 1_000_000;
 
 export function microUsdToDollars(microUsd: number): number {
@@ -10,34 +12,61 @@ export function dollarsToMicroUsd(dollars: number): number {
   return Math.round(dollars * MICRO_USD_FACTOR);
 }
 
+// --- USDC / JupUSD mint addresses ---
+
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const JUPUSD_MINT = "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD";
 
-export const MarketSchema = z.object({
-  id: z.string(),
-  question: z.string(),
-  yesPrice: z.number(),
-  noPrice: z.number(),
-  status: z.string(),
-  expiresAt: z.string(),
+// --- API response schemas (matching actual Jupiter Prediction API) ---
+
+export const MarketPricingSchema = z.object({
+  buyYesPriceUsd: z.number(),
+  sellYesPriceUsd: z.number(),
+  sellNoPriceUsd: z.number(),
+  buyNoPriceUsd: z.number(),
+  volume: z.number().optional(),
 });
+
+export const MarketMetadataSchema = z.object({
+  title: z.string(),
+  closeTime: z.number().optional(),
+  openTime: z.number().optional(),
+}).passthrough();
+
+export const MarketSchema = z.object({
+  marketId: z.string(),
+  status: z.string(),
+  closeTime: z.number(),
+  metadata: MarketMetadataSchema,
+  pricing: MarketPricingSchema,
+}).passthrough();
 export type Market = z.infer<typeof MarketSchema>;
 
-export const EventSchema = z.object({
-  id: z.string(),
+export const EventMetadataSchema = z.object({
   title: z.string(),
+}).passthrough();
+
+export const EventSchema = z.object({
+  eventId: z.string(),
+  isActive: z.boolean(),
+  isLive: z.boolean(),
   category: z.string(),
-  status: z.string(),
+  metadata: EventMetadataSchema,
   markets: z.array(MarketSchema),
-});
+}).passthrough();
 export type Event = z.infer<typeof EventSchema>;
 
+export const EventsResponseSchema = z.object({
+  data: z.array(EventSchema),
+}).passthrough();
+
+// Orderbook: { yes: [[price_cents, qty], ...], no: [[price_cents, qty], ...] }
 export const OrderbookEntrySchema = z.tuple([z.number(), z.number()]);
 
 export const OrderbookSchema = z.object({
-  bids: z.array(OrderbookEntrySchema),
-  asks: z.array(OrderbookEntrySchema),
-});
+  yes: z.array(OrderbookEntrySchema),
+  no: z.array(OrderbookEntrySchema),
+}).passthrough();
 export type Orderbook = z.infer<typeof OrderbookSchema>;
 
 export const PlaceOrderResponseSchema = z.object({
@@ -68,6 +97,8 @@ export const TradingStatusSchema = z.object({
 });
 export type TradingStatus = z.infer<typeof TradingStatusSchema>;
 
+// --- Place order request ---
+
 export type PlaceOrderParams = {
   readonly ownerPubkey: string;
   readonly marketId: string;
@@ -76,6 +107,8 @@ export type PlaceOrderParams = {
   readonly depositAmount: number;
   readonly depositMint: string;
 };
+
+// --- Scored opportunity (scanner output) ---
 
 export type ScoredOpportunity = {
   readonly event: Event;

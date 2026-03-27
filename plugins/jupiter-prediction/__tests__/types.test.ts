@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   EventSchema,
+  EventsResponseSchema,
   MarketSchema,
   OrderbookSchema,
   PlaceOrderResponseSchema,
@@ -35,56 +36,87 @@ describe("dollarsToMicroUsd", () => {
 describe("EventSchema", () => {
   test("parses a valid event", () => {
     const raw = {
-      id: "event-123",
-      title: "Will BTC reach $200k?",
+      eventId: "POLY-123",
+      isActive: true,
+      isLive: true,
       category: "crypto",
-      status: "live",
+      metadata: { title: "Will BTC reach $200k?" },
       markets: [
         {
-          id: "market-abc",
-          question: "BTC above $200k by Dec 2026",
-          yesPrice: 350_000,
-          noPrice: 650_000,
-          status: "active",
-          expiresAt: "2026-12-31T00:00:00Z",
+          marketId: "POLY-456",
+          status: "open",
+          closeTime: 1857168000,
+          metadata: { title: "BTC above $200k by Dec 2026" },
+          pricing: {
+            buyYesPriceUsd: 350_000,
+            sellYesPriceUsd: 348_000,
+            sellNoPriceUsd: 648_000,
+            buyNoPriceUsd: 650_000,
+          },
         },
       ],
     };
     const parsed = EventSchema.parse(raw);
-    expect(parsed.id).toBe("event-123");
-    expect(parsed.markets[0]!.yesPrice).toBe(350_000);
+    expect(parsed.eventId).toBe("POLY-123");
+    expect(parsed.markets[0]!.pricing.buyYesPriceUsd).toBe(350_000);
   });
-  test("rejects event with missing title", () => {
+  test("rejects event with missing metadata", () => {
     expect(() =>
-      EventSchema.parse({ id: "x", category: "crypto", status: "live", markets: [] })
+      EventSchema.parse({ eventId: "x", isActive: true, isLive: true, category: "crypto", markets: [] })
     ).toThrow();
+  });
+});
+
+describe("EventsResponseSchema", () => {
+  test("parses wrapped response with data array", () => {
+    const raw = {
+      data: [
+        {
+          eventId: "E1",
+          isActive: true,
+          isLive: true,
+          category: "crypto",
+          metadata: { title: "Test" },
+          markets: [],
+        },
+      ],
+      pagination: {},
+    };
+    const parsed = EventsResponseSchema.parse(raw);
+    expect(parsed.data).toHaveLength(1);
+    expect(parsed.data[0]!.eventId).toBe("E1");
   });
 });
 
 describe("MarketSchema", () => {
   test("parses a valid market", () => {
     const raw = {
-      id: "market-abc",
-      question: "BTC above $200k by Dec 2026",
-      yesPrice: 350_000,
-      noPrice: 650_000,
-      status: "active",
-      expiresAt: "2026-12-31T00:00:00Z",
+      marketId: "POLY-456",
+      status: "open",
+      closeTime: 1857168000,
+      metadata: { title: "BTC above $200k" },
+      pricing: {
+        buyYesPriceUsd: 350_000,
+        sellYesPriceUsd: 348_000,
+        sellNoPriceUsd: 648_000,
+        buyNoPriceUsd: 650_000,
+      },
     };
     const parsed = MarketSchema.parse(raw);
-    expect(parsed.status).toBe("active");
+    expect(parsed.status).toBe("open");
+    expect(parsed.pricing.buyYesPriceUsd).toBe(350_000);
   });
 });
 
 describe("OrderbookSchema", () => {
-  test("parses bid/ask arrays", () => {
+  test("parses yes/no arrays", () => {
     const raw = {
-      bids: [[0.45, 100], [0.44, 200]],
-      asks: [[0.55, 150], [0.56, 250]],
+      yes: [[24, 100], [23, 200]],
+      no: [[76, 150], [77, 250]],
     };
     const parsed = OrderbookSchema.parse(raw);
-    expect(parsed.bids).toHaveLength(2);
-    expect(parsed.asks[0]![0]).toBe(0.55);
+    expect(parsed.yes).toHaveLength(2);
+    expect(parsed.no[0]![0]).toBe(76);
   });
 });
 

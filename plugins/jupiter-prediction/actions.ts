@@ -33,8 +33,8 @@ export const scanJupiterMarkets: Action = {
       for (const event of events) {
         for (const market of event.markets) {
           try {
-            const orderbook = await svc.client.getOrderbook(market.id);
-            entries.push({ market: { ...market }, orderbook });
+            const orderbook = await svc.client.getOrderbook(market.marketId);
+            entries.push({ market, orderbook, event });
           } catch {
             // Skip markets where orderbook fetch fails
           }

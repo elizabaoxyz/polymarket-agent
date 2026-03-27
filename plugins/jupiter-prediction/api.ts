@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  EventsResponseSchema,
   EventSchema,
   MarketSchema,
   OrderbookSchema,
@@ -74,11 +75,13 @@ export class JupiterPredictionClient {
     const query: Record<string, string> = {};
     if (filters.category) query.category = filters.category;
     if (filters.status) query.status = filters.status;
-    return this.request("/events", z.array(EventSchema), { query });
+    const response = await this.request("/events", EventsResponseSchema, { query });
+    return response.data;
   }
 
   async searchEvents(query: string): Promise<Event[]> {
-    return this.request("/events/search", z.array(EventSchema), { query: { query } });
+    const response = await this.request("/events/search", EventsResponseSchema, { query: { query } });
+    return response.data;
   }
 
   async getMarket(marketId: string): Promise<Market> {

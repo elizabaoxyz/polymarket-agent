@@ -33,7 +33,6 @@ import {
 } from "./lib";
 import { runPolymarketTui, runSettingsWizard, setFatalError, type SettingsField } from "./tui";
 import { jupiterPredictionPlugin } from "./plugins/jupiter-prediction/index";
-import { JupiterPredictionService } from "./plugins/jupiter-prediction/service";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -530,6 +529,9 @@ function buildRuntimeSettings(provider: LlmProvider | null): Record<string, stri
     SMALL_MODEL: smallModel,
     POSTGRES_URL: process.env.POSTGRES_URL || undefined,
     PGLITE_DATA_DIR: process.env.PGLITE_DATA_DIR || "memory://",
+    JUPITER_API_KEY: process.env.JUPITER_API_KEY || undefined,
+    SOLANA_PRIVATE_KEY: process.env.SOLANA_PRIVATE_KEY || undefined,
+    SOLANA_RPC_URL: process.env.SOLANA_RPC_URL || undefined,
   };
   if (model) {
     if (provider === "openai") settings.OPENAI_LARGE_MODEL = model;
@@ -567,18 +569,6 @@ async function createRuntimeSession(
     actionPlanning: true,
     checkShouldRespond: false,
   });
-
-  // Register Jupiter Prediction service if Solana env vars are present
-  const jupiterApiKey = process.env.JUPITER_API_KEY?.trim();
-  const solanaPrivateKey = process.env.SOLANA_PRIVATE_KEY?.trim();
-  if (jupiterApiKey && solanaPrivateKey) {
-    const jupiterService = new JupiterPredictionService({
-      apiKey: jupiterApiKey,
-      solanaPrivateKey,
-      rpcUrl: process.env.SOLANA_RPC_URL?.trim() ?? undefined,
-    });
-    runtime.registerService(jupiterService as unknown as Parameters<typeof runtime.registerService>[0]);
-  }
 
   await runtime.initialize();
 

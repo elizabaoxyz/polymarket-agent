@@ -1,9 +1,9 @@
 import type { Action, ActionExample } from "@elizaos/core";
-import { JupiterPredictionService } from "./service";
+import { JupiterPredictionService, JUPITER_SERVICE_TYPE } from "./service";
 import { scanAndScore, formatOpportunitySummary } from "./scanner";
 import { microUsdToDollars, dollarsToMicroUsd, USDC_MINT } from "./types";
 
-const SERVICE_KEY = "JUPITER_PREDICTION";
+const SERVICE_KEY = JUPITER_SERVICE_TYPE;
 
 function getService(runtime: { getService: (name: string) => unknown }): JupiterPredictionService {
   const svc = runtime.getService(SERVICE_KEY) as JupiterPredictionService | undefined;

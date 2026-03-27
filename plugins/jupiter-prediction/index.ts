@@ -5,6 +5,7 @@ import {
   checkJupiterPositions,
   claimJupiterWinnings,
 } from "./actions";
+import { JupiterPredictionService } from "./service";
 
 export const jupiterPredictionPlugin: Plugin = {
   name: "jupiter-prediction",
@@ -16,7 +17,7 @@ export const jupiterPredictionPlugin: Plugin = {
     claimJupiterWinnings,
   ],
   providers: [],
-  services: [],
+  services: [JupiterPredictionService as unknown as Plugin["services"] extends (infer T)[] ? T : never],
 };
 
 export default jupiterPredictionPlugin;

@@ -935,10 +935,10 @@ function PolymarketTuiApp(props: TuiSession): ReactNode {
     if (messages.length > 0) return;
     greetedRef.current = true;
     const greetings: Record<string, string> = {
-      polymarket: "Hello! I'm the Polymarket trading agent. I can scan markets, summarize positions, and place orders when enabled. Type /help for commands.",
+      polymarket: "Hello! I'm Eliza v2 — I trade on Polymarket (Polygon) and Jupiter Prediction Markets (Solana), with x402 auto-payments enabled. Ask me to scan markets, check positions, or place orders. Type /help for commands.",
       jupiter: "Hello! I'm the Jupiter Prediction trading agent on Solana. I can scan prediction markets, place bets, check positions, and claim winnings. Type /help for commands.",
     };
-    const defaultGreeting = "Hello! I can trade on Polymarket and Jupiter Prediction Markets. Ask me to scan markets, check positions, or place orders. Type /help for commands.";
+    const defaultGreeting = "Hello! I'm Eliza v2 — I trade on Polymarket and Jupiter Prediction Markets, with x402 auto-payments. Ask me to scan markets, check positions, or place orders. Type /help for commands.";
     appendMessage({
       id: uuidv4(),
       role: "assistant",

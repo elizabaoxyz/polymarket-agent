@@ -137,13 +137,17 @@ export class ClobApiClient {
     }
     const data = await response.json();
     const parsed = ClobMarketsResponseSchema.parse(data);
-    const q = query.toLowerCase();
-    return parsed.data.filter((m) =>
-      m.question?.toLowerCase().includes(q) &&
+    const active = parsed.data.filter((m) =>
       m.active === true &&
       m.closed !== true &&
       m.accepting_orders === true
     );
+    if (!query || query.trim().length === 0) {
+      // No query — return top markets (they come pre-sorted by relevance/volume)
+      return active.slice(0, 20);
+    }
+    const q = query.toLowerCase();
+    return active.filter((m) => m.question?.toLowerCase().includes(q));
   }
 
   async getMarket(conditionId: string): Promise<ClobMarket | null> {

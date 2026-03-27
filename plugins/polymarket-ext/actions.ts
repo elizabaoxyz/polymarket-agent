@@ -388,24 +388,42 @@ export const placePolymarketOrder: Action = {
     // Parse side (BUY default, SELL if explicit)
     const side: "BUY" | "SELL" = /\bsell\b/i.test(text) ? "SELL" : "BUY";
 
-    // Extract market name from quotes or after "on"
+    // Extract search keywords from the message
+    // 1. Try quoted market name
+    // 2. Try keywords after "on" (strip noise words)
+    // 3. Fall back to picking top-liquidity market
     let marketQuery: string | null = null;
     const quotedMatch = /['"\u201C\u201D]([^'"\u201C\u201D]{5,})['"\u201C\u201D]/u.exec(text);
     if (quotedMatch) {
       marketQuery = quotedMatch[1]!;
     } else {
       const onMatch = /\bon\s+(.{5,})$/i.exec(text);
-      if (onMatch) marketQuery = onMatch[1]!.trim();
-    }
-
-    if (!marketQuery) {
-      if (callback) callback({ text: "Specify the market. Example: buy $5 YES on 'Will X happen?'" });
-      return false;
+      if (onMatch) {
+        // Strip noise words to get search keywords
+        const raw = onMatch[1]!.trim();
+        const noise = /\b(polymarket|something|interesting|anything|whatever|good|best|top|market|a|the|an|in|on|for|that|has)\b/gi;
+        const keywords = raw.replace(noise, "").replace(/\s+/g, " ").trim();
+        marketQuery = keywords.length >= 3 ? keywords : null;
+      }
     }
 
     let markets: ClobMarket[];
     try {
-      markets = await svc.clob!.searchMarkets(marketQuery);
+      if (marketQuery) {
+        // Try each keyword separately if full query fails
+        markets = await svc.clob!.searchMarkets(marketQuery);
+        if (markets.length === 0) {
+          // Try individual keywords
+          const words = marketQuery.split(/\s+/).filter(w => w.length >= 3);
+          for (const word of words) {
+            markets = await svc.clob!.searchMarkets(word);
+            if (markets.length > 0) break;
+          }
+        }
+      } else {
+        // No specific market — pick a random top-liquidity market
+        markets = await svc.clob!.searchMarkets("");
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       if (callback) callback({ text: `Failed to search markets: ${msg}` });
@@ -413,7 +431,7 @@ export const placePolymarketOrder: Action = {
     }
 
     if (markets.length === 0) {
-      if (callback) callback({ text: `No active markets found matching "${marketQuery}".` });
+      if (callback) callback({ text: `No active markets found${marketQuery ? ` matching "${marketQuery}"` : ""}. Try a broader term like "Bitcoin", "president", or "election".` });
       return false;
     }
 

@@ -93,7 +93,7 @@ export const PositionSchema = z.object({
 export type Position = z.infer<typeof PositionSchema>;
 
 export const TradingStatusSchema = z.object({
-  operational: z.boolean(),
+  trading_active: z.boolean(),
 });
 export type TradingStatus = z.infer<typeof TradingStatusSchema>;
 

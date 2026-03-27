@@ -61,7 +61,7 @@ export class JupiterPredictionService {
   async isReady(): Promise<boolean> {
     try {
       const status = await this.client.getTradingStatus();
-      return status.operational;
+      return status.trading_active;
     } catch {
       return false;
     }

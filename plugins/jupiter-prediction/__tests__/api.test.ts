@@ -53,15 +53,15 @@ describe("JupiterPredictionClient", () => {
   const client = new JupiterPredictionClient("test-api-key");
 
   test("sends x-api-key header on every request", async () => {
-    setMock("/trading-status", { operational: true });
+    setMock("/trading-status", { trading_active: true });
     await client.getTradingStatus();
     expect(capturedRequests[0]!.headers["x-api-key"]).toBe("test-api-key");
   });
 
   test("getTradingStatus returns parsed response", async () => {
-    setMock("/trading-status", { operational: true });
+    setMock("/trading-status", { trading_active: true });
     const result = await client.getTradingStatus();
-    expect(result.operational).toBe(true);
+    expect(result.trading_active).toBe(true);
   });
 
   test("getEvents unwraps data array", async () => {

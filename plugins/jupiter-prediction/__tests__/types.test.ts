@@ -160,8 +160,8 @@ describe("PositionSchema", () => {
 
 describe("TradingStatusSchema", () => {
   test("parses operational status", () => {
-    const raw = { operational: true };
+    const raw = { trading_active: true };
     const parsed = TradingStatusSchema.parse(raw);
-    expect(parsed.operational).toBe(true);
+    expect(parsed.trading_active).toBe(true);
   });
 });

@@ -487,7 +487,21 @@ async function createRuntimeSession(
 
   const runtime = new AgentRuntime({
     character,
-    plugins: [sqlPlugin, polymarketPlugin, polymarketExtPlugin, jupiterPredictionPlugin, x402SolanaPlugin, ...llmPlugins],
+    plugins: [
+      sqlPlugin,
+      // Filter out the broken POLYMARKET_PLACE_ORDER action from the original plugin —
+      // our polymarketExtPlugin provides PLACE_POLYMARKET_EXT_ORDER with correct token resolution
+      {
+        ...polymarketPlugin,
+        actions: (polymarketPlugin.actions ?? []).filter(
+          (a: { name?: string }) => a.name !== "POLYMARKET_PLACE_ORDER"
+        ),
+      },
+      polymarketExtPlugin,
+      jupiterPredictionPlugin,
+      x402SolanaPlugin,
+      ...llmPlugins,
+    ],
     settings: buildLlmRuntimeSettings(llmProvider),
     logLevel: "error",
     enableAutonomy: true,

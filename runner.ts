@@ -489,13 +489,20 @@ async function createRuntimeSession(
     character,
     plugins: [
       sqlPlugin,
-      // Filter out the broken POLYMARKET_PLACE_ORDER action from the original plugin —
-      // our polymarketExtPlugin provides PLACE_POLYMARKET_EXT_ORDER with correct token resolution
+      // Filter out actions from the original plugin that use broken Gamma API token resolution.
+      // Our polymarketExtPlugin replaces them with CLOB API-based equivalents.
+      // Kept: CHECK_ORDER_SCORING, GET_ORDER_DETAILS, RESEARCH_MARKET (these work correctly)
       {
         ...polymarketPlugin,
-        actions: (polymarketPlugin.actions ?? []).filter(
-          (a: { name?: string }) => a.name !== "POLYMARKET_PLACE_ORDER"
-        ),
+        actions: (polymarketPlugin.actions ?? []).filter((a: { name?: string }) => {
+          const broken = [
+            "POLYMARKET_PLACE_ORDER",
+            "POLYMARKET_GET_MARKETS",
+            "POLYMARKET_GET_TOKEN_INFO",
+            "POLYMARKET_GET_ORDER_BOOK_DEPTH",
+          ];
+          return !broken.includes(a.name ?? "");
+        }),
       },
       polymarketExtPlugin,
       jupiterPredictionPlugin,

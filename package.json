@@ -31,6 +31,7 @@
     "@x402/svm": "^2.8.0",
     "@zenobius/ink-mouse": "1.0.4",
     "dotenv": "^16.6.1",
+    "ethers": "^6.16.0",
     "ink": "^6.6.0",
     "ink-text-input": "^6.0.0",
     "react": "19.2.3",

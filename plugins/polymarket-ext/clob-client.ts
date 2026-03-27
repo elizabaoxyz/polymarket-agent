@@ -7,10 +7,12 @@ import {
   CancelAllResponseSchema,
   OpenOrdersResponseSchema,
   OrderBookSchema,
+  ClobMarketsResponseSchema,
   type CancelResponse,
   type CancelAllResponse,
   type OpenOrder,
   type OrderBook,
+  type ClobMarket,
 } from "./types";
 import { z } from "zod";
 
@@ -123,6 +125,37 @@ export class ClobApiClient {
       query: { token_id: tokenId },
       schema: OrderBookSchema,
     });
+  }
+
+  async searchMarkets(query: string): Promise<ClobMarket[]> {
+    // Fetch sampling-markets (public, no auth) and filter by query
+    const url = new URL(`${this.config.baseUrl}/sampling-markets`);
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new PolymarketApiError(response.status, text, "/sampling-markets");
+    }
+    const data = await response.json();
+    const parsed = ClobMarketsResponseSchema.parse(data);
+    const q = query.toLowerCase();
+    return parsed.data.filter((m) =>
+      m.question?.toLowerCase().includes(q) &&
+      m.active === true &&
+      m.closed !== true &&
+      m.accepting_orders === true
+    );
+  }
+
+  async getMarket(conditionId: string): Promise<ClobMarket | null> {
+    const url = new URL(`${this.config.baseUrl}/markets/${conditionId}`);
+    const response = await fetch(url.toString());
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new PolymarketApiError(response.status, text, `/markets/${conditionId}`);
+    }
+    const data = await response.json();
+    return ClobMarketsResponseSchema.shape.data.element.parse(data);
   }
 
   private heartbeatId: string | null = null;

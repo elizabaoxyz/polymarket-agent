@@ -7,6 +7,7 @@ import {
   getPolymarketPositions,
   getPolymarketTrades,
   getPolymarketPnl,
+  placePolymarketOrder,
 } from "../actions";
 import { POLYMARKET_EXT_SERVICE_TYPE } from "../types";
 
@@ -300,5 +301,83 @@ describe("GET_POLYMARKET_PNL", () => {
       mockRuntime(svc), mockMessage("my pnl"), undefined, undefined, cb.fn,
     );
     expect(cb.calls[0]).toContain("wallet");
+  });
+});
+
+// --- Place Order (with token resolution) ---
+
+describe("PLACE_POLYMARKET_EXT_ORDER", () => {
+  test("searches market, resolves token, and places order", async () => {
+    const cb = collectCallback();
+    let capturedOrder: any;
+    const svc = {
+      clob: {
+        searchMarkets: async () => [{
+          condition_id: "0xcond1",
+          question: "Will it rain tomorrow?",
+          tokens: [
+            { token_id: "token-yes-123", outcome: "Yes", price: 0.55 },
+            { token_id: "token-no-456", outcome: "No", price: 0.45 },
+          ],
+          active: true,
+          closed: false,
+          accepting_orders: true,
+        }],
+        getOrderBook: async () => ({
+          bids: [{ price: "0.53", size: "100" }],
+          asks: [{ price: "0.56", size: "200" }],
+        }),
+      },
+      placeOrder: async (params: any) => {
+        capturedOrder = params;
+        return { orderID: "placed-1", status: "matched", transactionsHashes: ["0xtx1"] };
+      },
+      isFullyActive: () => true,
+    };
+    await placePolymarketOrder.handler(
+      mockRuntime(svc),
+      mockMessage("buy $5 YES on 'Will it rain tomorrow?'"),
+      undefined, undefined, cb.fn,
+    );
+    expect(cb.calls.length).toBeGreaterThan(1);
+    expect(cb.calls[cb.calls.length - 1]).toContain("placed-1");
+    expect(capturedOrder.tokenId).toBe("token-yes-123");
+    expect(capturedOrder.side).toBe("BUY");
+  });
+
+  test("returns error when no market found", async () => {
+    const cb = collectCallback();
+    const svc = {
+      clob: { searchMarkets: async () => [] },
+      isFullyActive: () => true,
+    };
+    await placePolymarketOrder.handler(
+      mockRuntime(svc),
+      mockMessage("buy $5 YES on 'nonexistent market xyz'"),
+      undefined, undefined, cb.fn,
+    );
+    expect(cb.calls[cb.calls.length - 1]).toContain("No active markets");
+  });
+
+  test("returns error when no outcome specified", async () => {
+    const cb = collectCallback();
+    const svc = { clob: {}, isFullyActive: () => true };
+    await placePolymarketOrder.handler(
+      mockRuntime(svc),
+      mockMessage("buy $5 on 'something'"),
+      undefined, undefined, cb.fn,
+    );
+    expect(cb.calls[0]).toContain("YES or NO");
+  });
+
+  test("returns error when no amount specified", async () => {
+    const cb = collectCallback();
+    const svc = { clob: {}, isFullyActive: () => true };
+    await placePolymarketOrder.handler(
+      mockRuntime(svc),
+      mockMessage("buy YES on 'something'"),
+      undefined, undefined, cb.fn,
+    );
+    expect(cb.calls[0]).toContain("dollar amount");
   });
 });

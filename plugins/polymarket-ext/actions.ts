@@ -1,6 +1,6 @@
 import type { Action, ActionExample } from "@elizaos/core";
 import { PolymarketExtService } from "./service";
-import { POLYMARKET_EXT_SERVICE_TYPE, type OpenOrder } from "./types";
+import { POLYMARKET_EXT_SERVICE_TYPE, type OpenOrder, type ClobMarket, type ClobToken } from "./types";
 
 function getService(runtime: { getService: (name: string) => unknown }): PolymarketExtService {
   const svc = runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) as PolymarketExtService | undefined;
@@ -322,6 +322,147 @@ export const getPolymarketPnl: Action = {
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       if (callback) callback({ text: `Failed to fetch PnL: ${msg}` });
+      return false;
+    }
+  },
+};
+
+// --- Place Order (with correct token resolution) ---
+
+function resolveToken(market: ClobMarket, outcome: string): ClobToken | null {
+  const normalized = outcome.toLowerCase();
+  return market.tokens.find((t) => t.outcome.toLowerCase() === normalized) ?? null;
+}
+
+export const placePolymarketOrder: Action = {
+  name: "PLACE_POLYMARKET_EXT_ORDER",
+  description:
+    "Place a buy or sell order on Polymarket with correct token resolution. " +
+    "Searches for the market by name, resolves the exact token ID, and places the order. " +
+    "Specify: market name, YES/NO outcome, dollar amount, and optionally a price (defaults to best available).",
+  similes: [
+    "buy on polymarket", "bet on polymarket", "place polymarket order",
+    "polymarket buy", "polymarket bet", "place bet", "buy yes", "buy no",
+  ],
+  examples: [
+    [
+      { name: "user", content: { text: "Buy $5 YES on 'Will Jon Ossoff win the 2028 Democratic presidential nomination?'" } },
+      { name: "assistant", content: { text: "Searching for the market and placing a $5 YES buy..." } },
+    ],
+  ] as ActionExample[][],
+  validate: async (runtime) => runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) !== undefined,
+  handler: async (runtime, message, _state, _options, callback) => {
+    const svc = getService(runtime);
+    if (!requireClob(svc, callback)) return false;
+
+    const text = getMessageText(message);
+
+    // Parse outcome (YES/NO)
+    const isYes = /\byes\b/i.test(text);
+    const isNo = /\bno\b/i.test(text);
+    if (!isYes && !isNo) {
+      if (callback) callback({ text: "Specify YES or NO outcome. Example: buy $5 YES on 'market name'" });
+      return false;
+    }
+    const outcome = isYes ? "Yes" : "No";
+
+    // Parse dollar amount
+    const amountMatch = /\$(\d+(?:\.\d+)?)/.exec(text);
+    if (!amountMatch) {
+      if (callback) callback({ text: "Specify a dollar amount. Example: buy $5 YES on 'market name'" });
+      return false;
+    }
+    const dollars = parseFloat(amountMatch[1]!);
+
+    // Parse side (BUY default, SELL if explicit)
+    const side: "BUY" | "SELL" = /\bsell\b/i.test(text) ? "SELL" : "BUY";
+
+    // Extract market name from quotes or after "on"
+    let marketQuery: string | null = null;
+    const quotedMatch = /['"\u201C\u201D]([^'"\u201C\u201D]{5,})['"\u201C\u201D]/u.exec(text);
+    if (quotedMatch) {
+      marketQuery = quotedMatch[1]!;
+    } else {
+      const onMatch = /\bon\s+(.{5,})$/i.exec(text);
+      if (onMatch) marketQuery = onMatch[1]!.trim();
+    }
+
+    if (!marketQuery) {
+      if (callback) callback({ text: "Specify the market. Example: buy $5 YES on 'Will X happen?'" });
+      return false;
+    }
+
+    // Search for the market
+    if (callback) callback({ text: `Searching for market: "${marketQuery}"...` });
+
+    let markets: ClobMarket[];
+    try {
+      markets = await svc.clob!.searchMarkets(marketQuery);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (callback) callback({ text: `Failed to search markets: ${msg}` });
+      return false;
+    }
+
+    if (markets.length === 0) {
+      if (callback) callback({ text: `No active markets found matching "${marketQuery}".` });
+      return false;
+    }
+
+    // Pick best match (first result after filtering)
+    const market = markets[0]!;
+    const token = resolveToken(market, outcome);
+    if (!token) {
+      if (callback) callback({ text: `No ${outcome} token found for market: ${market.question}` });
+      return false;
+    }
+
+    // Determine price: use best available from order book, or token's current price
+    let price = token.price;
+    try {
+      const book = await svc.clob!.getOrderBook(token.token_id);
+      if (side === "BUY" && book.asks.length > 0) {
+        price = parseFloat(book.asks[0]!.price);
+      } else if (side === "SELL" && book.bids.length > 0) {
+        price = parseFloat(book.bids[0]!.price);
+      }
+    } catch {
+      // Fall back to token.price
+    }
+
+    // Explicit price override from message
+    const priceMatch = /(?:at|@|price)\s*\$?(\d+\.\d+)/i.exec(text);
+    if (priceMatch) {
+      price = parseFloat(priceMatch[1]!);
+    }
+
+    const size = Math.floor(dollars / price);
+    if (size < 1) {
+      if (callback) callback({ text: `$${dollars} at $${price.toFixed(2)}/share = ${(dollars / price).toFixed(1)} shares — minimum is 1.` });
+      return false;
+    }
+
+    if (callback) {
+      callback({
+        text: `Placing order: ${side} ${size} ${outcome} shares of "${market.question}" @ $${price.toFixed(2)} ($${(size * price).toFixed(2)} total)\nToken: ${shortenId(token.token_id)}`,
+      });
+    }
+
+    try {
+      const result = await svc.placeOrder({
+        tokenId: token.token_id,
+        side,
+        price,
+        size,
+      });
+      const txInfo = result.transactionsHashes.length > 0
+        ? `\ntx: ${result.transactionsHashes[0]}`
+        : "";
+      if (callback) callback({ text: `Order ${result.orderID} — ${result.status}${txInfo}` });
+      return true;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (callback) callback({ text: `Order failed: ${msg}` });
       return false;
     }
   },

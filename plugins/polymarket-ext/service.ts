@@ -87,11 +87,7 @@ export class PolymarketExtService {
     }
   }
 
-  async sellOrder(params: { tokenId: string; price: number; size: number }): Promise<{
-    orderID: string;
-    status: string;
-    transactionsHashes: string[];
-  }> {
+  private async getClobClient(): Promise<any> {
     if (!this.clob) throw new Error("CLOB client not initialized.");
     if (!this._privateKey) throw new Error("Private key not available for order signing.");
 
@@ -100,16 +96,39 @@ export class PolymarketExtService {
 
     const signer = new Wallet(this._privateKey);
     const chainId = 137; // Polygon
-    const client = new ClobClient(this.clob.config.baseUrl, chainId, signer, {
-      key: this.clob.config.apiKey,
-      secret: this.clob.config.secret,
-      passphrase: this.clob.config.passphrase,
-    });
 
-    const order = await (client as any).createAndPostOrder({
+    const sigType = process.env.POLYMARKET_SIGNATURE_TYPE?.trim();
+    const funder = process.env.POLYMARKET_FUNDER_ADDRESS?.trim();
+
+    return new ClobClient(
+      this.clob.config.baseUrl,
+      chainId,
+      signer,
+      {
+        key: this.clob.config.apiKey,
+        secret: this.clob.config.secret,
+        passphrase: this.clob.config.passphrase,
+      },
+      sigType ? Number(sigType) : undefined,
+      funder,
+    );
+  }
+
+  async placeOrder(params: {
+    tokenId: string;
+    side: "BUY" | "SELL";
+    price: number;
+    size: number;
+  }): Promise<{
+    orderID: string;
+    status: string;
+    transactionsHashes: string[];
+  }> {
+    const client = await this.getClobClient();
+    const order = await client.createAndPostOrder({
       tokenID: params.tokenId,
       price: params.price,
-      side: "SELL",
+      side: params.side,
       size: params.size,
       feeRateBps: 0,
       nonce: 0,
@@ -120,5 +139,13 @@ export class PolymarketExtService {
       status: order.status ?? "submitted",
       transactionsHashes: order.transactionsHashes ?? [],
     };
+  }
+
+  async sellOrder(params: { tokenId: string; price: number; size: number }): Promise<{
+    orderID: string;
+    status: string;
+    transactionsHashes: string[];
+  }> {
+    return this.placeOrder({ ...params, side: "SELL" });
   }
 }

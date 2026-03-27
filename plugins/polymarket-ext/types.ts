@@ -115,3 +115,32 @@ export const PnlSummarySchema = z.object({
   positions_lost: z.number().optional(),
 }).passthrough();
 export type PnlSummary = z.infer<typeof PnlSummarySchema>;
+
+// --- CLOB Market (from /sampling-markets) ---
+
+export const ClobTokenSchema = z.object({
+  token_id: z.string(),
+  outcome: z.string(),
+  price: z.coerce.number(),
+  winner: z.boolean().optional(),
+}).passthrough();
+export type ClobToken = z.infer<typeof ClobTokenSchema>;
+
+export const ClobMarketSchema = z.object({
+  condition_id: z.string(),
+  question: z.string().optional(),
+  question_id: z.string().optional(),
+  tokens: z.array(ClobTokenSchema),
+  active: z.boolean().optional(),
+  closed: z.boolean().optional(),
+  accepting_orders: z.boolean().optional(),
+  minimum_order_size: z.coerce.number().optional(),
+  minimum_tick_size: z.coerce.number().optional(),
+  neg_risk: z.boolean().optional(),
+}).passthrough();
+export type ClobMarket = z.infer<typeof ClobMarketSchema>;
+
+export const ClobMarketsResponseSchema = z.object({
+  data: z.array(ClobMarketSchema),
+  next_cursor: z.string().optional(),
+}).passthrough();

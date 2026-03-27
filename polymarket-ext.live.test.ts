@@ -130,6 +130,47 @@ describeIfLive("Live: DataApiClient", () => {
   }, 30_000);
 });
 
+describeIfLive("Live: Market Search & Token Resolution", () => {
+  let client: ClobApiClient;
+
+  beforeAll(() => {
+    const walletAddress = ethers.computeAddress(EVM_PRIVATE_KEY!);
+    client = new ClobApiClient({
+      baseUrl: CLOB_API_URL,
+      apiKey: CLOB_API_KEY!,
+      secret: CLOB_API_SECRET!,
+      passphrase: CLOB_API_PASSPHRASE!,
+      address: walletAddress,
+    });
+  });
+
+  test("searchMarkets finds active markets and returns valid token IDs", async () => {
+    const markets = await client.searchMarkets("Democratic");
+    expect(markets.length).toBeGreaterThan(0);
+    const first = markets[0]!;
+    expect(first.question).toBeDefined();
+    expect(first.tokens.length).toBeGreaterThanOrEqual(2);
+    const yesToken = first.tokens.find(t => t.outcome === "Yes");
+    const noToken = first.tokens.find(t => t.outcome === "No");
+    expect(yesToken).toBeDefined();
+    expect(noToken).toBeDefined();
+    expect(yesToken!.token_id.length).toBeGreaterThan(10);
+    console.log(`  Live: Found "${first.question}"`);
+    console.log(`    YES token: ${yesToken!.token_id.slice(0, 20)}... @ $${yesToken!.price}`);
+    console.log(`    NO token:  ${noToken!.token_id.slice(0, 20)}... @ $${noToken!.price}`);
+  }, 30_000);
+
+  test("resolved token ID has valid order book", async () => {
+    const markets = await client.searchMarkets("Democratic");
+    if (markets.length === 0) return;
+    const token = markets[0]!.tokens[0]!;
+    const book = await client.getOrderBook(token.token_id);
+    expect(book).toHaveProperty("bids");
+    expect(book).toHaveProperty("asks");
+    console.log(`  Live: Token ${token.token_id.slice(0, 15)}... has ${book.bids.length} bids, ${book.asks.length} asks`);
+  }, 30_000);
+});
+
 describeIfLive("Live: PolymarketExtService", () => {
   test("service starts in full mode with live credentials", async () => {
     const runtime = {

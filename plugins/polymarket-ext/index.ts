@@ -7,6 +7,7 @@ import {
   getPolymarketPositions,
   getPolymarketTrades,
   getPolymarketPnl,
+  placePolymarketOrder,
 } from "./actions";
 import { PolymarketExtService } from "./service";
 
@@ -21,6 +22,7 @@ export const polymarketExtPlugin: Plugin = {
     getPolymarketPositions,
     getPolymarketTrades,
     getPolymarketPnl,
+    placePolymarketOrder,
   ],
   providers: [],
   services: [PolymarketExtService as unknown as Plugin["services"] extends (infer T)[] ? T : never],

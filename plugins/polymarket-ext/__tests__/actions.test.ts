@@ -339,8 +339,9 @@ describe("PLACE_POLYMARKET_EXT_ORDER", () => {
       mockMessage("buy $5 YES on 'Will it rain tomorrow?'"),
       undefined, undefined, cb.fn,
     );
-    expect(cb.calls.length).toBeGreaterThan(1);
-    expect(cb.calls[cb.calls.length - 1]).toContain("placed-1");
+    expect(cb.calls.length).toBe(1);
+    expect(cb.calls[0]).toContain("placed-1");
+    expect(cb.calls[0]).toContain("BUY");
     expect(capturedOrder.tokenId).toBe("token-yes-123");
     expect(capturedOrder.side).toBe("BUY");
   });
@@ -356,7 +357,7 @@ describe("PLACE_POLYMARKET_EXT_ORDER", () => {
       mockMessage("buy $5 YES on 'nonexistent market xyz'"),
       undefined, undefined, cb.fn,
     );
-    expect(cb.calls[cb.calls.length - 1]).toContain("No active markets");
+    expect(cb.calls[0]).toContain("No active markets");
   });
 
   test("returns error when no outcome specified", async () => {

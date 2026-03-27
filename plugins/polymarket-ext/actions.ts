@@ -187,12 +187,11 @@ export const sellPolymarketPosition: Action = {
     }
 
     try {
-      if (callback) callback({ text: `Selling ${shares} shares of ${shortenId(tokenId)} at $${price.toFixed(2)}...` });
       const result = await svc.sellOrder({ tokenId, price, size: shares });
       const txInfo = result.transactionsHashes.length > 0
         ? ` | tx: ${shortenId(result.transactionsHashes[0]!)}`
         : "";
-      if (callback) callback({ text: `Sell order ${result.orderID} — ${result.status}${txInfo}` });
+      if (callback) callback({ text: `SELL ${shares} shares of ${shortenId(tokenId)} @ $${price.toFixed(2)}\nOrder: ${shortenId(result.orderID)} — ${result.status}${txInfo}` });
       return true;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -392,9 +391,6 @@ export const placePolymarketOrder: Action = {
       return false;
     }
 
-    // Search for the market
-    if (callback) callback({ text: `Searching for market: "${marketQuery}"...` });
-
     let markets: ClobMarket[];
     try {
       markets = await svc.clob!.searchMarkets(marketQuery);
@@ -442,12 +438,6 @@ export const placePolymarketOrder: Action = {
       return false;
     }
 
-    if (callback) {
-      callback({
-        text: `Placing order: ${side} ${size} ${outcome} shares of "${market.question}" @ $${price.toFixed(2)} ($${(size * price).toFixed(2)} total)\nToken: ${shortenId(token.token_id)}`,
-      });
-    }
-
     try {
       const result = await svc.placeOrder({
         tokenId: token.token_id,
@@ -456,13 +446,16 @@ export const placePolymarketOrder: Action = {
         size,
       });
       const txInfo = result.transactionsHashes.length > 0
-        ? `\ntx: ${result.transactionsHashes[0]}`
+        ? ` | tx: ${shortenId(result.transactionsHashes[0]!)}`
         : "";
-      if (callback) callback({ text: `Order ${result.orderID} — ${result.status}${txInfo}` });
+      const total = (size * price).toFixed(2);
+      if (callback) callback({
+        text: `${side} ${size} ${outcome} shares of "${market.question}" @ $${price.toFixed(2)} ($${total})\nOrder: ${shortenId(result.orderID)} — ${result.status}${txInfo}`,
+      });
       return true;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      if (callback) callback({ text: `Order failed: ${msg}` });
+      if (callback) callback({ text: `Order failed on "${market.question}": ${msg}` });
       return false;
     }
   },

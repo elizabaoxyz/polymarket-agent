@@ -3,6 +3,11 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import anthropicPlugin from "@elizaos/plugin-anthropic";
+import googleGenAIPlugin from "@elizaos/plugin-google-genai";
+import groqPlugin from "@elizaos/plugin-groq";
+import { openaiPlugin } from "@elizaos/plugin-openai";
+import XAIPlugin from "@elizaos/plugin-xai";
 import { z } from "zod";
 
 export type Command = "help" | "verify" | "chat" | "settings" | "input-test";
@@ -247,13 +252,6 @@ export function loadEnvConfig(options: CliOptions): EnvConfig {
     process.env.CLOB_API_PASSPHRASE ?? process.env.CLOB_PASS_PHRASE
   );
 
-  console.log("🔍 env check:", {
-    CLOB_API_KEY: key?.[0] ?? "(missing)",
-    CLOB_API_SECRET: secret?.[0] ?? "(missing)",
-    CLOB_API_PASSPHRASE: passphrase?.[0] ?? "(missing)",
-    EVM_PRIVATE_KEY: privateKeyRaw?.[0] ?? "(missing)",
-  });
-
   const creds =
     typeof key === "string" && typeof secret === "string" && typeof passphrase === "string"
       ? {
@@ -430,4 +428,87 @@ export function resolveLlmModel(
     if (value) return value;
   }
   return null;
+}
+
+// --- Shared LLM runtime helpers (used by both runner.ts and jupiter-runner.ts) ---
+
+export const DEFAULT_LLM_MODELS: Record<LlmProvider, string> = {
+  openai: "gpt-5",
+  anthropic: "claude-sonnet-4-20250514",
+  gemini: "gemini-2.5-pro-preview-03-25",
+  groq: "llama-3.3-70b-versatile",
+  grok: "grok-3",
+};
+
+export function resolveLlmProviderFromEnv(): LlmProvider | null {
+  return resolveLlmProvider((key) => {
+    const value = process.env[key];
+    return typeof value === "string" ? value : undefined;
+  });
+}
+
+export function resolveLlmModelFromEnv(provider: LlmProvider | null): string | null {
+  return resolveLlmModel(provider, (key) => {
+    const value = process.env[key];
+    return typeof value === "string" ? value : undefined;
+  });
+}
+
+export function buildLlmPlugins(provider: LlmProvider | null): Array<typeof openaiPlugin> {
+  if (!provider) return [openaiPlugin];
+  switch (provider) {
+    case "anthropic":
+      return [anthropicPlugin];
+    case "gemini":
+      return [googleGenAIPlugin];
+    case "groq":
+      return [groqPlugin];
+    case "grok":
+      return [XAIPlugin];
+    case "openai":
+    default:
+      return [openaiPlugin];
+  }
+}
+
+export function buildLlmRuntimeSettings(provider: LlmProvider | null): Record<string, string | undefined> {
+  const model = resolveLlmModelFromEnv(provider);
+  const smallModel =
+    process.env.ELIZA_LLM_SMALL_MODEL ?? process.env.LLM_SMALL_MODEL ?? model ?? undefined;
+  const settings: Record<string, string | undefined> = {
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+    GROQ_API_KEY: process.env.GROQ_API_KEY,
+    XAI_API_KEY: process.env.XAI_API_KEY,
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+    GROQ_BASE_URL: process.env.GROQ_BASE_URL,
+    XAI_BASE_URL: process.env.XAI_BASE_URL,
+    ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+    GOOGLE_API_BASE_URL: process.env.GOOGLE_API_BASE_URL,
+    LARGE_MODEL: model ?? undefined,
+    SMALL_MODEL: smallModel,
+    POSTGRES_URL: process.env.POSTGRES_URL || undefined,
+    PGLITE_DATA_DIR: process.env.PGLITE_DATA_DIR || "memory://",
+    JUPITER_API_KEY: process.env.JUPITER_API_KEY || undefined,
+    SOLANA_PRIVATE_KEY: process.env.SOLANA_PRIVATE_KEY || undefined,
+    SOLANA_RPC_URL: process.env.SOLANA_RPC_URL || undefined,
+    X402_ENABLED: process.env.X402_ENABLED || undefined,
+    X402_MAX_PAYMENT_USD: process.env.X402_MAX_PAYMENT_USD || undefined,
+  };
+  if (model) {
+    if (provider === "openai") settings.OPENAI_LARGE_MODEL = model;
+    if (provider === "anthropic") settings.ANTHROPIC_LARGE_MODEL = model;
+    if (provider === "gemini") settings.GOOGLE_LARGE_MODEL = model;
+    if (provider === "groq") settings.GROQ_LARGE_MODEL = model;
+    if (provider === "grok") settings.XAI_LARGE_MODEL = model;
+  }
+  if (smallModel) {
+    if (provider === "openai") settings.OPENAI_SMALL_MODEL = smallModel;
+    if (provider === "anthropic") settings.ANTHROPIC_SMALL_MODEL = smallModel;
+    if (provider === "gemini") settings.GOOGLE_SMALL_MODEL = smallModel;
+    if (provider === "groq") settings.GROQ_SMALL_MODEL = smallModel;
+    if (provider === "grok") settings.XAI_SMALL_MODEL = smallModel;
+  }
+  return settings;
 }

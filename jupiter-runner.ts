@@ -6,22 +6,17 @@ import {
   type Character,
   type UUID,
 } from "@elizaos/core";
-import anthropicPlugin from "@elizaos/plugin-anthropic";
-import googleGenAIPlugin from "@elizaos/plugin-google-genai";
-import groqPlugin from "@elizaos/plugin-groq";
-import { openaiPlugin } from "@elizaos/plugin-openai";
 import sqlPlugin from "@elizaos/plugin-sql";
-import XAIPlugin from "@elizaos/plugin-xai";
 import process from "node:process";
 import {
   applyEnvValues,
+  buildLlmPlugins,
+  buildLlmRuntimeSettings,
   readEnvFile,
   resolveEnvPath,
-  resolveLlmModel,
-  resolveLlmProvider,
+  resolveLlmProviderFromEnv,
   writeEnvFile,
   type CliOptions,
-  type LlmProvider,
 } from "./lib";
 import { runTradingTui, runSettingsWizard, type SettingsField } from "./tui";
 import { jupiterPredictionPlugin } from "./plugins/jupiter-prediction/index";
@@ -30,14 +25,6 @@ import { JupiterPredictionService } from "./plugins/jupiter-prediction/service";
 const DEFAULT_ROOM_ID = stringToUuid("jupiter-prediction-room");
 const DEFAULT_WORLD_ID = stringToUuid("jupiter-prediction-world");
 const DEFAULT_USER_ID = stringToUuid("jupiter-operator");
-
-const DEFAULT_LLM_MODELS: Record<LlmProvider, string> = {
-  openai: "gpt-5",
-  anthropic: "claude-sonnet-4-20250514",
-  gemini: "gemini-2.5-pro-preview-03-25",
-  groq: "llama-3.3-70b-versatile",
-  grok: "grok-3",
-};
 
 type JupiterSession = {
   readonly runtime: AgentRuntime;
@@ -68,56 +55,6 @@ function buildJupiterCharacter(secrets: Record<string, string>): Character {
     settings: {},
     secrets,
   });
-}
-
-function resolveLlmProviderFromEnv(): LlmProvider | null {
-  return resolveLlmProvider((key) => {
-    const value = process.env[key];
-    return typeof value === "string" ? value : undefined;
-  });
-}
-
-function resolveLlmModelFromEnv(provider: LlmProvider | null): string | null {
-  return resolveLlmModel(provider, (key) => {
-    const value = process.env[key];
-    return typeof value === "string" ? value : undefined;
-  });
-}
-
-function buildLlmPlugins(provider: LlmProvider | null): Array<typeof openaiPlugin> {
-  if (!provider) return [openaiPlugin];
-  switch (provider) {
-    case "anthropic": return [anthropicPlugin];
-    case "gemini": return [googleGenAIPlugin];
-    case "groq": return [groqPlugin];
-    case "grok": return [XAIPlugin];
-    case "openai":
-    default: return [openaiPlugin];
-  }
-}
-
-function buildRuntimeSettings(provider: LlmProvider | null): Record<string, string | undefined> {
-  const model = resolveLlmModelFromEnv(provider);
-  const smallModel = process.env.ELIZA_LLM_SMALL_MODEL ?? process.env.LLM_SMALL_MODEL ?? model ?? undefined;
-  const settings: Record<string, string | undefined> = {
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-    GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
-    GROQ_API_KEY: process.env.GROQ_API_KEY,
-    XAI_API_KEY: process.env.XAI_API_KEY,
-    LARGE_MODEL: model ?? undefined,
-    SMALL_MODEL: smallModel,
-    POSTGRES_URL: process.env.POSTGRES_URL || undefined,
-    PGLITE_DATA_DIR: process.env.PGLITE_DATA_DIR || "memory://",
-  };
-  if (model) {
-    if (provider === "openai") settings.OPENAI_LARGE_MODEL = model;
-    if (provider === "anthropic") settings.ANTHROPIC_LARGE_MODEL = model;
-    if (provider === "gemini") settings.GOOGLE_LARGE_MODEL = model;
-    if (provider === "groq") settings.GROQ_LARGE_MODEL = model;
-    if (provider === "grok") settings.XAI_LARGE_MODEL = model;
-  }
-  return settings;
 }
 
 function getRequiredEnv(key: string): string {
@@ -224,7 +161,7 @@ async function createJupiterSession(options: CliOptions): Promise<JupiterSession
   const runtime = new AgentRuntime({
     character,
     plugins: [sqlPlugin, jupiterPredictionPlugin, ...llmPlugins],
-    settings: buildRuntimeSettings(llmProvider),
+    settings: buildLlmRuntimeSettings(llmProvider),
     logLevel: "error",
     enableAutonomy: true,
     actionPlanning: true,

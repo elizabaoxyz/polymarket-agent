@@ -217,38 +217,9 @@ function normalizeSetting(value: string | number | boolean | null | undefined): 
   return trimmed;
 }
 
-function wrapCardLines(text: string, maxWidth: number): string[] {
-  if (text.length <= maxWidth) return [text];
-  const words = text.split(" ");
-  const lines: string[] = [];
-  let current = "";
-  for (const word of words) {
-    const next = current.length > 0 ? `${current} ${word}` : word;
-    if (next.length <= maxWidth) {
-      current = next;
-      continue;
-    }
-    if (current.length > 0) {
-      lines.push(current);
-    }
-    if (word.length > maxWidth) {
-      let remaining = word;
-      while (remaining.length > maxWidth) {
-        lines.push(remaining.slice(0, maxWidth));
-        remaining = remaining.slice(maxWidth);
-      }
-      current = remaining;
-    } else {
-      current = word;
-    }
-  }
-  if (current.length > 0) lines.push(current);
-  return lines.length > 0 ? lines : [""];
-}
-
 function buildSidebarCard(title: string, lines: string[], maxInnerWidth: number): string {
-  const titleLines = wrapCardLines(title, maxInnerWidth);
-  const bodyLines = lines.flatMap((line) => wrapCardLines(line, maxInnerWidth));
+  const titleLines = wrapText(title, maxInnerWidth);
+  const bodyLines = lines.flatMap((line) => wrapText(line, maxInnerWidth));
   const allLines = [...titleLines, ...bodyLines];
   const widest = Math.max(12, ...allLines.map((line) => line.length));
   const contentWidth = Math.min(maxInnerWidth, widest);

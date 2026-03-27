@@ -6,13 +6,8 @@ import {
   type Character,
   type UUID,
 } from "@elizaos/core";
-import anthropicPlugin from "@elizaos/plugin-anthropic";
-import googleGenAIPlugin from "@elizaos/plugin-google-genai";
-import groqPlugin from "@elizaos/plugin-groq";
-import { openaiPlugin } from "@elizaos/plugin-openai";
 import polymarketPlugin from "@elizaos/plugin-polymarket";
 import sqlPlugin from "@elizaos/plugin-sql";
-import XAIPlugin from "@elizaos/plugin-xai";
 import { Wallet } from "@ethersproject/wallet";
 import { ClobClient } from "@polymarket/clob-client";
 import fs from "node:fs";
@@ -21,11 +16,15 @@ import { fileURLToPath } from "node:url";
 import { runInkInputTest } from "./ink-input-test";
 import {
   applyEnvValues,
+  buildLlmPlugins,
+  buildLlmRuntimeSettings,
+  DEFAULT_LLM_MODELS,
   loadEnvConfig,
   readEnvFile,
   resolveEnvPath,
   resolveLlmModel,
   resolveLlmProvider,
+  resolveLlmProviderFromEnv,
   writeEnvFile,
   type CliOptions,
   type EnvConfig,
@@ -58,13 +57,6 @@ const DEFAULT_WORLD_ID = stringToUuid("polymarket-runtime-world");
 const DEFAULT_USER_ID = stringToUuid("polymarket-operator");
 const POLYGON_CHAIN_ID = 137;
 const PROVIDER_OPTIONS = ["openai", "anthropic", "gemini", "groq", "grok"] as const;
-const DEFAULT_LLM_MODELS: Record<LlmProvider, string> = {
-  openai: "gpt-5",
-  anthropic: "claude-sonnet-4-20250514",
-  gemini: "gemini-2.5-pro-preview-03-25",
-  groq: "llama-3.3-70b-versatile",
-  grok: "grok-3",
-};
 
 type EnvSnapshot = Record<string, string>;
 
@@ -482,79 +474,6 @@ async function ensureEnvConfig(options: CliOptions, force: boolean): Promise<voi
   applyEnvValues(updates);
 }
 
-function resolveRuntimeProvider(): LlmProvider | null {
-  return resolveLlmProvider((key) => {
-    const value = process.env[key];
-    return typeof value === "string" ? value : undefined;
-  });
-}
-
-function resolveRuntimeModel(provider: LlmProvider | null): string | null {
-  return resolveLlmModel(provider, (key) => {
-    const value = process.env[key];
-    return typeof value === "string" ? value : undefined;
-  });
-}
-
-function buildLlmPlugins(provider: LlmProvider | null): Array<typeof openaiPlugin> {
-  if (!provider) return [openaiPlugin];
-  switch (provider) {
-    case "anthropic":
-      return [anthropicPlugin];
-    case "gemini":
-      return [googleGenAIPlugin];
-    case "groq":
-      return [groqPlugin];
-    case "grok":
-      return [XAIPlugin];
-    case "openai":
-    default:
-      return [openaiPlugin];
-  }
-}
-
-function buildRuntimeSettings(provider: LlmProvider | null): Record<string, string | undefined> {
-  const model = resolveRuntimeModel(provider);
-  const smallModel =
-    process.env.ELIZA_LLM_SMALL_MODEL ?? process.env.LLM_SMALL_MODEL ?? model ?? undefined;
-  const settings: Record<string, string | undefined> = {
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
-    GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
-    GROQ_API_KEY: process.env.GROQ_API_KEY,
-    XAI_API_KEY: process.env.XAI_API_KEY,
-    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
-    GROQ_BASE_URL: process.env.GROQ_BASE_URL,
-    XAI_BASE_URL: process.env.XAI_BASE_URL,
-    ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
-    GOOGLE_API_BASE_URL: process.env.GOOGLE_API_BASE_URL,
-    LARGE_MODEL: model ?? undefined,
-    SMALL_MODEL: smallModel,
-    POSTGRES_URL: process.env.POSTGRES_URL || undefined,
-    PGLITE_DATA_DIR: process.env.PGLITE_DATA_DIR || "memory://",
-    JUPITER_API_KEY: process.env.JUPITER_API_KEY || undefined,
-    SOLANA_PRIVATE_KEY: process.env.SOLANA_PRIVATE_KEY || undefined,
-    SOLANA_RPC_URL: process.env.SOLANA_RPC_URL || undefined,
-    X402_ENABLED: process.env.X402_ENABLED || undefined,
-    X402_MAX_PAYMENT_USD: process.env.X402_MAX_PAYMENT_USD || undefined,
-  };
-  if (model) {
-    if (provider === "openai") settings.OPENAI_LARGE_MODEL = model;
-    if (provider === "anthropic") settings.ANTHROPIC_LARGE_MODEL = model;
-    if (provider === "gemini") settings.GOOGLE_LARGE_MODEL = model;
-    if (provider === "groq") settings.GROQ_LARGE_MODEL = model;
-    if (provider === "grok") settings.XAI_LARGE_MODEL = model;
-  }
-  if (smallModel) {
-    if (provider === "openai") settings.OPENAI_SMALL_MODEL = smallModel;
-    if (provider === "anthropic") settings.ANTHROPIC_SMALL_MODEL = smallModel;
-    if (provider === "gemini") settings.GOOGLE_SMALL_MODEL = smallModel;
-    if (provider === "groq") settings.GROQ_SMALL_MODEL = smallModel;
-    if (provider === "grok") settings.XAI_SMALL_MODEL = smallModel;
-  }
-  return settings;
-}
-
 async function createRuntimeSession(
   options: CliOptions,
   config: EnvConfig
@@ -562,13 +481,13 @@ async function createRuntimeSession(
   const configBundle = buildCharacterSettings(options, config);
   const character = buildCharacter(configBundle);
   const agentId = stringToUuid(character.name ?? "eliza");
-  const llmProvider = resolveRuntimeProvider();
+  const llmProvider = resolveLlmProviderFromEnv();
   const llmPlugins = buildLlmPlugins(llmProvider);
 
   const runtime = new AgentRuntime({
     character,
     plugins: [sqlPlugin, polymarketPlugin, jupiterPredictionPlugin, x402SolanaPlugin, ...llmPlugins],
-    settings: buildRuntimeSettings(llmProvider),
+    settings: buildLlmRuntimeSettings(llmProvider),
     logLevel: "error",
     enableAutonomy: true,
     actionPlanning: true,

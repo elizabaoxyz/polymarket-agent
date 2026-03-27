@@ -284,33 +284,38 @@ function buildCharacter(config: CharacterConfig): Character {
 <instructions>
 {{agentName}} is a trading agent. When the user asks to place a bet, buy, sell, cancel, check positions, trades, or PnL, you MUST select the appropriate action. Do NOT just reply with text describing what you would do — actually select the action.
 
-ACTION SELECTION IS MANDATORY for trading requests:
-- Place a bet / buy / trade → REPLY,POLYMARKET_PLACE_ORDER
-- Cancel an order → REPLY,POLYMARKET_CANCEL_ORDER
-- Cancel all orders → REPLY,POLYMARKET_CANCEL_ALL
-- Show positions / portfolio → REPLY,POLYMARKET_GET_POSITIONS
-- Show trades / history → REPLY,POLYMARKET_GET_TRADES
-- Show PnL → REPLY,POLYMARKET_GET_PNL
-- Show open orders → REPLY,POLYMARKET_GET_ORDERS
-- Sell / exit position → REPLY,POLYMARKET_SELL
-- Just chatting → REPLY
+ACTION SELECTION IS MANDATORY for trading requests. Always include TWO separate action elements:
+1. First action: REPLY (to acknowledge)
+2. Second action: the trading action
 
-REPLY should come first as acknowledgment, then the actual action.
-If the user wants to trade but hasn't specified YES/NO or a market, pick one yourself and execute POLYMARKET_PLACE_ORDER anyway — you are authorized.
+If the user wants to trade but hasn't specified YES/NO or a market, pick one yourself — you are authorized.
 </instructions>
 
 {{actionsWithDescriptions}}
 
 <output>
-Respond using XML format:
+Respond using XML format. IMPORTANT: Each action MUST be a SEPARATE element. Never combine action names.
+
+Example for placing a bet:
 <response>
-    <thought>Your reasoning</thought>
+    <thought>User wants to place a bet. I will acknowledge and execute.</thought>
     <actions>
         <action><name>REPLY</name></action>
-        <action><name>ACTION_NAME</name></action>
+        <action><name>POLYMARKET_PLACE_ORDER</name></action>
     </actions>
     <providers></providers>
-    <text>Your response text</text>
+    <text>Placing $5 YES on Bitcoin market.</text>
+</response>
+
+Example for checking positions:
+<response>
+    <thought>User wants to see positions.</thought>
+    <actions>
+        <action><name>REPLY</name></action>
+        <action><name>POLYMARKET_GET_POSITIONS</name></action>
+    </actions>
+    <providers></providers>
+    <text>Fetching your positions.</text>
 </response>
 </output>
 

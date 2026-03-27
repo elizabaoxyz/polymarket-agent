@@ -111,6 +111,8 @@ export class PolymarketExtService {
       },
       sigType ? Number(sigType) : undefined,
       funder,
+      undefined, // geoBlockToken
+      true, // useServerTime — prevents timestamp drift rejections
     );
   }
 

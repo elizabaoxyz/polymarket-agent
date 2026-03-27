@@ -1741,26 +1741,7 @@ Decide on your next action and execute it. You have access to all your tools and
           }
           return [];
         },
-        {
-          onStreamChunk: async (chunk: string) => {
-            streamedText += chunk;
-            buffer.value += chunk;
-            markResponding();
-            extractTagFromBuffer(buffer, "thought", thoughtState);
-            extractTagFromBuffer(buffer, "thinking", thinkingState);
-            extractTagFromBuffer(buffer, "actions", actionsState);
-            if (thoughtState.text.length > 0) {
-              showThought(thoughtState.text);
-            }
-            if (thinkingState.text.length > 0) {
-              showThought(thinkingState.text);
-            }
-            if (actionsState.text.length > 0) {
-              showActions(actionsState.text);
-            }
-            updateMessage(assistantId, streamedText);
-          },
-        } as never
+        {} as never
       );
 
         const finalText = (streamedText || callbackText).trim();

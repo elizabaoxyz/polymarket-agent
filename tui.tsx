@@ -101,6 +101,7 @@ type TuiSession = {
   readonly userId: UUID;
   readonly messageService: IMessageService;
   readonly venue?: "polymarket" | "jupiter";
+  readonly startupInfo?: string[];
 };
 
 type StreamTagState = {
@@ -933,14 +934,27 @@ function PolymarketTuiApp(props: TuiSession): ReactNode {
     if (greetedRef.current) return;
     if (messages.length > 0) return;
     greetedRef.current = true;
+    const greetings: Record<string, string> = {
+      polymarket: "Hello! I'm the Polymarket trading agent. I can scan markets, summarize positions, and place orders when enabled. Type /help for commands.",
+      jupiter: "Hello! I'm the Jupiter Prediction trading agent on Solana. I can scan prediction markets, place bets, check positions, and claim winnings. Type /help for commands.",
+    };
+    const defaultGreeting = "Hello! I can trade on Polymarket and Jupiter Prediction Markets. Ask me to scan markets, check positions, or place orders. Type /help for commands.";
     appendMessage({
       id: uuidv4(),
       role: "assistant",
-      content:
-        "Hello! I'm the Polymarket trading agent. I can scan markets, summarize positions, and place orders when enabled. Type /help for commands.",
+      content: greetings[venue] ?? defaultGreeting,
       timestamp: Date.now(),
     });
-  }, [appendMessage, messages.length]);
+    const info = props.startupInfo;
+    if (info && info.length > 0) {
+      appendMessage({
+        id: uuidv4(),
+        role: "system",
+        content: info.join("\n"),
+        timestamp: Date.now(),
+      });
+    }
+  }, [appendMessage, messages.length, venue, props.startupInfo]);
 
   useEffect(() => {
     if (!stdout) return;

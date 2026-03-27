@@ -614,12 +614,31 @@ async function startChat(session: RuntimeSession): Promise<void> {
   if (!messageService) {
     throw new Error("Message service not initialized - ensure OpenAI plugin is loaded.");
   }
+  // Build startup info for TUI display
+  const startupInfo: string[] = [];
+  startupInfo.push(`Chain: ${session.options.chain} | Execute: ${session.options.execute ? "enabled" : "disabled"}`);
+  const jupiterApiKey = process.env.JUPITER_API_KEY?.trim();
+  const solanaKey = process.env.SOLANA_PRIVATE_KEY?.trim();
+  if (jupiterApiKey && solanaKey) {
+    try {
+      const { Keypair } = await import("@solana/web3.js");
+      const bs58 = await import("bs58");
+      const kp = Keypair.fromSecretKey(bs58.default.decode(solanaKey));
+      startupInfo.push(`Jupiter: active | Solana wallet: ${kp.publicKey.toBase58()}`);
+    } catch {
+      startupInfo.push("Jupiter: configured but wallet decode failed");
+    }
+  } else {
+    startupInfo.push("Jupiter: not configured (set JUPITER_API_KEY + SOLANA_PRIVATE_KEY)");
+  }
+
   await runPolymarketTui({
     runtime,
     roomId,
     worldId,
     userId,
     messageService,
+    startupInfo,
   });
 }
 

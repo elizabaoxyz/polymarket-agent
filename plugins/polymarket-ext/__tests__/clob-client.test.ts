@@ -51,7 +51,7 @@ function setMock(urlPattern: string, body: unknown, status = 200): void {
 
 describe("ClobApiClient auth headers", () => {
   test("sends all 5 POLY_* headers on every request", async () => {
-    setMock("/heartbeat", { status: "ok" });
+    setMock("/v1/heartbeats", { heartbeat_id: "hb-test" });
     const client = new ClobApiClient(TEST_CONFIG);
     await client.heartbeat();
     const req = capturedRequests[0]!;
@@ -74,7 +74,7 @@ describe("ClobApiClient auth headers", () => {
   });
 
   test("POLY_SIGNATURE is non-empty string", async () => {
-    setMock("/heartbeat", { status: "ok" });
+    setMock("/v1/heartbeats", { heartbeat_id: "hb-test" });
     const client = new ClobApiClient(TEST_CONFIG);
     await client.heartbeat();
     const sig = capturedRequests[0]!.headers["POLY_SIGNATURE"]!;
@@ -120,11 +120,14 @@ describe("ClobApiClient.cancelMarketOrders", () => {
 
 describe("ClobApiClient.getOpenOrders", () => {
   test("sends GET to /data/orders with state=open", async () => {
-    setMock("/data/orders", [
-      { id: "o1", market: "0xabc", asset_id: "t1", side: "BUY", price: "0.55",
-        original_size: "100", size_matched: "50", status: "live",
-        created_at: "1711500000", order_type: "GTC" },
-    ]);
+    setMock("/data/orders", {
+      data: [
+        { id: "o1", market: "0xabc", asset_id: "t1", side: "BUY", price: "0.55",
+          original_size: "100", size_matched: "50", status: "live",
+          created_at: "1711500000", order_type: "GTC" },
+      ],
+      next_cursor: "LTE=",
+    });
     const client = new ClobApiClient(TEST_CONFIG);
     const orders = await client.getOpenOrders();
     expect(capturedRequests[0]!.method).toBe("GET");
@@ -134,7 +137,7 @@ describe("ClobApiClient.getOpenOrders", () => {
   });
 
   test("passes optional market filter as query param", async () => {
-    setMock("/data/orders", []);
+    setMock("/data/orders", { data: [], next_cursor: "LTE=" });
     const client = new ClobApiClient(TEST_CONFIG);
     await client.getOpenOrders({ market: "0xabc" });
     expect(capturedRequests[0]!.url).toContain("market=0xabc");
@@ -153,18 +156,30 @@ describe("ClobApiClient.getOrderBook", () => {
 });
 
 describe("ClobApiClient.heartbeat", () => {
-  test("sends GET to /heartbeat", async () => {
-    setMock("/heartbeat", { status: "ok" });
+  test("sends POST to /v1/heartbeats", async () => {
+    setMock("/v1/heartbeats", { heartbeat_id: "hb-123" });
     const client = new ClobApiClient(TEST_CONFIG);
     await client.heartbeat();
-    expect(capturedRequests[0]!.method).toBe("GET");
-    expect(capturedRequests[0]!.url).toContain("/heartbeat");
+    expect(capturedRequests[0]!.method).toBe("POST");
+    expect(capturedRequests[0]!.url).toContain("/v1/heartbeats");
+  });
+
+  test("chains heartbeat_id from previous response", async () => {
+    setMock("/v1/heartbeats", { heartbeat_id: "hb-456" });
+    const client = new ClobApiClient(TEST_CONFIG);
+    await client.heartbeat();
+    // Second call should send the heartbeat_id from first response
+    capturedRequests = [];
+    setMock("/v1/heartbeats", { heartbeat_id: "hb-789" });
+    await client.heartbeat();
+    const body = JSON.parse(capturedRequests[0]!.body!);
+    expect(body.heartbeat_id).toBe("hb-456");
   });
 });
 
 describe("ClobApiClient error handling", () => {
   test("throws PolymarketAuthError on 401", async () => {
-    setMock("/heartbeat", { error: "unauthorized" }, 401);
+    setMock("/v1/heartbeats", { error: "unauthorized" }, 401);
     const client = new ClobApiClient(TEST_CONFIG);
     try {
       await client.heartbeat();
@@ -175,7 +190,7 @@ describe("ClobApiClient error handling", () => {
   });
 
   test("throws PolymarketAuthError on 403", async () => {
-    setMock("/heartbeat", { error: "forbidden" }, 403);
+    setMock("/v1/heartbeats", { error: "forbidden" }, 403);
     const client = new ClobApiClient(TEST_CONFIG);
     try {
       await client.heartbeat();
@@ -186,7 +201,7 @@ describe("ClobApiClient error handling", () => {
   });
 
   test("throws PolymarketRateLimitError on 429", async () => {
-    setMock("/heartbeat", { error: "rate limited" }, 429);
+    setMock("/v1/heartbeats", { error: "rate limited" }, 429);
     const client = new ClobApiClient(TEST_CONFIG);
     try {
       await client.heartbeat();

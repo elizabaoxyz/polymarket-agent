@@ -32,9 +32,11 @@ export class ClobApiClient {
   private buildHeaders(method: string, path: string, body?: string): Record<string, string> {
     const timestamp = String(Math.floor(Date.now() / 1000));
     const message = timestamp + method + path + (body ?? "");
-    const signature = createHmac("sha256", Buffer.from(this.config.secret, "base64"))
+    // HMAC-SHA256 with URL-safe base64 encoding (matching @polymarket/clob-client)
+    const sig = createHmac("sha256", Buffer.from(this.config.secret, "base64"))
       .update(message)
       .digest("base64");
+    const signature = sig.replace(/\+/g, "-").replace(/\//g, "_");
 
     return {
       "POLY_ADDRESS": this.config.address,
@@ -109,10 +111,11 @@ export class ClobApiClient {
   async getOpenOrders(params?: { market?: string }): Promise<OpenOrder[]> {
     const query: Record<string, string> = { state: "open" };
     if (params?.market) query.market = params.market;
-    return this.request("GET", "/data/orders", {
+    const response = await this.request("GET", "/data/orders", {
       query,
       schema: OpenOrdersResponseSchema,
     });
+    return response.data;
   }
 
   async getOrderBook(tokenId: string): Promise<OrderBook> {
@@ -122,22 +125,41 @@ export class ClobApiClient {
     });
   }
 
+  private heartbeatId: string | null = null;
+
   async heartbeat(): Promise<void> {
-    const url = new URL(`${this.config.baseUrl}/heartbeat`);
-    const headers = this.buildHeaders("GET", "/heartbeat");
-    const response = await fetch(url.toString(), { method: "GET", headers });
+    const path = "/v1/heartbeats";
+    const bodyObj = { heartbeat_id: this.heartbeatId };
+    const bodyStr = JSON.stringify(bodyObj);
+    const url = new URL(`${this.config.baseUrl}${path}`);
+    const headers = this.buildHeaders("POST", path, bodyStr);
+
+    const response = await fetch(url.toString(), {
+      method: "POST",
+      headers,
+      body: bodyStr,
+    });
 
     if (response.status === 401 || response.status === 403) {
       const text = await response.text().catch(() => "");
-      throw new PolymarketAuthError(response.status, text, "/heartbeat");
+      throw new PolymarketAuthError(response.status, text, path);
     }
     if (response.status === 429) {
       const text = await response.text().catch(() => "");
-      throw new PolymarketRateLimitError(response.status, text, "/heartbeat");
+      throw new PolymarketRateLimitError(response.status, text, path);
     }
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      throw new PolymarketApiError(response.status, text, "/heartbeat");
+      throw new PolymarketApiError(response.status, text, path);
+    }
+
+    try {
+      const data = await response.json();
+      if (data && typeof data.heartbeat_id === "string") {
+        this.heartbeatId = data.heartbeat_id;
+      }
+    } catch {
+      // Non-JSON response is fine, heartbeat still succeeded
     }
   }
 }

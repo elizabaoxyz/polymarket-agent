@@ -63,7 +63,10 @@ export const OpenOrderSchema = z.object({
 }).passthrough();
 export type OpenOrder = z.infer<typeof OpenOrderSchema>;
 
-export const OpenOrdersResponseSchema = z.array(OpenOrderSchema);
+export const OpenOrdersResponseSchema = z.object({
+  data: z.array(OpenOrderSchema),
+  next_cursor: z.string().optional(),
+}).passthrough();
 
 export const OrderBookEntrySchema = z.object({
   price: z.string(),

@@ -33,6 +33,9 @@ import {
 } from "./lib";
 import { runPolymarketTui, runSettingsWizard, setFatalError, type SettingsField } from "./tui";
 import { jupiterPredictionPlugin } from "./plugins/jupiter-prediction/index";
+import { x402SolanaPlugin } from "./plugins/x402-solana/index";
+import { X402SolanaService } from "./plugins/x402-solana/service";
+import { X402_SERVICE_TYPE } from "./plugins/x402-solana/types";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -532,6 +535,8 @@ function buildRuntimeSettings(provider: LlmProvider | null): Record<string, stri
     JUPITER_API_KEY: process.env.JUPITER_API_KEY || undefined,
     SOLANA_PRIVATE_KEY: process.env.SOLANA_PRIVATE_KEY || undefined,
     SOLANA_RPC_URL: process.env.SOLANA_RPC_URL || undefined,
+    X402_ENABLED: process.env.X402_ENABLED || undefined,
+    X402_MAX_PAYMENT_USD: process.env.X402_MAX_PAYMENT_USD || undefined,
   };
   if (model) {
     if (provider === "openai") settings.OPENAI_LARGE_MODEL = model;
@@ -562,7 +567,7 @@ async function createRuntimeSession(
 
   const runtime = new AgentRuntime({
     character,
-    plugins: [sqlPlugin, polymarketPlugin, jupiterPredictionPlugin, ...llmPlugins],
+    plugins: [sqlPlugin, polymarketPlugin, jupiterPredictionPlugin, x402SolanaPlugin, ...llmPlugins],
     settings: buildRuntimeSettings(llmProvider),
     logLevel: "error",
     enableAutonomy: true,
@@ -571,6 +576,12 @@ async function createRuntimeSession(
   });
 
   await runtime.initialize();
+
+  // Replace global fetch with x402-aware version if service started
+  const x402Svc = runtime.getService<X402SolanaService>(X402_SERVICE_TYPE);
+  if (x402Svc && x402Svc.isActive()) {
+    globalThis.fetch = x402Svc.getWrappedFetch();
+  }
 
   await runtime.ensureConnection({
     entityId: DEFAULT_USER_ID,
@@ -630,6 +641,13 @@ async function startChat(session: RuntimeSession): Promise<void> {
     }
   } else {
     startupInfo.push("Jupiter: not configured (set JUPITER_API_KEY + SOLANA_PRIVATE_KEY)");
+  }
+
+  const x402StartupSvc = runtime.getService<X402SolanaService>(X402_SERVICE_TYPE);
+  if (x402StartupSvc && x402StartupSvc.isActive()) {
+    startupInfo.push(`x402: active | cap: $${x402StartupSvc.getMaxPaymentUsd().toFixed(2)}/request`);
+  } else {
+    startupInfo.push("x402: disabled");
   }
 
   await runPolymarketTui({

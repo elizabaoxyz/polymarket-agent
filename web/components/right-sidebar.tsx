@@ -63,7 +63,7 @@ function SectionTitle({ label }: { label: string }) {
 
 export function RightSidebar({ onQuickAction, onPluginClick }: RightSidebarProps) {
   return (
-    <aside className="w-[260px] min-w-[260px] h-full bg-[var(--bg-panel)] border-l border-[var(--border)] overflow-y-auto px-4 py-5 flex flex-col gap-6">
+    <aside className="w-[220px] min-w-[220px] h-full bg-[var(--bg-panel)] border-l border-[var(--border)] overflow-y-auto px-3 py-4 flex flex-col gap-5">
       {/* Plugins */}
       <section>
         <SectionTitle label="Plugins MCP Enabled 3" />

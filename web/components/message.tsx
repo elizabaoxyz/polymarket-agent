@@ -22,7 +22,7 @@ export function Message({ msg }: { msg: ChatMessage }) {
   if (msg.role === "user") {
     return (
       <div className="flex justify-end mb-4">
-        <div className="w-full">
+        <div className="max-w-[85%]">
           <div className="bg-[var(--accent)] rounded-xl rounded-br-sm px-4 py-2.5">
             <p className="text-[14px] text-[#0a0a0a] whitespace-pre-wrap leading-relaxed">
               {msg.text}
@@ -39,7 +39,7 @@ export function Message({ msg }: { msg: ChatMessage }) {
   if (msg.role === "action") {
     return (
       <div className="flex justify-start mb-4">
-        <div className="w-full">
+        <div className="max-w-[85%]">
           <div className="bg-[var(--bg-panel)] border-l-2 border-[var(--accent)] px-4 py-2.5">
             <p className="mono text-[13px] text-[var(--green)] whitespace-pre-wrap leading-relaxed">
               {msg.text}
@@ -54,7 +54,7 @@ export function Message({ msg }: { msg: ChatMessage }) {
   // agent
   return (
     <div className="flex justify-start mb-4">
-      <div className="w-full">
+      <div className="max-w-[85%]">
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl rounded-bl-sm px-4 py-2.5">
           <p className="text-[14px] text-[var(--text)] whitespace-pre-wrap leading-relaxed">
             {msg.text}

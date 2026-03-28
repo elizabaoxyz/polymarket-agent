@@ -11,6 +11,9 @@ import { RightSidebar } from "@/components/right-sidebar";
 import Dashboard from "@/components/dashboard";
 import WhaleModal from "@/components/whale-modal";
 import PluginModal from "@/components/plugin-modal";
+import dynamic from "next/dynamic";
+
+const VrmAvatar = dynamic(() => import("@/components/vrm-avatar"), { ssr: false });
 
 export default function Home() {
   const { messages, sendMessage, isConnected, isThinking, portfolio, requestStatus } =
@@ -105,6 +108,8 @@ export default function Home() {
       </div>
 
       <Dashboard stats={dashboardStats} onWhaleClick={handleWhaleClick} />
+
+      <VrmAvatar />
 
       {selectedWhale && (
         <WhaleModal

@@ -19,27 +19,12 @@ export function Header({ balance, isConnected }: HeaderProps) {
             ELIZABAO
           </span>
 
-          <button
-            onClick={() => navigator.clipboard.writeText("0xb1b5...ac56")}
-            className="flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors"
-            title="Copy contract address"
-          >
-            <span className="mono text-[11px]">CA: 0xb1b5...ac56</span>
-            <Copy size={11} />
-          </button>
-
           <div
             className={`w-2 h-2 rounded-full ${
               isConnected ? "bg-[var(--green)]" : "bg-[var(--red)]"
             }`}
             title={isConnected ? "Connected" : "Disconnected"}
           />
-
-          {balance !== null && (
-            <span className="mono text-[var(--accent)] text-xs font-semibold">
-              ${balance.toFixed(2)}
-            </span>
-          )}
         </div>
 
         {/* Right section */}

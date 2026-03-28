@@ -29,7 +29,7 @@ export default function Home() {
   // Fetch dashboard data on mount + every 30s
   const fetchDashboard = useCallback(async () => {
     try {
-      const trades = await getGlobalTrades(200);
+      const trades = await getGlobalTrades(500);
       const stats = computeDashboardStats(trades);
       setDashboardStats(stats);
       setLiveFeed(
@@ -73,10 +73,10 @@ export default function Home() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--bg)]">
+    <div className="flex flex-col bg-[var(--bg)] min-h-screen">
       <Header balance={portfolio?.balance ?? null} isConnected={isConnected} />
 
-      <div className="flex flex-1 overflow-hidden pt-12">
+      <div className="flex pt-12" style={{ height: "calc(100vh - 48px)", minHeight: "500px" }}>
         <LeftSidebar
           balance={portfolio?.balance ?? null}
           positionCount={portfolio?.positions?.length ?? 0}
@@ -85,12 +85,14 @@ export default function Home() {
           onAnalyze={() => sendMessage("analyze polymarket markets and place a bet")}
         />
 
-        <CenterChat
-          messages={messages}
-          isThinking={isThinking}
-          isConnected={isConnected}
-          onSend={sendMessage}
-        />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <CenterChat
+            messages={messages}
+            isThinking={isThinking}
+            isConnected={isConnected}
+            onSend={sendMessage}
+          />
+        </div>
 
         <RightSidebar onQuickAction={handleQuickAction} />
       </div>

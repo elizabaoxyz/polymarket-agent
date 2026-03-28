@@ -2,7 +2,7 @@ import type { GlobalTrade, DashboardStats, WhaleWallet } from "./types";
 
 const DATA_API = "https://data-api.polymarket.com";
 
-export async function getGlobalTrades(limit = 200): Promise<GlobalTrade[]> {
+export async function getGlobalTrades(limit = 500): Promise<GlobalTrade[]> {
   const res = await fetch(`${DATA_API}/trades?limit=${limit}`);
   if (!res.ok) return [];
   return res.json();
@@ -55,7 +55,7 @@ export function computeDashboardStats(trades: GlobalTrade[]): DashboardStats {
   }
 
   const whales = Array.from(walletMap.values())
-    .filter((w) => w.totalVolume > 1000)
+    .filter((w) => w.totalVolume > 100)
     .sort((a, b) => b.totalVolume - a.totalVolume)
     .slice(0, 15);
 

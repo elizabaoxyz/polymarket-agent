@@ -83,6 +83,7 @@ export function useWebSocket() {
             balance: msg.balance,
             positions: msg.positions,
             trades: msg.trades,
+            jupiterPositions: (msg as Record<string, unknown>).jupiterPositions as PortfolioData["jupiterPositions"] ?? [],
           });
           break;
         case "error":

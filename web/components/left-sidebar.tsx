@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Bot, Zap, LayoutGrid, Heart, RefreshCw, Wallet, History, TrendingUp, TrendingDown } from "lucide-react";
-import type { Position, Trade } from "@/lib/types";
+import type { Position, Trade, JupiterPosition } from "@/lib/types";
 
 type FeedItem = {
   address: string;
@@ -18,6 +18,7 @@ type LeftSidebarProps = {
   liveFeed: FeedItem[];
   positions: Position[];
   trades: Trade[];
+  jupiterPositions: JupiterPosition[];
   onAnalyze: () => void;
   onRefreshPortfolio: () => void;
 };
@@ -65,6 +66,7 @@ export function LeftSidebar({
   liveFeed,
   positions,
   trades,
+  jupiterPositions,
   onAnalyze,
   onRefreshPortfolio,
 }: LeftSidebarProps) {
@@ -219,11 +221,46 @@ export function LeftSidebar({
               </div>
             )}
 
-            {/* Jupiter note */}
+            {/* Jupiter Positions */}
             <SectionTitle label="JUPITER POSITIONS" />
-            <p className="text-[11px] text-[var(--text-muted)]">
-              Use &quot;show my jupiter positions on solana&quot; in chat
-            </p>
+            {jupiterPositions.length === 0 ? (
+              <p className="text-[11px] text-[var(--text-muted)]">No Jupiter positions</p>
+            ) : (
+              <div className="space-y-2">
+                {jupiterPositions.map((pos, i) => {
+                  const pnl = Number(pos.pnlUsd) / 1_000_000;
+                  const isPositive = pnl >= 0;
+                  const size = Number(pos.sizeUsd) / 1_000_000;
+                  const avgPrice = Number(pos.avgPriceUsd) / 1_000_000;
+                  const markPrice = Number(pos.markPriceUsd) / 1_000_000;
+                  return (
+                    <div key={`jup-${pos.marketId}-${i}`} className="p-2.5 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg">
+                      <div className="text-[11px] text-[var(--text)] font-medium leading-tight mb-1 truncate">
+                        {pos.eventTitle} — {pos.marketTitle}
+                      </div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`mono text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                          pos.isYes ? "bg-[var(--green)]/15 text-[var(--green)]" : "bg-[var(--red)]/15 text-[var(--red)]"
+                        }`}>
+                          {pos.isYes ? "Yes" : "No"}
+                        </span>
+                        <span className="mono text-[10px] text-[var(--text-secondary)]">{pos.contracts} contracts</span>
+                        <span className="mono text-[9px] text-[var(--accent)] bg-[var(--accent)]/10 px-1 rounded">SOL</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="mono text-[10px] text-[var(--text-muted)]">
+                          ${avgPrice.toFixed(2)} → ${markPrice.toFixed(2)}
+                        </span>
+                        <span className={`mono text-[10px] font-bold flex items-center gap-0.5 ${isPositive ? "text-[var(--green)]" : "text-[var(--red)]"}`}>
+                          {isPositive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                          {isPositive ? "+" : ""}${pnl.toFixed(2)} ({pos.pnlUsdPercent}%)
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 

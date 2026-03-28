@@ -28,10 +28,25 @@ export type Trade = {
   timestamp: number;
 };
 
+export type JupiterPosition = {
+  marketId: string;
+  isYes: boolean;
+  contracts: string;
+  sizeUsd: string;
+  valueUsd: string;
+  avgPriceUsd: string;
+  markPriceUsd: string;
+  pnlUsd: string;
+  pnlUsdPercent: number;
+  eventTitle: string;
+  marketTitle: string;
+};
+
 export type PortfolioData = {
   balance: number;
   positions: Position[];
   trades: Trade[];
+  jupiterPositions: JupiterPosition[];
 };
 
 export type UserKeys = Record<string, string>;
@@ -41,7 +56,7 @@ export type ServerMessage =
   | { type: "reply"; text: string }
   | { type: "action_result"; text: string }
   | { type: "thinking"; active: boolean }
-  | { type: "status"; balance: number; positions: Position[]; trades: Trade[] }
+  | { type: "status"; balance: number; positions: Position[]; trades: Trade[]; jupiterPositions?: JupiterPosition[] }
   | { type: "auth_ok" }
   | { type: "auth_error"; text: string }
   | { type: "error"; text: string };

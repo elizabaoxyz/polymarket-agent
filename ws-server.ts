@@ -223,9 +223,45 @@ async function getPortfolioStatus(runtime: AgentRuntime) {
         balance = Number(data.balance ?? 0) / 1_000_000;
       } catch {}
     }
-    return { balance, positions, trades };
+    // Fetch Jupiter positions
+    let jupiterPositions: Array<{
+      marketId: string; isYes: boolean; contracts: string;
+      sizeUsd: string; valueUsd: string; avgPriceUsd: string; markPriceUsd: string;
+      pnlUsd: string; pnlUsdPercent: number; eventTitle: string; marketTitle: string;
+    }> = [];
+    try {
+      const jupApiKey = process.env.JUPITER_API_KEY?.trim();
+      const solKey = process.env.SOLANA_PRIVATE_KEY?.trim();
+      if (jupApiKey && solKey) {
+        const { Keypair } = await import("@solana/web3.js");
+        const bs58 = await import("bs58");
+        const kp = Keypair.fromSecretKey(bs58.default.decode(solKey));
+        const jupRes = await fetch(
+          `https://api.jup.ag/prediction/v1/positions?ownerPubkey=${kp.publicKey.toBase58()}`,
+          { headers: { "x-api-key": jupApiKey } },
+        );
+        if (jupRes.ok) {
+          const jupData = await jupRes.json();
+          jupiterPositions = (jupData.data ?? []).map((p: Record<string, unknown>) => ({
+            marketId: p.marketId,
+            isYes: p.isYes,
+            contracts: p.contracts,
+            sizeUsd: p.sizeUsd,
+            valueUsd: p.valueUsd,
+            avgPriceUsd: p.avgPriceUsd,
+            markPriceUsd: p.markPriceUsd,
+            pnlUsd: p.pnlUsd,
+            pnlUsdPercent: p.pnlUsdPercent,
+            eventTitle: (p.eventMetadata as Record<string, string>)?.title ?? "",
+            marketTitle: (p.marketMetadata as Record<string, string>)?.title ?? "",
+          }));
+        }
+      }
+    } catch {}
+
+    return { balance, positions, trades, jupiterPositions };
   } catch {
-    return { balance: 0, positions: [], trades: [] };
+    return { balance: 0, positions: [], trades: [], jupiterPositions: [] };
   }
 }
 

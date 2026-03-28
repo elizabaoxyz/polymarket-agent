@@ -86,6 +86,7 @@ export default function Home() {
           liveFeed={liveFeed}
           positions={portfolio?.positions ?? []}
           trades={portfolio?.trades ?? []}
+          jupiterPositions={portfolio?.jupiterPositions ?? []}
           onAnalyze={() => sendMessage("analyze polymarket markets and place a bet")}
           onRefreshPortfolio={requestStatus}
         />

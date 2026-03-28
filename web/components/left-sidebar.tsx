@@ -112,7 +112,7 @@ export function LeftSidebar({
               <div className="space-y-1.5 text-[11px]">
                 <div className="flex items-center justify-between">
                   <span className="text-[var(--text-muted)]">Agent</span>
-                  <span className="mono text-[var(--text)]">Polyagent</span>
+                  <span className="mono text-[var(--text)]">ElizaBAO</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[var(--text-muted)]">Plugins</span>

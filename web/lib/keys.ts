@@ -2,7 +2,7 @@
 
 export type UserKeys = Record<string, string>;
 
-const STORAGE_KEY = "polyagent-keys";
+const STORAGE_KEY = "elizabao-keys";
 
 const REQUIRED_KEYS = ["EVM_PRIVATE_KEY", "CLOB_API_KEY", "CLOB_API_SECRET", "CLOB_API_PASSPHRASE", "POLYMARKET_FUNDER_ADDRESS"];
 const LLM_KEYS = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "GROQ_API_KEY", "XAI_API_KEY"];

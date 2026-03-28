@@ -41,7 +41,7 @@ export function CenterChat({ messages, isThinking, isConnected, onSend }: Center
         </div>
         <div className="flex flex-col">
           <span className="mono text-sm font-bold text-[var(--text)] tracking-wider leading-tight">
-            POLYAGENT
+            ELIZABAO
           </span>
           <span className="mono text-[10px] text-[var(--text-muted)] tracking-wide leading-tight">
             POWERED BY ELIZAOS
@@ -51,14 +51,14 @@ export function CenterChat({ messages, isThinking, isConnected, onSend }: Center
 
       {/* Messages Area */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-6">
-        <div className="max-w-[720px] mx-auto">
+        <div className="max-w-full mx-auto px-4">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center py-24 text-center">
               <div className="w-14 h-14 rounded-full bg-[var(--bg-agent)] border border-[var(--green)]/20 flex items-center justify-center mb-4">
                 <Bot size={24} className="text-[var(--green)]" />
               </div>
               <h2 className="text-lg font-semibold text-[var(--text)] mb-2">
-                Polyagent
+                ElizaBAO
               </h2>
               <p className="text-sm text-[var(--text-secondary)] max-w-sm">
                 AI trading agent for Polymarket. Try asking me to scan markets,
@@ -84,7 +84,7 @@ export function CenterChat({ messages, isThinking, isConnected, onSend }: Center
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-              placeholder={isConnected ? "Message Polyagent..." : "Connecting..."}
+              placeholder={isConnected ? "Message ElizaBAO..." : "Connecting..."}
               disabled={!isConnected}
               className="flex-1 bg-transparent outline-none text-[15px] text-[var(--text)] placeholder:text-[var(--text-muted)] disabled:opacity-40"
             />

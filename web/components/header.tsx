@@ -16,7 +16,7 @@ export function Header({ balance, isConnected }: HeaderProps) {
         {/* Left section */}
         <div className="flex items-center gap-3">
           <span className="mono text-[var(--accent)] font-bold text-sm tracking-wider">
-            POLYAGENT
+            ELIZABAO
           </span>
 
           <button

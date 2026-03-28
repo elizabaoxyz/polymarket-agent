@@ -5,7 +5,7 @@ import "./globals.css";
 const kodeMono = Kode_Mono({ subsets: ["latin"], variable: "--font-mono", weight: ["400", "700"] });
 
 export const metadata: Metadata = {
-  title: "Polyagent",
+  title: "ElizaBAO",
   description: "AI-powered Polymarket trading agent",
 };
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Bot, Zap, LayoutGrid, Heart, RefreshCw, Wallet, History, TrendingUp, TrendingDown } from "lucide-react";
+import { Bot, Heart, RefreshCw, Wallet, TrendingUp, TrendingDown } from "lucide-react";
 import type { Position, Trade, JupiterPosition } from "@/lib/types";
 
 type FeedItem = {
@@ -84,23 +84,6 @@ export function LeftSidebar({
       <div className="flex-1 overflow-y-auto">
         {tab === "agent" && (
           <>
-            {/* AI TRADING */}
-            <div className="p-4 border-b border-[var(--border)]">
-              <SectionTitle label="AI TRADING" />
-              <p className="text-[12px] text-[var(--text-muted)] mb-3">No analysis yet</p>
-              <button
-                onClick={onAnalyze}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-[var(--green)] hover:opacity-90 text-[#0a0a0a] text-xs font-bold rounded-lg transition-opacity mb-2"
-              >
-                <Zap size={14} />
-                <span>ANALYZE</span>
-              </button>
-              <a href="#" className="flex items-center justify-center gap-1.5 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text)] transition-colors">
-                <LayoutGrid size={12} />
-                <span>FULL DASHBOARD</span>
-              </a>
-            </div>
-
             {/* AGENT DEPLOY */}
             <div className="p-4 border-b border-[var(--border)]">
               <SectionTitle label="AGENT DEPLOY" />

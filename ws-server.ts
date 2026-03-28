@@ -395,8 +395,6 @@ async function main() {
           console.log("ws-server: autonomy started");
           ws.send(JSON.stringify({ type: "autonomy_status", active: true }));
 
-          let cycleIndex = 0;
-
           // Helper to send a prompt and collect the action results
           const sendPrompt = async (prompt: string): Promise<string[]> => {
             const results: string[] = [];
@@ -407,19 +405,13 @@ async function main() {
               content: { text: prompt, source: "web-chat", channelType: ChannelType.DM },
             });
             try {
-              await messageService.handleMessage(
-                runtime,
-                mem,
-                async (content: Content) => {
-                  if (typeof content.text === "string" && content.text.trim()) {
-                    const text = content.text.trim();
-                    results.push(text);
-                    ws.send(JSON.stringify({ type: "action_result", text }));
-                  }
-                  return [];
-                },
-                {} as never,
-              );
+              await messageService.handleMessage(runtime, mem, async (content: Content) => {
+                if (typeof content.text === "string" && content.text.trim()) {
+                  results.push(content.text.trim());
+                  ws.send(JSON.stringify({ type: "action_result", text: content.text.trim() }));
+                }
+                return [];
+              }, {} as never);
             } catch (err) {
               const errMsg = err instanceof Error ? err.message : String(err);
               ws.send(JSON.stringify({ type: "action_result", text: `[ERROR] ${errMsg}` }));
@@ -427,54 +419,56 @@ async function main() {
             return results;
           };
 
+          const log = (text: string) => ws.send(JSON.stringify({ type: "action_result", text }));
+
           const runAutonomyCycle = async () => {
-            const phase = cycleIndex % 3;
-            cycleIndex++;
+            ws.send(JSON.stringify({ type: "thinking", active: true }));
 
-            if (phase === 0) {
-              // POLYMARKET: Analyze → find best market → bet
-              ws.send(JSON.stringify({ type: "action_result", text: "[AUTONOMY:POLYMARKET] Analyzing markets for best opportunity..." }));
-              ws.send(JSON.stringify({ type: "thinking", active: true }));
+            try {
+              // ===== STEP 1: Scan both platforms for opportunities =====
+              log("[AUTONOMY] Scanning all markets...");
 
-              // Step 1: Fetch top markets from CLOB API directly
+              type Opportunity = { platform: string; title: string; marketId: string; keyword: string; price: number; score: number };
+              const opportunities: Opportunity[] = [];
+
+              // Scan Polymarket
               try {
                 const res = await fetch("https://clob.polymarket.com/sampling-markets");
                 const data = await res.json();
-                const markets = (data.data ?? [])
-                  .filter((m: Record<string, unknown>) => m.active && !m.closed && m.accepting_orders)
-                  .slice(0, 20);
+                const markets = (data.data ?? []).filter((m: Record<string, unknown>) => m.active && !m.closed && m.accepting_orders);
 
-                if (markets.length > 0) {
-                  // Pick a random market from top 20
-                  const market = markets[Math.floor(Math.random() * markets.length)];
-                  const question = market.question ?? "unknown";
-                  const tokens = market.tokens ?? [];
+                for (const m of markets.slice(0, 30)) {
+                  const tokens = m.tokens ?? [];
                   const yesToken = tokens.find((t: Record<string, unknown>) => t.outcome === "Yes");
-                  const price = yesToken ? Number(yesToken.price) : 0.5;
+                  const noToken = tokens.find((t: Record<string, unknown>) => t.outcome === "No");
+                  if (!yesToken) continue;
 
-                  ws.send(JSON.stringify({ type: "action_result", text: `[AUTONOMY:POLYMARKET] Found: "${question}" (YES @ $${price.toFixed(2)})` }));
+                  const yesPrice = Number(yesToken.price);
+                  const noPrice = noToken ? Number(noToken.price) : 1 - yesPrice;
+                  const spread = Math.abs(noPrice - yesPrice);
+                  const midpoint = (yesPrice + noPrice) / 2;
 
-                  // Step 2: Extract a keyword from the question for the bet
+                  // Score: prefer tight spreads near 50/50
+                  const spreadScore = Math.max(0, 1 - spread / 0.15);
+                  const midpointScore = 1 - Math.abs(midpoint - 0.5) * 2;
+                  const score = spreadScore * 0.6 + midpointScore * 0.4;
+
+                  const question = m.question ?? "";
                   const words = (question as string).split(/\s+/).filter((w: string) => w.length > 4);
-                  const keyword = words[Math.floor(Math.random() * words.length)] ?? "Bitcoin";
+                  const keyword = words[Math.floor(Math.random() * words.length)] ?? "market";
 
-                  // Step 3: Place the bet via the agent
-                  await sendPrompt(`buy $2 YES on "${keyword}" on polymarket`);
-                } else {
-                  ws.send(JSON.stringify({ type: "action_result", text: "[AUTONOMY:POLYMARKET] No active markets found" }));
+                  opportunities.push({
+                    platform: "POLYMARKET",
+                    title: question,
+                    marketId: m.condition_id ?? "",
+                    keyword,
+                    price: yesPrice,
+                    score,
+                  });
                 }
-              } catch (err) {
-                const errMsg = err instanceof Error ? err.message : String(err);
-                ws.send(JSON.stringify({ type: "action_result", text: `[AUTONOMY:POLYMARKET] Error: ${errMsg}` }));
-              }
+              } catch {}
 
-              ws.send(JSON.stringify({ type: "thinking", active: false }));
-
-            } else if (phase === 1) {
-              // JUPITER: Scan → pick best → bet
-              ws.send(JSON.stringify({ type: "action_result", text: "[AUTONOMY:JUPITER] Scanning Solana prediction markets..." }));
-              ws.send(JSON.stringify({ type: "thinking", active: true }));
-
+              // Scan Jupiter
               try {
                 const jupApiKey = process.env.JUPITER_API_KEY?.trim();
                 if (jupApiKey) {
@@ -482,42 +476,102 @@ async function main() {
                     headers: { "x-api-key": jupApiKey },
                   });
                   const data = await res.json();
-                  const events = data.data ?? [];
+                  for (const event of (data.data ?? []).slice(0, 10)) {
+                    for (const m of (event.markets ?? []).filter((x: Record<string, unknown>) => x.status === "open")) {
+                      const yesPrice = Number(m.pricing?.buyYesPriceUsd ?? 0) / 1_000_000;
+                      const noPrice = Number(m.pricing?.buyNoPriceUsd ?? 0) / 1_000_000;
+                      const spread = Math.abs(noPrice - yesPrice);
+                      const midpoint = (yesPrice + (noPrice || (1 - yesPrice))) / 2;
+                      const spreadScore = Math.max(0, 1 - spread / 0.15);
+                      const midpointScore = 1 - Math.abs(midpoint - 0.5) * 2;
+                      const score = spreadScore * 0.6 + midpointScore * 0.4;
 
-                  if (events.length > 0) {
-                    // Pick a random event with open markets
-                    const event = events[Math.floor(Math.random() * Math.min(events.length, 10))];
-                    const market = event.markets?.find((m: Record<string, unknown>) => m.status === "open");
-
-                    if (market) {
-                      const title = event.metadata?.title ?? "unknown";
-                      const marketId = market.marketId;
-                      ws.send(JSON.stringify({ type: "action_result", text: `[AUTONOMY:JUPITER] Found: "${title}" (${marketId})` }));
-                      await sendPrompt(`bet $2 YES on jupiter market ${marketId}`);
-                    } else {
-                      ws.send(JSON.stringify({ type: "action_result", text: "[AUTONOMY:JUPITER] No open markets in selected event" }));
+                      opportunities.push({
+                        platform: "JUPITER",
+                        title: `${event.metadata?.title ?? ""} — ${m.metadata?.title ?? m.marketId}`,
+                        marketId: m.marketId,
+                        keyword: "",
+                        price: yesPrice,
+                        score,
+                      });
                     }
-                  } else {
-                    ws.send(JSON.stringify({ type: "action_result", text: "[AUTONOMY:JUPITER] No live events" }));
                   }
-                } else {
-                  ws.send(JSON.stringify({ type: "action_result", text: "[AUTONOMY:JUPITER] No JUPITER_API_KEY configured" }));
                 }
-              } catch (err) {
-                const errMsg = err instanceof Error ? err.message : String(err);
-                ws.send(JSON.stringify({ type: "action_result", text: `[AUTONOMY:JUPITER] Error: ${errMsg}` }));
+              } catch {}
+
+              // Sort by score, best first
+              opportunities.sort((a, b) => b.score - a.score);
+
+              if (opportunities.length === 0) {
+                log("[AUTONOMY] No opportunities found on either platform.");
+                ws.send(JSON.stringify({ type: "thinking", active: false }));
+                return;
               }
 
-              ws.send(JSON.stringify({ type: "thinking", active: false }));
+              const best = opportunities[0]!;
+              log(`[AUTONOMY] Best opportunity: ${best.platform} — "${best.title}" (YES @ $${best.price.toFixed(2)}, score: ${best.score.toFixed(3)})`);
+              log(`[AUTONOMY] ${opportunities.length} markets scanned across Polymarket + Jupiter`);
 
-            } else {
-              // PORTFOLIO: Check positions, PnL, trades
-              ws.send(JSON.stringify({ type: "action_result", text: "[AUTONOMY:PORTFOLIO] Checking portfolio status..." }));
-              ws.send(JSON.stringify({ type: "thinking", active: true }));
-              await sendPrompt("show my positions");
-              await sendPrompt("show me my pnl on polymarket");
-              ws.send(JSON.stringify({ type: "thinking", active: false }));
+              // ===== STEP 2: Place the bet on the best opportunity =====
+              if (best.platform === "POLYMARKET") {
+                await sendPrompt(`buy $2 YES on "${best.keyword}" on polymarket`);
+              } else {
+                await sendPrompt(`bet $2 YES on jupiter market ${best.marketId}`);
+              }
+
+              // ===== STEP 3: Check positions and sell losers =====
+              log("[AUTONOMY] Checking positions for sell opportunities...");
+
+              // Check Polymarket positions
+              try {
+                const funder = process.env.POLYMARKET_FUNDER_ADDRESS?.trim();
+                if (funder) {
+                  const posRes = await fetch(`https://data-api.polymarket.com/positions?user=${funder}`);
+                  if (posRes.ok) {
+                    const positions = await posRes.json();
+                    for (const pos of positions) {
+                      const pnlPct = pos.percentPnl ?? 0;
+                      if (pnlPct < -20) {
+                        log(`[AUTONOMY:SELL] "${pos.title}" is down ${pnlPct.toFixed(0)}% — selling via agent`);
+                        await sendPrompt(`sell my position on "${pos.title}" on polymarket`);
+                      }
+                    }
+                  }
+                }
+              } catch {}
+
+              // Check Jupiter positions
+              try {
+                const jupApiKey = process.env.JUPITER_API_KEY?.trim();
+                const solKey = process.env.SOLANA_PRIVATE_KEY?.trim();
+                if (jupApiKey && solKey) {
+                  const { Keypair } = await import("@solana/web3.js");
+                  const bs58 = await import("bs58");
+                  const kp = Keypair.fromSecretKey(bs58.default.decode(solKey));
+                  const posRes = await fetch(
+                    `https://api.jup.ag/prediction/v1/positions?ownerPubkey=${kp.publicKey.toBase58()}`,
+                    { headers: { "x-api-key": jupApiKey } },
+                  );
+                  if (posRes.ok) {
+                    const posData = await posRes.json();
+                    for (const pos of (posData.data ?? [])) {
+                      const pnlPct = pos.pnlUsdPercent ?? 0;
+                      if (pnlPct < -20) {
+                        log(`[AUTONOMY:SELL] Jupiter "${pos.marketMetadata?.title ?? pos.marketId}" is down ${pnlPct}% — flagged for review`);
+                      }
+                    }
+                  }
+                }
+              } catch {}
+
+              log("[AUTONOMY] Cycle complete.");
+
+            } catch (err) {
+              const errMsg = err instanceof Error ? err.message : String(err);
+              log(`[AUTONOMY] Fatal error: ${errMsg}`);
             }
+
+            ws.send(JSON.stringify({ type: "thinking", active: false }));
           };
 
           // Run first cycle immediately, then every 60s

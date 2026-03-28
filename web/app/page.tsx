@@ -84,7 +84,10 @@ export default function Home() {
           positionCount={portfolio?.positions?.length ?? 0}
           isConnected={isConnected}
           liveFeed={liveFeed}
+          positions={portfolio?.positions ?? []}
+          trades={portfolio?.trades ?? []}
           onAnalyze={() => sendMessage("analyze polymarket markets and place a bet")}
+          onRefreshPortfolio={requestStatus}
         />
 
         <div className="flex-1 flex flex-col overflow-hidden">

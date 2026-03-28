@@ -16,13 +16,13 @@
 }
 
 body {
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family: var(--font-mono), 'Kode Mono', monospace;
   color: var(--text);
   background: var(--bg);
 }
 
 .mono {
-  font-family: var(--font-mono), 'SF Mono', 'Fira Code', monospace;
+  font-family: var(--font-mono), 'Kode Mono', monospace;
 }
 
 ::-webkit-scrollbar { width: 6px; }

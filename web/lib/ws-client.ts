@@ -90,7 +90,7 @@ export function useWebSocket() {
         }
           break;
         case "autonomy_status":
-          setIsAutonomyActive((msg as Record<string, unknown>).active as boolean);
+          setIsAutonomyActive(msg.active);
           break;
         case "error":
           setMessages((prev) => [

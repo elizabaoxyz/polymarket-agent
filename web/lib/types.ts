@@ -60,7 +60,8 @@ export type ServerMessage =
   | { type: "status"; balance: number; solanaBalance?: number; positions: Position[]; trades: Trade[]; jupiterPositions?: JupiterPosition[] }
   | { type: "auth_ok" }
   | { type: "auth_error"; text: string }
-  | { type: "error"; text: string };
+  | { type: "error"; text: string }
+  | { type: "autonomy_status"; active: boolean };
 
 // Client -> Server messages
 export type ClientMessage =

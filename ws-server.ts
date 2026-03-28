@@ -512,11 +512,17 @@ async function main() {
               log(`[AUTONOMY] Best opportunity: ${best.platform} — "${best.title}" (YES @ $${best.price.toFixed(2)}, score: ${best.score.toFixed(3)})`);
               log(`[AUTONOMY] ${opportunities.length} markets scanned across Polymarket + Jupiter`);
 
-              // ===== STEP 2: Place the bet on the best opportunity =====
-              if (best.platform === "POLYMARKET") {
-                await sendPrompt(`buy $2 YES on "${best.keyword}" on polymarket`);
+              // ===== STEP 2: Only bet if score is good enough =====
+              const MIN_SCORE = 0.6;
+              if (best.score >= MIN_SCORE) {
+                log(`[AUTONOMY] Score ${best.score.toFixed(3)} >= ${MIN_SCORE} threshold — placing bet`);
+                if (best.platform === "POLYMARKET") {
+                  await sendPrompt(`buy $2 YES on "${best.keyword}" on polymarket`);
+                } else {
+                  await sendPrompt(`bet $2 YES on jupiter market ${best.marketId}`);
+                }
               } else {
-                await sendPrompt(`bet $2 YES on jupiter market ${best.marketId}`);
+                log(`[AUTONOMY] Score ${best.score.toFixed(3)} < ${MIN_SCORE} threshold — skipping, no good opportunities`);
               }
 
               // ===== STEP 3: Check positions and sell losers =====

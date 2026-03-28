@@ -186,6 +186,32 @@ async function createRuntime() {
   return runtime;
 }
 
+// Cache Solana balance to avoid RPC 429s
+let _solanaBalanceCache = { value: 0, fetchedAt: 0 };
+const SOLANA_CACHE_TTL = 60_000; // 60 seconds
+
+async function getCachedSolanaBalance(): Promise<number> {
+  if (Date.now() - _solanaBalanceCache.fetchedAt < SOLANA_CACHE_TTL) {
+    return _solanaBalanceCache.value;
+  }
+  try {
+    const solKey = process.env.SOLANA_PRIVATE_KEY?.trim();
+    if (!solKey) return 0;
+    const { Keypair, Connection, PublicKey } = await import("@solana/web3.js");
+    const bs58 = await import("bs58");
+    const kp = Keypair.fromSecretKey(bs58.default.decode(solKey));
+    const conn = new Connection(process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com", "confirmed");
+    const USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+    const accounts = await conn.getTokenAccountsByOwner(kp.publicKey, { mint: USDC_MINT });
+    if (accounts.value.length > 0) {
+      const info = await conn.getTokenAccountBalance(accounts.value[0].pubkey);
+      _solanaBalanceCache = { value: Number(info.value.uiAmount ?? 0), fetchedAt: Date.now() };
+      return _solanaBalanceCache.value;
+    }
+  } catch {}
+  return _solanaBalanceCache.value;
+}
+
 async function getPortfolioStatus(runtime: AgentRuntime) {
   try {
     const svc = (await runtime.getServiceLoadPromise(POLYMARKET_EXT_SERVICE_TYPE)) as PolymarketExtService;
@@ -259,23 +285,8 @@ async function getPortfolioStatus(runtime: AgentRuntime) {
       }
     } catch {}
 
-    // Fetch Solana USDC balance
-    let solanaBalance = 0;
-    try {
-      const solKey = process.env.SOLANA_PRIVATE_KEY?.trim();
-      if (solKey) {
-        const { Keypair, Connection, PublicKey } = await import("@solana/web3.js");
-        const bs58 = await import("bs58");
-        const kp = Keypair.fromSecretKey(bs58.default.decode(solKey));
-        const conn = new Connection(process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com", "confirmed");
-        const USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
-        const accounts = await conn.getTokenAccountsByOwner(kp.publicKey, { mint: USDC_MINT });
-        if (accounts.value.length > 0) {
-          const info = await conn.getTokenAccountBalance(accounts.value[0].pubkey);
-          solanaBalance = Number(info.value.uiAmount ?? 0);
-        }
-      }
-    } catch {}
+    // Fetch Solana USDC balance (cached for 60s to avoid RPC rate limits)
+    const solanaBalance = await getCachedSolanaBalance();
 
     return { balance, solanaBalance, positions, trades, jupiterPositions };
   } catch {

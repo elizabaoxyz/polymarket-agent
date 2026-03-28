@@ -5,8 +5,13 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# Build
+# Copy source
 COPY . .
+
+# Next.js needs NEXT_PUBLIC_* at build time
+ARG NEXT_PUBLIC_WS_URL
+ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
+
 RUN npm run build
 
 EXPOSE 3000

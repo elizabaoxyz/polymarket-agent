@@ -288,6 +288,7 @@ async function main() {
             entityId: DEFAULT_USER_ID,
             agentId: stringToUuid("eliza"),
             roomId: DEFAULT_ROOM_ID,
+            worldId: DEFAULT_WORLD_ID,
             content: { text: msg.text, source: "web-chat" },
             metadata: {},
           });

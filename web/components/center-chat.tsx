@@ -75,7 +75,7 @@ export function CenterChat({ messages, isThinking, isConnected, onSend }: Center
 
       {/* Input Bar */}
       <div className="px-5 py-3 border-t border-[var(--border)] bg-[var(--bg-panel)]">
-        <div className="max-w-[720px] mx-auto">
+        <div className="w-full">
           <div className="flex items-center gap-2 bg-[var(--bg-card)] rounded-full px-4 py-2 border border-[var(--border)]">
             <Smile size={18} className="text-[var(--text-muted)] shrink-0" />
             <input

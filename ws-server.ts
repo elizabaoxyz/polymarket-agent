@@ -1,9 +1,9 @@
 /**
  * Bun WebSocket server for the Polymarket trading agent.
- * Multi-user: each connection authenticates with their own API keys
- * and gets an isolated elizaOS runtime.
+ * Single-instance mode: reads API keys from environment variables.
  *
  * Usage: bun run ws-server.ts
+ * Set API keys via environment variables (Railway, .env, etc.)
  */
 
 process.env.LOG_LEVEL = process.env.LOG_LEVEL || "fatal";
@@ -30,6 +30,8 @@ import { v4 as uuidv4 } from "uuid";
 import {
   buildLlmPlugins,
   buildLlmRuntimeSettings,
+  loadEnvConfig,
+  parseArgs,
   resolveLlmProviderFromEnv,
 } from "./lib";
 import { polymarketExtPlugin } from "./plugins/polymarket-ext/index";
@@ -41,6 +43,8 @@ import { X402SolanaService } from "./plugins/x402-solana/service";
 import { X402_SERVICE_TYPE } from "./plugins/x402-solana/types";
 
 const WS_PORT = Number(process.env.PORT ?? process.env.WS_PORT ?? 3001);
+const DEFAULT_ROOM_ID = stringToUuid("web-chat-room");
+const DEFAULT_WORLD_ID = stringToUuid("web-chat-world");
 const DEFAULT_USER_ID = stringToUuid("web-chat-user");
 
 const BROKEN_POLYMARKET_ACTIONS = [
@@ -49,8 +53,6 @@ const BROKEN_POLYMARKET_ACTIONS = [
   "POLYMARKET_GET_TOKEN_INFO",
   "POLYMARKET_GET_ORDER_BOOK_DEPTH",
 ];
-
-const LLM_KEYS = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "GROQ_API_KEY", "XAI_API_KEY"];
 
 function buildCharacter() {
   return createCharacter({
@@ -114,27 +116,12 @@ RESPONSE FORMAT — each action is a SEPARATE element:
   });
 }
 
-async function createRuntimeFromKeys(keys: Record<string, string>) {
-  const privateKey = keys.EVM_PRIVATE_KEY?.trim();
-  if (!privateKey) throw new Error("EVM_PRIVATE_KEY is required");
-
-  const hasLlm = LLM_KEYS.some((k) => keys[k]?.trim());
-  if (!hasLlm) throw new Error("At least one LLM API key is required");
-
+async function createRuntime() {
+  const { options } = parseArgs(["chat", "--execute"]);
+  const config = loadEnvConfig(options);
   const character = buildCharacter();
   const llmProvider = resolveLlmProviderFromEnv();
   const llmPlugins = buildLlmPlugins(llmProvider);
-
-  // Build settings: start with defaults, override with user keys
-  const settings: Record<string, string | undefined> = {
-    ...buildLlmRuntimeSettings(llmProvider),
-    PGLITE_DATA_DIR: "memory://",
-  };
-  for (const [k, v] of Object.entries(keys)) {
-    if (v?.trim()) settings[k] = v.trim();
-  }
-  settings.EVM_PRIVATE_KEY = privateKey;
-  settings.POLYMARKET_PRIVATE_KEY = privateKey;
 
   const runtime = new AgentRuntime({
     character,
@@ -151,7 +138,19 @@ async function createRuntimeFromKeys(keys: Record<string, string>) {
       x402SolanaPlugin,
       ...llmPlugins,
     ],
-    settings,
+    settings: {
+      ...buildLlmRuntimeSettings(llmProvider),
+      EVM_PRIVATE_KEY: config.privateKey,
+      POLYMARKET_PRIVATE_KEY: config.privateKey,
+      CLOB_API_URL: config.clobApiUrl,
+      ...(config.creds
+        ? {
+            CLOB_API_KEY: config.creds.key,
+            CLOB_API_SECRET: config.creds.secret,
+            CLOB_API_PASSPHRASE: config.creds.passphrase,
+          }
+        : {}),
+    },
     logLevel: "error",
     enableAutonomy: true,
     actionPlanning: true,
@@ -167,14 +166,10 @@ async function createRuntimeFromKeys(keys: Record<string, string>) {
     }
   } catch {}
 
-  const sessionId = uuidv4();
-  const roomId = stringToUuid(`web-${sessionId}-room`);
-  const worldId = stringToUuid(`web-${sessionId}-world`);
-
   await runtime.ensureConnection({
     entityId: DEFAULT_USER_ID,
-    roomId,
-    worldId,
+    roomId: DEFAULT_ROOM_ID,
+    worldId: DEFAULT_WORLD_ID,
     userName: "WebUser",
     source: "web-chat",
     channelId: "web",
@@ -182,7 +177,7 @@ async function createRuntimeFromKeys(keys: Record<string, string>) {
     type: ChannelType.DM,
   } as Parameters<typeof runtime.ensureConnection>[0]);
 
-  return { runtime, roomId, worldId };
+  return runtime;
 }
 
 async function getPortfolioStatus(runtime: AgentRuntime) {
@@ -228,19 +223,14 @@ async function getPortfolioStatus(runtime: AgentRuntime) {
   }
 }
 
-// --- Per-user session management ---
-
-type UserSession = {
-  runtime: AgentRuntime;
-  messageService: ReturnType<typeof Object.getPrototypeOf>;
-  roomId: ReturnType<typeof stringToUuid>;
-  worldId: ReturnType<typeof stringToUuid>;
-};
-
-const sessions = new Map<object, UserSession>();
-
 async function main() {
-  console.log("ws-server: ready (multi-user mode)");
+  console.log("ws-server: initializing runtime...");
+  const runtime = await createRuntime();
+  const messageService = runtime.messageService;
+  if (!messageService) {
+    throw new Error("Message service not initialized");
+  }
+  console.log("ws-server: runtime ready");
 
   const server = Bun.serve({
     port: WS_PORT,
@@ -256,25 +246,20 @@ async function main() {
         });
       }
       if (url.pathname === "/health") {
-        return Response.json({ status: "ok", sessions: sessions.size });
+        return Response.json({ status: "ok" });
       }
       if (server.upgrade(req)) return undefined;
       return new Response("Not Found", { status: 404 });
     },
     websocket: {
       open(ws) {
-        console.log("ws-server: client connected (awaiting auth)");
+        console.log("ws-server: client connected");
       },
       close(ws) {
-        const session = sessions.get(ws);
-        if (session) {
-          console.log("ws-server: client disconnected, stopping runtime");
-          session.runtime.stop().catch(() => {});
-          sessions.delete(ws);
-        }
+        console.log("ws-server: client disconnected");
       },
       async message(ws, raw) {
-        let msg: { type: string; text?: string; keys?: Record<string, string> };
+        let msg: { type: string; text?: string };
         try {
           msg = JSON.parse(String(raw));
         } catch {
@@ -282,40 +267,8 @@ async function main() {
           return;
         }
 
-        // Auth message
-        if (msg.type === "auth" && msg.keys) {
-          // Tear down old session if reconnecting
-          const old = sessions.get(ws);
-          if (old) {
-            await old.runtime.stop().catch(() => {});
-            sessions.delete(ws);
-          }
-
-          try {
-            console.log("ws-server: creating runtime for user...");
-            const { runtime, roomId, worldId } = await createRuntimeFromKeys(msg.keys);
-            const messageService = runtime.messageService;
-            if (!messageService) throw new Error("Message service not initialized");
-            sessions.set(ws, { runtime, messageService, roomId, worldId });
-            ws.send(JSON.stringify({ type: "auth_ok" }));
-            console.log("ws-server: user authenticated, runtime ready");
-          } catch (err) {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            console.error("ws-server: auth failed:", errMsg);
-            ws.send(JSON.stringify({ type: "auth_error", text: errMsg }));
-          }
-          return;
-        }
-
-        // All other messages require auth
-        const session = sessions.get(ws);
-        if (!session) {
-          ws.send(JSON.stringify({ type: "error", text: "Not authenticated. Send auth first." }));
-          return;
-        }
-
         if (msg.type === "get_status") {
-          const status = await getPortfolioStatus(session.runtime);
+          const status = await getPortfolioStatus(runtime);
           ws.send(JSON.stringify({ type: "status", ...status }));
           return;
         }
@@ -326,7 +279,7 @@ async function main() {
           const memory = createMessageMemory({
             id: uuidv4() as ReturnType<typeof stringToUuid>,
             entityId: DEFAULT_USER_ID,
-            roomId: session.roomId,
+            roomId: DEFAULT_ROOM_ID,
             content: {
               text: msg.text,
               source: "web-chat",
@@ -335,8 +288,8 @@ async function main() {
           });
 
           try {
-            await session.messageService.handleMessage(
-              session.runtime,
+            await messageService.handleMessage(
+              runtime,
               memory,
               async (content: Content) => {
                 if (typeof content.text === "string" && content.text.trim()) {

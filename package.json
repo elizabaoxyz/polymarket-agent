@@ -14,7 +14,9 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
-    "typecheck": "tsc --noEmit --skipLibCheck"
+    "typecheck": "tsc --noEmit --skipLibCheck",
+    "ws": "bun run ws-server.ts",
+    "web": "bun run ws-server.ts & cd web && npm run dev"
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0",

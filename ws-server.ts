@@ -284,13 +284,14 @@ async function main() {
           ws.send(JSON.stringify({ type: "thinking", active: true }));
 
           const memory = createMessageMemory({
-            id: stringToUuid(uuidv4()),
+            id: uuidv4() as ReturnType<typeof stringToUuid>,
             entityId: DEFAULT_USER_ID,
-            agentId: stringToUuid("eliza"),
             roomId: DEFAULT_ROOM_ID,
-            worldId: DEFAULT_WORLD_ID,
-            content: { text: msg.text, source: "web-chat" },
-            metadata: {},
+            content: {
+              text: msg.text,
+              source: "web-chat",
+              channelType: ChannelType.DM,
+            },
           });
 
           try {

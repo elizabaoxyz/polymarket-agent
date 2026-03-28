@@ -3,7 +3,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatMessage, PortfolioData, ServerMessage, UserKeys } from "./types";
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:3001";
+function getWsUrl(): string {
+  if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL;
+  if (typeof window !== "undefined") {
+    // In production, assume WS server is on same host, port 3001 or /ws path
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    // If NEXT_PUBLIC_WS_URL not set, try same origin with /ws path (reverse proxy)
+    // or fall back to localhost for dev
+    if (window.location.hostname !== "localhost") {
+      return `${proto}//${window.location.host}`;
+    }
+  }
+  return "ws://localhost:3001";
+}
+const WS_URL = getWsUrl();
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 

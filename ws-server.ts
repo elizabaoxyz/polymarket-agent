@@ -40,7 +40,7 @@ import { x402SolanaPlugin } from "./plugins/x402-solana/index";
 import { X402SolanaService } from "./plugins/x402-solana/service";
 import { X402_SERVICE_TYPE } from "./plugins/x402-solana/types";
 
-const WS_PORT = Number(process.env.WS_PORT ?? 3001);
+const WS_PORT = Number(process.env.PORT ?? process.env.WS_PORT ?? 3001);
 const DEFAULT_USER_ID = stringToUuid("web-chat-user");
 
 const BROKEN_POLYMARKET_ACTIONS = [

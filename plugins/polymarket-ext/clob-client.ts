@@ -162,11 +162,9 @@ export class ClobApiClient {
     return ClobMarketsResponseSchema.shape.data.element.parse(data);
   }
 
-  private heartbeatId: string | null = null;
-
   async heartbeat(): Promise<void> {
     const path = "/v1/heartbeats";
-    const bodyObj = { heartbeat_id: this.heartbeatId };
+    const bodyObj = { heartbeat_id: null };
     const bodyStr = JSON.stringify(bodyObj);
     const url = new URL(`${this.config.baseUrl}${path}`);
     const headers = this.buildHeaders("POST", path, bodyStr);
@@ -190,13 +188,6 @@ export class ClobApiClient {
       throw new PolymarketApiError(response.status, text, path);
     }
 
-    try {
-      const data = await response.json();
-      if (data && typeof data.heartbeat_id === "string") {
-        this.heartbeatId = data.heartbeat_id;
-      }
-    } catch {
-      // Non-JSON response is fine, heartbeat still succeeded
-    }
+    // Response doesn't need processing — heartbeat succeeded
   }
 }

@@ -164,16 +164,15 @@ describe("ClobApiClient.heartbeat", () => {
     expect(capturedRequests[0]!.url).toContain("/v1/heartbeats");
   });
 
-  test("chains heartbeat_id from previous response", async () => {
+  test("always sends null heartbeat_id (fresh session each time)", async () => {
     setMock("/v1/heartbeats", { heartbeat_id: "hb-456" });
     const client = new ClobApiClient(TEST_CONFIG);
     await client.heartbeat();
-    // Second call should send the heartbeat_id from first response
     capturedRequests = [];
     setMock("/v1/heartbeats", { heartbeat_id: "hb-789" });
     await client.heartbeat();
     const body = JSON.parse(capturedRequests[0]!.body!);
-    expect(body.heartbeat_id).toBe("hb-456");
+    expect(body.heartbeat_id).toBeNull();
   });
 });
 

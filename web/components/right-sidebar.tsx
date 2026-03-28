@@ -24,13 +24,30 @@ const plugins = [
   { key: "x402", icon: CreditCard, name: "x402 Payments", tools: "1 tools" },
 ];
 
-const quickActions = [
-  { icon: Zap, label: "Scan Markets", prompt: "place a $3 YES bet on polymarket on something interesting" },
-  { icon: BarChart3, label: "Show Positions", prompt: "show my positions" },
-  { icon: DollarSign, label: "Place $3 Bet", prompt: "buy $3 YES on something interesting" },
-  { icon: Activity, label: "Show PnL", prompt: "show me my pnl on polymarket" },
-  { icon: Search, label: "Scan Jupiter", prompt: "scan jupiter prediction markets on solana" },
-  { icon: FileText, label: "Show Trades", prompt: "show my recent trades" },
+const quickActionGroups = [
+  {
+    title: "Polymarket",
+    actions: [
+      { icon: Zap, label: "Scan Markets", prompt: "place a $3 YES bet on polymarket on something interesting" },
+      { icon: BarChart3, label: "Show Positions", prompt: "show my positions" },
+      { icon: DollarSign, label: "Place $3 Bet", prompt: "buy $3 YES on something interesting" },
+      { icon: Activity, label: "Show PnL", prompt: "show me my pnl on polymarket" },
+      { icon: FileText, label: "Show Trades", prompt: "show my recent trades" },
+    ],
+  },
+  {
+    title: "Jupiter (Solana)",
+    actions: [
+      { icon: Search, label: "Scan Jupiter", prompt: "scan jupiter prediction markets on solana" },
+      { icon: DollarSign, label: "Bet on Jupiter", prompt: "bet $2 YES on jupiter market POLY-567688" },
+    ],
+  },
+  {
+    title: "x402 Payments",
+    actions: [
+      { icon: CreditCard, label: "Payment Status", prompt: "what x402 payments have you made?" },
+    ],
+  },
 ];
 
 function SectionTitle({ label }: { label: string }) {
@@ -76,16 +93,25 @@ export function RightSidebar({ onQuickAction, onPluginClick }: RightSidebarProps
       {/* Quick Actions */}
       <section>
         <SectionTitle label="Quick Actions" />
-        <div className="grid grid-cols-2 gap-2">
-          {quickActions.map((action) => (
-            <button
-              key={action.label}
-              onClick={() => onQuickAction(action.prompt)}
-              className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-[var(--green)]/30 hover:border-[var(--green)] hover:bg-[var(--bg-agent)] text-[var(--text)] transition-colors text-left"
-            >
-              <action.icon size={13} className="text-[var(--green)] shrink-0" />
-              <span className="text-[11px] font-medium leading-tight">{action.label}</span>
-            </button>
+        <div className="flex flex-col gap-3">
+          {quickActionGroups.map((group) => (
+            <div key={group.title}>
+              <span className="mono text-[9px] text-[var(--accent)] tracking-wider uppercase mb-1.5 block">
+                {group.title}
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                {group.actions.map((action) => (
+                  <button
+                    key={action.label}
+                    onClick={() => onQuickAction(action.prompt)}
+                    className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-[var(--green)]/30 hover:border-[var(--green)] hover:bg-[var(--bg-agent)] text-[var(--text)] transition-colors text-left"
+                  >
+                    <action.icon size={13} className="text-[var(--green)] shrink-0" />
+                    <span className="text-[11px] font-medium leading-tight">{action.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       </section>

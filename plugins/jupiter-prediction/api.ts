@@ -64,6 +64,10 @@ export class JupiterPredictionClient {
     }
 
     const data = await response.json();
+    // Check for API error in 200 response (Jupiter sometimes returns errors with 200)
+    if (data && typeof data === "object" && "type" in data && data.type?.includes("error")) {
+      throw new Error(`Jupiter API: ${data.message ?? JSON.stringify(data)}`);
+    }
     return schema.parse(data);
   }
 

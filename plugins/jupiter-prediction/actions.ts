@@ -101,11 +101,11 @@ export const placeJupiterBet: Action = {
     const isNo = /\bno\b/i.test(text);
 
     if (!marketIdMatch) {
-      if (callback) callback({ text: "Missing market ID. Specify: bet $5 YES on market <id>" });
+      if (callback) callback({ text: "Missing Jupiter market ID. Use SCAN_JUPITER_MARKETS first to find a market ID, then: bet $5 YES on jupiter market <id>.\nIf you want to bet on Polymarket instead, just say: buy $5 YES on 'market name'" });
       return false;
     }
     if (!amountMatch) {
-      if (callback) callback({ text: "Missing amount. Specify: bet $5 YES on market <id>" });
+      if (callback) callback({ text: "Missing amount. Specify: bet $5 YES on jupiter market <id>" });
       return false;
     }
     if (!isYes && !isNo) {
@@ -118,7 +118,6 @@ export const placeJupiterBet: Action = {
     const depositAmount = dollarsToMicroUsd(dollars);
 
     try {
-      if (callback) callback({ text: `Placing $${dollars.toFixed(2)} ${isYes ? "YES" : "NO"} bet on market ${marketId}...` });
       const { orderPubkey, signature } = await svc.placeOrderAndSign({
         ownerPubkey: svc.ownerPubkey,
         marketId,
@@ -129,13 +128,13 @@ export const placeJupiterBet: Action = {
       });
       const status = await svc.waitForFill(orderPubkey);
       const result = status.status === "filled"
-        ? `Order filled! Signature: ${signature}`
-        : `Order ${status.status}. Pubkey: ${orderPubkey}`;
+        ? `Jupiter order filled! Signature: ${signature}`
+        : `Jupiter order ${status.status}. Pubkey: ${orderPubkey}`;
       if (callback) callback({ text: result });
       return status.status === "filled";
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      if (callback) callback({ text: `Failed to place bet: ${msg}` });
+      if (callback) callback({ text: `Failed to place Jupiter bet: ${msg}\nTip: Use SCAN_JUPITER_MARKETS first to find valid market IDs.` });
       return false;
     }
   },

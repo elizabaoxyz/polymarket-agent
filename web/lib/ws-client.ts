@@ -78,13 +78,16 @@ export function useWebSocket() {
         case "thinking":
           setIsThinking(msg.active);
           break;
-        case "status":
+        case "status": {
+          const raw = msg as Record<string, unknown>;
           setPortfolio({
             balance: msg.balance,
+            solanaBalance: (raw.solanaBalance as number) ?? 0,
             positions: msg.positions,
             trades: msg.trades,
-            jupiterPositions: (msg as Record<string, unknown>).jupiterPositions as PortfolioData["jupiterPositions"] ?? [],
+            jupiterPositions: (raw.jupiterPositions as PortfolioData["jupiterPositions"]) ?? [],
           });
+        }
           break;
         case "error":
           setMessages((prev) => [

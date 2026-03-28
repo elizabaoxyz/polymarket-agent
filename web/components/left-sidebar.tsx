@@ -13,6 +13,7 @@ type FeedItem = {
 
 type LeftSidebarProps = {
   balance: number | null;
+  solanaBalance: number | null;
   positionCount: number;
   isConnected: boolean;
   liveFeed: FeedItem[];
@@ -61,6 +62,7 @@ function formatTimeAgo(timestamp: number): string {
 
 export function LeftSidebar({
   balance,
+  solanaBalance,
   positionCount,
   isConnected,
   liveFeed,
@@ -157,14 +159,25 @@ export function LeftSidebar({
 
         {tab === "portfolio" && (
           <div className="p-4">
-            {/* Balance */}
-            <div className="mb-4 p-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg">
-              <div className="flex items-center gap-2 mb-1">
-                <Wallet size={14} className="text-[var(--accent)]" />
-                <span className="mono text-[10px] text-[var(--text-secondary)] tracking-wider">USDC BALANCE</span>
+            {/* Balances */}
+            <div className="mb-4 space-y-2">
+              <div className="p-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg">
+                <div className="flex items-center gap-2 mb-1">
+                  <Wallet size={14} className="text-[var(--accent)]" />
+                  <span className="mono text-[10px] text-[var(--text-secondary)] tracking-wider">POLYMARKET (POLYGON)</span>
+                </div>
+                <div className="mono text-lg font-bold text-[var(--green)]">
+                  {balance !== null ? `$${balance.toFixed(2)}` : "--"}
+                </div>
               </div>
-              <div className="mono text-xl font-bold text-[var(--green)]">
-                {balance !== null ? `$${balance.toFixed(2)}` : "--"}
+              <div className="p-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg">
+                <div className="flex items-center gap-2 mb-1">
+                  <Wallet size={14} className="text-[var(--accent)]" />
+                  <span className="mono text-[10px] text-[var(--text-secondary)] tracking-wider">JUPITER (SOLANA)</span>
+                </div>
+                <div className="mono text-lg font-bold text-[var(--green)]">
+                  {solanaBalance !== null ? `$${solanaBalance.toFixed(2)}` : "--"}
+                </div>
               </div>
             </div>
 

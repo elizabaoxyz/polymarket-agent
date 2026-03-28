@@ -259,9 +259,27 @@ async function getPortfolioStatus(runtime: AgentRuntime) {
       }
     } catch {}
 
-    return { balance, positions, trades, jupiterPositions };
+    // Fetch Solana USDC balance
+    let solanaBalance = 0;
+    try {
+      const solKey = process.env.SOLANA_PRIVATE_KEY?.trim();
+      if (solKey) {
+        const { Keypair, Connection, PublicKey } = await import("@solana/web3.js");
+        const bs58 = await import("bs58");
+        const kp = Keypair.fromSecretKey(bs58.default.decode(solKey));
+        const conn = new Connection(process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com", "confirmed");
+        const USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+        const accounts = await conn.getTokenAccountsByOwner(kp.publicKey, { mint: USDC_MINT });
+        if (accounts.value.length > 0) {
+          const info = await conn.getTokenAccountBalance(accounts.value[0].pubkey);
+          solanaBalance = Number(info.value.uiAmount ?? 0);
+        }
+      }
+    } catch {}
+
+    return { balance, solanaBalance, positions, trades, jupiterPositions };
   } catch {
-    return { balance: 0, positions: [], trades: [], jupiterPositions: [] };
+    return { balance: 0, solanaBalance: 0, positions: [], trades: [], jupiterPositions: [] };
   }
 }
 

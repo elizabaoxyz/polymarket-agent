@@ -44,6 +44,7 @@ export type JupiterPosition = {
 
 export type PortfolioData = {
   balance: number;
+  solanaBalance: number;
   positions: Position[];
   trades: Trade[];
   jupiterPositions: JupiterPosition[];
@@ -56,7 +57,7 @@ export type ServerMessage =
   | { type: "reply"; text: string }
   | { type: "action_result"; text: string }
   | { type: "thinking"; active: boolean }
-  | { type: "status"; balance: number; positions: Position[]; trades: Trade[]; jupiterPositions?: JupiterPosition[] }
+  | { type: "status"; balance: number; solanaBalance?: number; positions: Position[]; trades: Trade[]; jupiterPositions?: JupiterPosition[] }
   | { type: "auth_ok" }
   | { type: "auth_error"; text: string }
   | { type: "error"; text: string };

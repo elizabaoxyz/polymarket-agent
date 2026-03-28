@@ -81,6 +81,7 @@ export default function Home() {
       <div className="flex pt-12" style={{ height: "calc(100vh - 48px)", minHeight: "500px" }}>
         <LeftSidebar
           balance={portfolio?.balance ?? null}
+          solanaBalance={portfolio?.solanaBalance ?? null}
           positionCount={portfolio?.positions?.length ?? 0}
           isConnected={isConnected}
           liveFeed={liveFeed}

@@ -34,18 +34,23 @@ export type PortfolioData = {
   trades: Trade[];
 };
 
+export type UserKeys = Record<string, string>;
+
 // Server -> Client messages
 export type ServerMessage =
   | { type: "reply"; text: string }
   | { type: "action_result"; text: string }
   | { type: "thinking"; active: boolean }
   | { type: "status"; balance: number; positions: Position[]; trades: Trade[] }
+  | { type: "auth_ok" }
+  | { type: "auth_error"; text: string }
   | { type: "error"; text: string };
 
 // Client -> Server messages
 export type ClientMessage =
   | { type: "message"; text: string }
-  | { type: "get_status" };
+  | { type: "get_status" }
+  | { type: "auth"; keys: Record<string, string> };
 
 export type ChatMessage = {
   id: string;

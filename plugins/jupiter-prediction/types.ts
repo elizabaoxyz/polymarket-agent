@@ -71,8 +71,9 @@ export type Orderbook = z.infer<typeof OrderbookSchema>;
 
 export const PlaceOrderResponseSchema = z.object({
   transaction: z.string(),
-  orderPubkey: z.string(),
-});
+  externalOrderId: z.string().optional(),
+  order: z.unknown().optional(),
+}).passthrough();
 export type PlaceOrderResponse = z.infer<typeof PlaceOrderResponseSchema>;
 
 export const OrderStatusSchema = z.object({

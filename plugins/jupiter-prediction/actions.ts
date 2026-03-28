@@ -118,7 +118,7 @@ export const placeJupiterBet: Action = {
     const depositAmount = dollarsToMicroUsd(dollars);
 
     try {
-      const { orderPubkey, signature } = await svc.placeOrderAndSign({
+      const { orderId, signature } = await svc.placeOrderAndSign({
         ownerPubkey: svc.ownerPubkey,
         marketId,
         isYes,
@@ -126,12 +126,8 @@ export const placeJupiterBet: Action = {
         depositAmount,
         depositMint: USDC_MINT,
       });
-      const status = await svc.waitForFill(orderPubkey);
-      const result = status.status === "filled"
-        ? `Jupiter order filled! Signature: ${signature}`
-        : `Jupiter order ${status.status}. Pubkey: ${orderPubkey}`;
-      if (callback) callback({ text: result });
-      return status.status === "filled";
+      if (callback) callback({ text: `Jupiter order placed! Order: ${orderId} | Signature: ${signature}` });
+      return true;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       if (callback) callback({ text: `Failed to place Jupiter bet: ${msg}\nTip: Use SCAN_JUPITER_MARKETS first to find valid market IDs.` });

@@ -81,12 +81,12 @@ export class JupiterPredictionService {
   }
 
   async placeOrderAndSign(params: Parameters<JupiterPredictionClient["placeOrder"]>[0]): Promise<{
-    orderPubkey: string;
+    orderId: string;
     signature: string;
   }> {
     const response = await this.client.placeOrder(params);
     const signature = await this.signAndSubmit(response.transaction);
-    return { orderPubkey: response.orderPubkey, signature };
+    return { orderId: response.externalOrderId ?? "unknown", signature };
   }
 
   async waitForFill(orderPubkey: string): Promise<OrderStatus> {

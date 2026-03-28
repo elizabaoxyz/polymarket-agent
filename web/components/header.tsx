@@ -1,15 +1,14 @@
 "use client";
 
-import { Settings, ExternalLink, LogIn, Copy } from "lucide-react";
+import { Settings, ExternalLink, LogIn, Bot } from "lucide-react";
 
 type HeaderProps = {
-  balance: number | null;
   isConnected: boolean;
-  onOpenPositions?: () => void;
-  onOpenTrades?: () => void;
+  isAutonomyActive: boolean;
+  onToggleAutonomy: () => void;
 };
 
-export function Header({ balance, isConnected }: HeaderProps) {
+export function Header({ isConnected, isAutonomyActive, onToggleAutonomy }: HeaderProps) {
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-[var(--bg)] border-b border-[var(--border)]">
       <div className="w-full px-4 h-12 flex items-center justify-between">
@@ -25,6 +24,20 @@ export function Header({ balance, isConnected }: HeaderProps) {
             }`}
             title={isConnected ? "Connected" : "Disconnected"}
           />
+
+          {/* Autonomy Toggle */}
+          <button
+            onClick={onToggleAutonomy}
+            disabled={!isConnected}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold mono transition-all ${
+              isAutonomyActive
+                ? "bg-[var(--green)] text-[#0a0a0a] animate-pulse"
+                : "bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--green)] hover:text-[var(--green)]"
+            } disabled:opacity-40`}
+          >
+            <Bot size={12} />
+            {isAutonomyActive ? "AUTONOMY ON" : "AUTONOMY OFF"}
+          </button>
         </div>
 
         {/* Right section */}

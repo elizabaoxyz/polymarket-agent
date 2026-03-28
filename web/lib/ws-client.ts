@@ -89,6 +89,9 @@ export function useWebSocket() {
           });
         }
           break;
+        case "autonomy_status":
+          setIsAutonomyActive((msg as Record<string, unknown>).active as boolean);
+          break;
         case "error":
           setMessages((prev) => [
             ...prev,
@@ -120,5 +123,14 @@ export function useWebSocket() {
     wsRef.current.send(JSON.stringify({ type: "get_status" }));
   }, []);
 
-  return { messages, sendMessage, isConnected, isThinking, portfolio, requestStatus };
+  const [isAutonomyActive, setIsAutonomyActive] = useState(false);
+
+  const toggleAutonomy = useCallback(() => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    const newState = !isAutonomyActive;
+    wsRef.current.send(JSON.stringify({ type: newState ? "start_autonomy" : "stop_autonomy" }));
+    setIsAutonomyActive(newState);
+  }, [isAutonomyActive]);
+
+  return { messages, sendMessage, isConnected, isThinking, portfolio, requestStatus, isAutonomyActive, toggleAutonomy };
 }

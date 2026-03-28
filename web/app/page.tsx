@@ -13,7 +13,7 @@ import WhaleModal from "@/components/whale-modal";
 import PluginModal from "@/components/plugin-modal";
 
 export default function Home() {
-  const { messages, sendMessage, isConnected, isThinking, portfolio, requestStatus } =
+  const { messages, sendMessage, isConnected, isThinking, portfolio, requestStatus, isAutonomyActive, toggleAutonomy } =
     useWebSocket();
 
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
@@ -76,7 +76,7 @@ export default function Home() {
 
   return (
     <div className="flex flex-col bg-[var(--bg)] min-h-screen">
-      <Header balance={portfolio?.balance ?? null} isConnected={isConnected} />
+      <Header isConnected={isConnected} isAutonomyActive={isAutonomyActive} onToggleAutonomy={toggleAutonomy} />
 
       <div className="flex pt-12" style={{ height: "calc(100vh - 48px)", minHeight: "500px" }}>
         <LeftSidebar

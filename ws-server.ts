@@ -303,6 +303,8 @@ async function main() {
   }
   console.log("ws-server: runtime ready");
 
+  let autonomyTimer: ReturnType<typeof setInterval> | null = null;
+
   const server = Bun.serve({
     port: WS_PORT,
     fetch(req, server) {
@@ -328,6 +330,11 @@ async function main() {
       },
       close(ws) {
         console.log("ws-server: client disconnected");
+        if (autonomyTimer) {
+          clearInterval(autonomyTimer);
+          autonomyTimer = null;
+          console.log("ws-server: autonomy stopped (client disconnected)");
+        }
       },
       async message(ws, raw) {
         let msg: { type: string; text?: string };
@@ -376,6 +383,69 @@ async function main() {
           }
 
           ws.send(JSON.stringify({ type: "thinking", active: false }));
+          return;
+        }
+
+        // Autonomy toggle
+        if (msg.type === "start_autonomy") {
+          if (autonomyTimer) {
+            ws.send(JSON.stringify({ type: "autonomy_status", active: true }));
+            return;
+          }
+          console.log("ws-server: autonomy started");
+          ws.send(JSON.stringify({ type: "autonomy_status", active: true }));
+
+          const runAutonomyCycle = async () => {
+            const prompts = [
+              "scan polymarket for the best opportunity and place a $2 YES bet on the highest-scored market",
+              "scan jupiter prediction markets on solana and place a $1 YES bet on the best market",
+              "show my positions and check if any should be sold",
+            ];
+            const prompt = prompts[Math.floor(Math.random() * prompts.length)]!;
+
+            ws.send(JSON.stringify({ type: "action_result", text: `[AUTONOMY] ${prompt}` }));
+            ws.send(JSON.stringify({ type: "thinking", active: true }));
+
+            const autoMemory = createMessageMemory({
+              id: uuidv4() as ReturnType<typeof stringToUuid>,
+              entityId: DEFAULT_USER_ID,
+              roomId: DEFAULT_ROOM_ID,
+              content: { text: prompt, source: "web-chat", channelType: ChannelType.DM },
+            });
+
+            try {
+              await messageService.handleMessage(
+                runtime,
+                autoMemory,
+                async (content: Content) => {
+                  if (typeof content.text === "string" && content.text.trim()) {
+                    ws.send(JSON.stringify({ type: "action_result", text: content.text.trim() }));
+                  }
+                  return [];
+                },
+                {} as never,
+              );
+            } catch (err) {
+              const errMsg = err instanceof Error ? err.message : String(err);
+              ws.send(JSON.stringify({ type: "action_result", text: `[AUTONOMY ERROR] ${errMsg}` }));
+            }
+
+            ws.send(JSON.stringify({ type: "thinking", active: false }));
+          };
+
+          // Run first cycle immediately, then every 60s
+          runAutonomyCycle();
+          autonomyTimer = setInterval(runAutonomyCycle, 60_000);
+          return;
+        }
+
+        if (msg.type === "stop_autonomy") {
+          if (autonomyTimer) {
+            clearInterval(autonomyTimer);
+            autonomyTimer = null;
+            console.log("ws-server: autonomy stopped");
+          }
+          ws.send(JSON.stringify({ type: "autonomy_status", active: false }));
           return;
         }
 

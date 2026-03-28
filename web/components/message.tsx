@@ -1,3 +1,4 @@
+import { Clock } from "lucide-react";
 import type { ChatMessage } from "@/lib/types";
 
 function formatTime(ts: number): string {
@@ -8,15 +9,28 @@ function formatTime(ts: number): string {
   });
 }
 
+function Timestamp({ ts }: { ts: number }) {
+  return (
+    <span className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] mt-1">
+      <Clock size={10} />
+      {formatTime(ts)}
+    </span>
+  );
+}
+
 export function Message({ msg }: { msg: ChatMessage }) {
   if (msg.role === "user") {
     return (
       <div className="flex justify-end mb-4">
         <div className="max-w-[75%]">
-          <div className="bg-white border border-[var(--border)] rounded-2xl rounded-br-md px-4 py-2.5">
-            <p className="text-[15px] text-[var(--text)] whitespace-pre-wrap">{msg.text}</p>
+          <div className="bg-[var(--accent)] rounded-xl rounded-br-sm px-4 py-2.5">
+            <p className="text-[14px] text-[#0a0a0a] whitespace-pre-wrap leading-relaxed">
+              {msg.text}
+            </p>
           </div>
-          <p className="text-[11px] text-[var(--text-secondary)] mt-1 text-right">{formatTime(msg.timestamp)}</p>
+          <div className="flex justify-end">
+            <Timestamp ts={msg.timestamp} />
+          </div>
         </div>
       </div>
     );
@@ -26,22 +40,27 @@ export function Message({ msg }: { msg: ChatMessage }) {
     return (
       <div className="flex justify-start mb-4">
         <div className="max-w-[75%]">
-          <div className="bg-[var(--accent-light)] border border-indigo-100 rounded-2xl rounded-bl-md px-4 py-2.5">
-            <p className="text-[13px] text-[var(--accent)] whitespace-pre-wrap font-mono">{msg.text}</p>
+          <div className="bg-[var(--bg-panel)] border-l-2 border-[var(--accent)] px-4 py-2.5">
+            <p className="mono text-[13px] text-[var(--green)] whitespace-pre-wrap leading-relaxed">
+              {msg.text}
+            </p>
           </div>
-          <p className="text-[11px] text-[var(--text-secondary)] mt-1">{formatTime(msg.timestamp)}</p>
+          <Timestamp ts={msg.timestamp} />
         </div>
       </div>
     );
   }
 
+  // agent
   return (
     <div className="flex justify-start mb-4">
       <div className="max-w-[75%]">
-        <div className="bg-[var(--accent)] rounded-2xl rounded-bl-md px-4 py-2.5">
-          <p className="text-[15px] text-white whitespace-pre-wrap">{msg.text}</p>
+        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl rounded-bl-sm px-4 py-2.5">
+          <p className="text-[14px] text-[var(--text)] whitespace-pre-wrap leading-relaxed">
+            {msg.text}
+          </p>
         </div>
-        <p className="text-[11px] text-[var(--text-secondary)] mt-1">{formatTime(msg.timestamp)}</p>
+        <Timestamp ts={msg.timestamp} />
       </div>
     </div>
   );
@@ -50,10 +69,10 @@ export function Message({ msg }: { msg: ChatMessage }) {
 export function ThinkingIndicator() {
   return (
     <div className="flex justify-start mb-4">
-      <div className="bg-gray-100 rounded-2xl rounded-bl-md px-4 py-3 flex gap-1.5">
-        <div className="w-2 h-2 bg-gray-400 rounded-full thinking-dot" />
-        <div className="w-2 h-2 bg-gray-400 rounded-full thinking-dot" />
-        <div className="w-2 h-2 bg-gray-400 rounded-full thinking-dot" />
+      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl rounded-bl-sm px-4 py-3 flex gap-1.5">
+        <div className="w-2 h-2 bg-[var(--green)] rounded-full thinking-dot" />
+        <div className="w-2 h-2 bg-[var(--green)] rounded-full thinking-dot" />
+        <div className="w-2 h-2 bg-[var(--green)] rounded-full thinking-dot" />
       </div>
     </div>
   );

@@ -58,3 +58,45 @@ export type ChatMessage = {
   text: string;
   timestamp: number;
 };
+
+// --- Whale / Dashboard types ---
+
+export type GlobalTrade = {
+  proxyWallet: string;
+  side: string;
+  asset: string;
+  conditionId: string;
+  size: number;
+  usdcSize: number;
+  price: number;
+  timestamp: number;
+  title: string;
+  slug: string;
+  outcome: string;
+  name: string;
+  pseudonym: string;
+};
+
+export type WhaleWallet = {
+  address: string;
+  name: string;
+  pseudonym: string;
+  totalVolume: number;
+  tradeCount: number;
+  buyVolume: number;
+  sellVolume: number;
+};
+
+export type DashboardStats = {
+  volume24h: number;
+  transactions: number;
+  whaleCount: number;
+  avgTradeSize: number;
+  buyVolume: number;
+  sellVolume: number;
+  yesVolume: number;
+  noVolume: number;
+  largestBuy: number;
+  largestSell: number;
+  whales: WhaleWallet[];
+};

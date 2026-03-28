@@ -58,16 +58,21 @@ export class JupiterPredictionClient {
       );
     }
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      throw new Error(`Jupiter API error ${response.status}: ${text}`);
+    const text = await response.text().catch(() => "");
+    let data: unknown;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      if (!response.ok) throw new Error(`Jupiter API error ${response.status}: ${text}`);
+      throw new Error(`Jupiter API: invalid JSON response`);
     }
 
-    const data = await response.json();
-    // Check for API error in 200 response (Jupiter sometimes returns errors with 200)
-    if (data && typeof data === "object" && "type" in data && data.type?.includes("error")) {
-      throw new Error(`Jupiter API: ${data.message ?? JSON.stringify(data)}`);
+    // Check for error responses (both non-200 and 200 with error body)
+    if (!response.ok || (data && typeof data === "object" && "type" in data && String((data as Record<string, unknown>).type).includes("error"))) {
+      const msg = (data as Record<string, unknown>)?.message ?? text;
+      throw new Error(`Jupiter API error ${response.status}: ${msg}`);
     }
+
     return schema.parse(data);
   }
 

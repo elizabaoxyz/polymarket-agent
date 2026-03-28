@@ -395,15 +395,34 @@ async function main() {
           console.log("ws-server: autonomy started");
           ws.send(JSON.stringify({ type: "autonomy_status", active: true }));
 
+          let cycleIndex = 0;
           const runAutonomyCycle = async () => {
-            const prompts = [
-              "scan polymarket for the best opportunity and place a $2 YES bet on the highest-scored market",
-              "scan jupiter prediction markets on solana and place a $1 YES bet on the best market",
-              "show my positions and check if any should be sold",
+            // Rotate through all plugins: Polymarket → Jupiter → x402/Portfolio check
+            const cycles = [
+              // Polymarket cycle
+              [
+                "scan polymarket for the best opportunity and place a $2 YES bet on the highest-scored market",
+                "show my polymarket positions and PnL",
+              ],
+              // Jupiter cycle
+              [
+                "scan jupiter prediction markets on solana and place a $1 YES bet on the best market",
+                "show my jupiter positions on solana",
+              ],
+              // Portfolio & x402 cycle
+              [
+                "show my positions and check if any should be sold",
+                "show my recent trades",
+                "what x402 payments have you made?",
+              ],
             ];
-            const prompt = prompts[Math.floor(Math.random() * prompts.length)]!;
 
-            ws.send(JSON.stringify({ type: "action_result", text: `[AUTONOMY] ${prompt}` }));
+            const currentCycle = cycles[cycleIndex % cycles.length]!;
+            const prompt = currentCycle[Math.floor(Math.random() * currentCycle.length)]!;
+            cycleIndex++;
+
+            const platform = cycleIndex % 3 === 1 ? "POLYMARKET" : cycleIndex % 3 === 2 ? "JUPITER" : "PORTFOLIO";
+            ws.send(JSON.stringify({ type: "action_result", text: `[AUTONOMY:${platform}] ${prompt}` }));
             ws.send(JSON.stringify({ type: "thinking", active: true }));
 
             const autoMemory = createMessageMemory({

@@ -194,8 +194,8 @@ async function getPortfolioStatus(runtime: AgentRuntime) {
     if (svc.clob) {
       try {
         const { createHmac } = await import("node:crypto");
-        const { ethers } = await import("ethers");
-        const address = svc.walletAddress;
+        // HMAC auth uses the EOA address (svc.clob.config.address), not the proxy
+        const address = svc.clob.config.address;
         const secret = svc.clob.config.secret;
         const ts = String(Math.floor(Date.now() / 1000));
         const sig = createHmac("sha256", Buffer.from(secret, "base64"))

@@ -115,7 +115,8 @@ export const placeJupiterBet: Action = {
 
     const marketId = marketIdMatch[1]!;
     const dollars = parseFloat(amountMatch[1]!);
-    const depositAmount = dollarsToMicroUsd(dollars);
+    // Jupiter minimum is $1, ensure we're above it
+    const depositAmount = dollarsToMicroUsd(Math.max(dollars, 1.1));
 
     try {
       const { orderId, signature } = await svc.placeOrderAndSign({

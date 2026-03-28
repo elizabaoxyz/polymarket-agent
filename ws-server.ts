@@ -493,7 +493,7 @@ async function main() {
                       const title = event.metadata?.title ?? "unknown";
                       const marketId = market.marketId;
                       ws.send(JSON.stringify({ type: "action_result", text: `[AUTONOMY:JUPITER] Found: "${title}" (${marketId})` }));
-                      await sendPrompt(`bet $1 YES on jupiter market ${marketId}`);
+                      await sendPrompt(`bet $2 YES on jupiter market ${marketId}`);
                     } else {
                       ws.send(JSON.stringify({ type: "action_result", text: "[AUTONOMY:JUPITER] No open markets in selected event" }));
                     }

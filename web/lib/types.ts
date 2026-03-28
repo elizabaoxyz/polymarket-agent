@@ -1,25 +1,31 @@
 export type Position = {
-  market_slug: string;
-  title: string;
-  outcome: string;
+  asset: string;
+  conditionId: string;
   size: number;
-  avg_price: number;
-  cur_price: number;
-  realized_pnl: number;
-  condition_id: string;
-  asset_id: string;
+  avgPrice: number;
+  initialValue: number;
+  currentValue: number;
+  cashPnl: number;
+  percentPnl: number;
+  curPrice: number;
+  realizedPnl: number;
+  title: string;
+  slug: string;
+  outcome: string;
+  endDate?: string;
 };
 
 export type Trade = {
-  id: string;
-  market_slug: string;
-  title: string;
-  side: "BUY" | "SELL";
-  outcome: string;
-  price: number;
+  conditionId: string;
+  type: string;
   size: number;
-  timestamp: string;
-  transaction_hash: string;
+  usdcSize: number;
+  price: number;
+  side: string;
+  outcome: string;
+  title: string;
+  transactionHash: string;
+  timestamp: number;
 };
 
 export type PortfolioData = {

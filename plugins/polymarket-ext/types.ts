@@ -81,38 +81,44 @@ export type OrderBook = z.infer<typeof OrderBookSchema>;
 
 // --- Data API schemas ---
 
+// Matches actual Data API /positions response
 export const PositionSchema = z.object({
-  market_slug: z.string(),
-  title: z.string(),
-  outcome: z.string(),
+  asset: z.string(),
+  conditionId: z.string(),
   size: z.number(),
-  avg_price: z.number(),
-  cur_price: z.number(),
-  realized_pnl: z.number(),
-  condition_id: z.string(),
-  asset_id: z.string(),
+  avgPrice: z.number(),
+  initialValue: z.number(),
+  currentValue: z.number(),
+  cashPnl: z.number(),
+  percentPnl: z.number(),
+  curPrice: z.number(),
+  realizedPnl: z.number(),
+  title: z.string(),
+  slug: z.string(),
+  outcome: z.string(),
+  endDate: z.string().optional(),
 }).passthrough();
 export type Position = z.infer<typeof PositionSchema>;
 
+// Matches actual Data API /activity response
 export const TradeSchema = z.object({
-  id: z.string(),
-  market_slug: z.string(),
-  title: z.string(),
-  side: z.enum(["BUY", "SELL"]),
-  outcome: z.string(),
-  price: z.number(),
+  conditionId: z.string(),
+  type: z.string(),
   size: z.number(),
-  timestamp: z.string(),
-  transaction_hash: z.string(),
+  usdcSize: z.number(),
+  price: z.number(),
+  side: z.string(),
+  outcome: z.string(),
+  title: z.string(),
+  transactionHash: z.string(),
+  timestamp: z.number(),
 }).passthrough();
 export type Trade = z.infer<typeof TradeSchema>;
 
+// Matches actual Data API /value response
 export const PnlSummarySchema = z.object({
-  total_realized: z.number(),
-  total_unrealized: z.number(),
-  total_volume: z.number(),
-  positions_won: z.number().optional(),
-  positions_lost: z.number().optional(),
+  user: z.string(),
+  value: z.number(),
 }).passthrough();
 export type PnlSummary = z.infer<typeof PnlSummarySchema>;
 

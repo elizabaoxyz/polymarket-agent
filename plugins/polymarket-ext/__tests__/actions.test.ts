@@ -203,8 +203,9 @@ describe("POLYMARKET_GET_POSITIONS", () => {
       data: {
         getPositions: async () => [
           { market_slug: "rain", title: "Will it rain?", outcome: "Yes",
-            size: 100, avg_price: 0.55, cur_price: 0.62, realized_pnl: 0,
-            condition_id: "0xc", asset_id: "0xa" },
+            size: 100, avgPrice: 0.55, curPrice: 0.62, cashPnl: 7, percentPnl: 12.7,
+            initialValue: 55, currentValue: 62, realizedPnl: 0, conditionId: "0xc",
+            asset: "0xa", slug: "rain" },
         ],
       },
       walletAddress: "0xwallet",
@@ -239,9 +240,9 @@ describe("POLYMARKET_GET_TRADES", () => {
     const svc = {
       data: {
         getTrades: async () => [
-          { id: "t1", market_slug: "rain", title: "Rain?", side: "BUY",
-            outcome: "Yes", price: 0.55, size: 50,
-            timestamp: "2026-03-27T12:00:00Z", transaction_hash: "0xdeadbeef1234567890" },
+          { conditionId: "0xc1", type: "TRADE", title: "Rain?", side: "BUY",
+            outcome: "Yes", price: 0.55, size: 50, usdcSize: 2.50,
+            timestamp: 1774700000, transactionHash: "0xdeadbeef1234567890" },
         ],
       },
       walletAddress: "0xwallet",
@@ -275,13 +276,12 @@ describe("POLYMARKET_GET_PNL", () => {
     const cb = collectCallback();
     const svc = {
       data: {
-        getPnl: async () => ({
-          total_realized: 150.50,
-          total_unrealized: -20.00,
-          total_volume: 5000,
-          positions_won: 8,
-          positions_lost: 3,
-        }),
+        getPnl: async () => ({ user: "0xwallet", value: 6.97 }),
+        getPositions: async () => [
+          { asset: "t1", conditionId: "0xc", size: 65, avgPrice: 0.016,
+            initialValue: 1.04, currentValue: 1.04, cashPnl: 0, percentPnl: 0,
+            curPrice: 0.016, realizedPnl: 0, title: "Test", slug: "test", outcome: "Yes" },
+        ],
       },
       walletAddress: "0xwallet",
       isFullyActive: () => true,
@@ -289,9 +289,8 @@ describe("POLYMARKET_GET_PNL", () => {
     await getPolymarketPnl.handler(
       mockRuntime(svc), mockMessage("show my pnl"), undefined, undefined, cb.fn,
     );
-    expect(cb.calls[0]).toContain("150.50");
-    expect(cb.calls[0]).toContain("-20.00");
-    expect(cb.calls[0]).toContain("5000");
+    expect(cb.calls[0]).toContain("6.97");
+    expect(cb.calls[0]).toContain("1 open");
   });
 
   test("returns error when no wallet", async () => {

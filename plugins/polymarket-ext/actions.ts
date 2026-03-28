@@ -228,10 +228,9 @@ export const getPolymarketPositions: Action = {
         return true;
       }
       const lines = positions.map((pos) => {
-        const unrealized = (pos.cur_price - pos.avg_price) * pos.size;
-        const pnlPct = pos.avg_price > 0 ? ((pos.cur_price - pos.avg_price) / pos.avg_price * 100).toFixed(1) : "0.0";
-        const sign = unrealized >= 0 ? "+" : "";
-        return `${pos.title} | ${pos.outcome} | ${pos.size} shares @ $${pos.avg_price.toFixed(2)} → $${pos.cur_price.toFixed(2)} | ${sign}$${unrealized.toFixed(2)} (${sign}${pnlPct}%)`;
+        const pnlSign = pos.cashPnl >= 0 ? "+" : "";
+        const pctSign = pos.percentPnl >= 0 ? "+" : "";
+        return `${pos.title} | ${pos.outcome} | ${pos.size} shares @ $${pos.avgPrice.toFixed(2)} → $${pos.curPrice.toFixed(2)} | ${pnlSign}$${pos.cashPnl.toFixed(2)} (${pctSign}${pos.percentPnl.toFixed(1)}%)`;
       });
       if (callback) callback({ text: `Positions (${positions.length}):\n${lines.join("\n")}` });
       return true;
@@ -274,7 +273,8 @@ export const getPolymarketTrades: Action = {
         return true;
       }
       const lines = trades.map((t) => {
-        return `${t.side} ${t.outcome} | ${t.title} | ${t.size} @ $${t.price.toFixed(2)} | ${t.timestamp} | tx: ${shortenId(t.transaction_hash)}`;
+        const date = new Date(t.timestamp * 1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+        return `${t.side} ${t.outcome} | ${t.title} | ${t.size} @ $${t.price.toFixed(2)} ($${t.usdcSize.toFixed(2)}) | ${date}`;
       });
       if (callback) callback({ text: `Recent trades (${trades.length}):\n${lines.join("\n")}` });
       return true;
@@ -307,15 +307,20 @@ export const getPolymarketPnl: Action = {
     }
 
     try {
-      const pnl = await svc.data.getPnl(svc.walletAddress);
+      const [pnl, positions] = await Promise.all([
+        svc.data.getPnl(svc.walletAddress),
+        svc.data.getPositions(svc.walletAddress).catch(() => []),
+      ]);
+      const totalUnrealized = positions.reduce((sum, p) => sum + p.cashPnl, 0);
+      const totalValue = positions.reduce((sum, p) => sum + p.currentValue, 0);
+      const totalCost = positions.reduce((sum, p) => sum + p.initialValue, 0);
       const lines = [
-        `Realized PnL:   $${pnl.total_realized.toFixed(2)}`,
-        `Unrealized PnL: $${pnl.total_unrealized.toFixed(2)}`,
-        `Total Volume:   $${pnl.total_volume.toFixed(2)}`,
+        `Portfolio Value: $${pnl.value.toFixed(2)}`,
+        `Positions:       ${positions.length} open`,
+        `Total Cost:      $${totalCost.toFixed(2)}`,
+        `Current Value:   $${totalValue.toFixed(2)}`,
+        `Unrealized PnL:  ${totalUnrealized >= 0 ? "+" : ""}$${totalUnrealized.toFixed(2)}`,
       ];
-      if (pnl.positions_won !== undefined && pnl.positions_lost !== undefined) {
-        lines.push(`Win/Loss:       ${pnl.positions_won}W / ${pnl.positions_lost}L`);
-      }
       if (callback) callback({ text: lines.join("\n") });
       return true;
     } catch (error) {

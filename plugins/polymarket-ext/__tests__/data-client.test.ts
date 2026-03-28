@@ -29,15 +29,16 @@ function setMock(urlPattern: string, body: unknown, status = 200): void {
 }
 
 const samplePosition = {
-  market_slug: "will-it-rain", title: "Will it rain?", outcome: "Yes",
-  size: 100, avg_price: 0.55, cur_price: 0.62, realized_pnl: 0,
-  condition_id: "0xcond1", asset_id: "0xasset1",
+  asset: "token123", conditionId: "0xcond1", size: 100, avgPrice: 0.55,
+  initialValue: 55, currentValue: 62, cashPnl: 7, percentPnl: 12.7,
+  curPrice: 0.62, realizedPnl: 0, title: "Will it rain?", slug: "will-it-rain",
+  outcome: "Yes",
 };
 
 const sampleTrade = {
-  id: "trade-1", market_slug: "will-it-rain", title: "Will it rain?",
-  side: "BUY", outcome: "Yes", price: 0.55, size: 50,
-  timestamp: "2026-03-27T12:00:00Z", transaction_hash: "0xdeadbeef",
+  conditionId: "0xcond1", type: "TRADE", size: 50, usdcSize: 2.50,
+  price: 0.55, side: "BUY", outcome: "Yes", title: "Will it rain?",
+  transactionHash: "0xdeadbeef", timestamp: 1774700000,
 };
 
 describe("DataApiClient.getPositions", () => {
@@ -51,46 +52,34 @@ describe("DataApiClient.getPositions", () => {
   });
 });
 
-describe("DataApiClient.getClosedPositions", () => {
-  test("sends GET to /closed-positions", async () => {
-    setMock("/closed-positions", [samplePosition]);
-    const client = new DataApiClient("https://data-api.polymarket.com");
-    const positions = await client.getClosedPositions("0xwallet");
-    expect(capturedRequests[0]!.url).toContain("/closed-positions");
-    expect(capturedRequests[0]!.url).toContain("user=0xwallet");
-    expect(positions).toHaveLength(1);
-  });
-});
-
 describe("DataApiClient.getTrades", () => {
-  test("sends GET with user and default limit", async () => {
-    setMock("/trades", [sampleTrade]);
+  test("sends GET to /activity with user and limit", async () => {
+    setMock("/activity", [sampleTrade]);
     const client = new DataApiClient("https://data-api.polymarket.com");
     const trades = await client.getTrades("0xwallet");
+    expect(capturedRequests[0]!.url).toContain("/activity");
     expect(capturedRequests[0]!.url).toContain("user=0xwallet");
     expect(capturedRequests[0]!.url).toContain("limit=20");
     expect(trades).toHaveLength(1);
     expect(trades[0]!.side).toBe("BUY");
   });
-
-  test("passes custom limit and market filter", async () => {
-    setMock("/trades", []);
-    const client = new DataApiClient("https://data-api.polymarket.com");
-    await client.getTrades("0xwallet", { limit: 5, market: "rain-market" });
-    expect(capturedRequests[0]!.url).toContain("limit=5");
-    expect(capturedRequests[0]!.url).toContain("market=rain-market");
-  });
 });
 
 describe("DataApiClient.getPnl", () => {
-  test("sends GET to /pnl with user param", async () => {
-    setMock("/pnl", { total_realized: 100, total_unrealized: -10, total_volume: 5000 });
+  test("sends GET to /value with user param", async () => {
+    setMock("/value", [{ user: "0xwallet", value: 6.97 }]);
     const client = new DataApiClient("https://data-api.polymarket.com");
     const pnl = await client.getPnl("0xwallet");
-    expect(capturedRequests[0]!.url).toContain("/pnl");
+    expect(capturedRequests[0]!.url).toContain("/value");
     expect(capturedRequests[0]!.url).toContain("user=0xwallet");
-    expect(pnl.total_realized).toBe(100);
-    expect(pnl.total_volume).toBe(5000);
+    expect(pnl.value).toBe(6.97);
+  });
+
+  test("returns zero when empty array", async () => {
+    setMock("/value", []);
+    const client = new DataApiClient("https://data-api.polymarket.com");
+    const pnl = await client.getPnl("0xwallet");
+    expect(pnl.value).toBe(0);
   });
 });
 

@@ -72,10 +72,9 @@ function PositionsList({ positions }: { positions: PortfolioData["positions"] })
   return (
     <div className="space-y-3">
       {positions.map((pos, i) => {
-        const unrealized = (pos.cur_price - pos.avg_price) * pos.size;
-        const isPositive = unrealized >= 0;
+        const isPositive = pos.cashPnl >= 0;
         return (
-          <div key={`${pos.condition_id}-${i}`} className="border border-[var(--border)] rounded-xl p-3">
+          <div key={`${pos.conditionId}-${i}`} className="border border-[var(--border)] rounded-xl p-3">
             <p className="text-sm font-medium text-[var(--text)] mb-1 leading-snug">{pos.title}</p>
             <div className="flex items-center gap-2 mb-2">
               <span
@@ -91,10 +90,10 @@ function PositionsList({ positions }: { positions: PortfolioData["positions"] })
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-[var(--text-secondary)]">
-                Avg {pos.avg_price.toFixed(2)}c &rarr; {pos.cur_price.toFixed(2)}c
+                Avg ${pos.avgPrice.toFixed(2)} &rarr; ${pos.curPrice.toFixed(2)}
               </span>
               <span className={isPositive ? "text-green-600 font-medium" : "text-red-500 font-medium"}>
-                {isPositive ? "+" : ""}${unrealized.toFixed(2)}
+                {isPositive ? "+" : ""}${pos.cashPnl.toFixed(2)} ({pos.percentPnl.toFixed(0)}%)
               </span>
             </div>
           </div>
@@ -110,8 +109,8 @@ function TradesList({ trades }: { trades: PortfolioData["trades"] }) {
   }
   return (
     <div className="space-y-2">
-      {trades.map((trade) => (
-        <div key={trade.id} className="flex items-center gap-3 py-2 border-b border-[var(--border)] last:border-0">
+      {trades.map((trade, i) => (
+        <div key={`${trade.transactionHash}-${i}`} className="flex items-center gap-3 py-2 border-b border-[var(--border)] last:border-0">
           <span
             className={`text-xs font-medium px-2 py-0.5 rounded ${
               trade.side === "BUY"
@@ -124,7 +123,7 @@ function TradesList({ trades }: { trades: PortfolioData["trades"] }) {
           <div className="flex-1 min-w-0">
             <p className="text-sm text-[var(--text)] truncate">{trade.title}</p>
             <p className="text-xs text-[var(--text-secondary)]">
-              {trade.size} @ ${trade.price.toFixed(2)} &middot; {trade.outcome}
+              {trade.size} @ ${trade.price.toFixed(2)} (${trade.usdcSize.toFixed(2)}) &middot; {trade.outcome}
             </p>
           </div>
         </div>

@@ -40,16 +40,17 @@ export class DataApiClient {
     return this.request("/closed-positions", z.array(PositionSchema), { user: address });
   }
 
-  async getTrades(address: string, params?: { limit?: number; market?: string }): Promise<Trade[]> {
+  async getTrades(address: string, params?: { limit?: number }): Promise<Trade[]> {
     const query: Record<string, string> = {
       user: address,
       limit: String(params?.limit ?? 20),
     };
-    if (params?.market) query.market = params.market;
-    return this.request("/trades", z.array(TradeSchema), query);
+    return this.request("/activity", z.array(TradeSchema), query);
   }
 
   async getPnl(address: string): Promise<PnlSummary> {
-    return this.request("/pnl", PnlSummarySchema, { user: address });
+    const results = await this.request("/value", z.array(PnlSummarySchema), { user: address });
+    if (results.length === 0) return { user: address, value: 0 };
+    return results[0]!;
   }
 }

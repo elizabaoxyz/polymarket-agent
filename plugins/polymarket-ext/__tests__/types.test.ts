@@ -97,38 +97,29 @@ describe("CLOB API schemas", () => {
 describe("Data API schemas", () => {
   test("PositionSchema parses position object", () => {
     const result = PositionSchema.parse({
-      market_slug: "will-it-rain", title: "Will it rain?", outcome: "Yes",
-      size: 100, avg_price: 0.55, cur_price: 0.62, realized_pnl: 0,
-      condition_id: "0xcond1", asset_id: "0xasset1",
+      asset: "token1", conditionId: "0xcond1", size: 65, avgPrice: 0.016,
+      initialValue: 1.04, currentValue: 1.04, cashPnl: 0, percentPnl: 0,
+      curPrice: 0.016, realizedPnl: 0, title: "Will Ro Khanna win?",
+      slug: "ro-khanna", outcome: "Yes",
     });
-    expect(result.size).toBe(100);
-    expect(result.cur_price).toBe(0.62);
+    expect(result.size).toBe(65);
+    expect(result.curPrice).toBe(0.016);
   });
 
   test("TradeSchema parses trade object", () => {
     const result = TradeSchema.parse({
-      id: "trade-1", market_slug: "will-it-rain", title: "Will it rain?",
-      side: "BUY", outcome: "Yes", price: 0.55, size: 50,
-      timestamp: "2026-03-27T12:00:00Z", transaction_hash: "0xdeadbeef",
+      conditionId: "0xcond1", type: "TRADE", size: 5, usdcSize: 2.60,
+      price: 0.52, side: "BUY", outcome: "Yes", title: "China/Taiwan",
+      transactionHash: "0xdeadbeef", timestamp: 1774643521,
     });
     expect(result.side).toBe("BUY");
-    expect(result.price).toBe(0.55);
+    expect(result.usdcSize).toBe(2.60);
   });
 
-  test("PnlSummarySchema parses with optional fields", () => {
+  test("PnlSummarySchema parses value response", () => {
     const result = PnlSummarySchema.parse({
-      total_realized: 150.50, total_unrealized: -20.00, total_volume: 5000,
+      user: "0xwallet", value: 6.97,
     });
-    expect(result.total_realized).toBe(150.50);
-    expect(result.positions_won).toBeUndefined();
-  });
-
-  test("PnlSummarySchema parses with all fields", () => {
-    const result = PnlSummarySchema.parse({
-      total_realized: 150.50, total_unrealized: -20.00, total_volume: 5000,
-      positions_won: 8, positions_lost: 3,
-    });
-    expect(result.positions_won).toBe(8);
-    expect(result.positions_lost).toBe(3);
+    expect(result.value).toBe(6.97);
   });
 });

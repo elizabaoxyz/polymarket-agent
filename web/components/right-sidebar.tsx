@@ -15,12 +15,13 @@ import {
 
 type RightSidebarProps = {
   onQuickAction: (prompt: string) => void;
+  onPluginClick?: (key: string) => void;
 };
 
 const plugins = [
-  { icon: BarChart3, name: "Polymarket", tools: "8 tools" },
-  { icon: Globe, name: "Jupiter", tools: "4 tools" },
-  { icon: CreditCard, name: "x402 Payments", tools: "1 tools" },
+  { key: "polymarket", icon: BarChart3, name: "Polymarket", tools: "8 tools" },
+  { key: "jupiter", icon: Globe, name: "Jupiter", tools: "4 tools" },
+  { key: "x402", icon: CreditCard, name: "x402 Payments", tools: "1 tools" },
 ];
 
 const quickActions = [
@@ -43,7 +44,7 @@ function SectionTitle({ label }: { label: string }) {
   );
 }
 
-export function RightSidebar({ onQuickAction }: RightSidebarProps) {
+export function RightSidebar({ onQuickAction, onPluginClick }: RightSidebarProps) {
   return (
     <aside className="w-[260px] min-w-[260px] h-full bg-[var(--bg-panel)] border-l border-[var(--border)] overflow-y-auto px-4 py-5 flex flex-col gap-6">
       {/* Plugins */}
@@ -52,8 +53,9 @@ export function RightSidebar({ onQuickAction }: RightSidebarProps) {
         <div className="flex flex-col gap-2">
           {plugins.map((plugin) => (
             <div
-              key={plugin.name}
-              className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-[var(--bg-card)] transition-colors"
+              key={plugin.key}
+              onClick={() => onPluginClick?.(plugin.key)}
+              className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-[var(--bg-card)] transition-colors cursor-pointer"
             >
               <div className="w-7 h-7 rounded-md bg-[var(--bg-card)] border border-[var(--border)] flex items-center justify-center text-[var(--text-secondary)]">
                 <plugin.icon size={14} />

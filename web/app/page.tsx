@@ -10,6 +10,7 @@ import { CenterChat } from "@/components/center-chat";
 import { RightSidebar } from "@/components/right-sidebar";
 import Dashboard from "@/components/dashboard";
 import WhaleModal from "@/components/whale-modal";
+import PluginModal from "@/components/plugin-modal";
 
 export default function Home() {
   const { messages, sendMessage, isConnected, isThinking, portfolio, requestStatus } =
@@ -22,6 +23,7 @@ export default function Home() {
     pseudonym: string;
     volume: number;
   } | null>(null);
+  const [selectedPlugin, setSelectedPlugin] = useState<string | null>(null);
   const [liveFeed, setLiveFeed] = useState<
     Array<{ address: string; market: string; amount: number; side: "BUY" | "SELL" }>
   >([]);
@@ -94,7 +96,7 @@ export default function Home() {
           />
         </div>
 
-        <RightSidebar onQuickAction={handleQuickAction} />
+        <RightSidebar onQuickAction={handleQuickAction} onPluginClick={setSelectedPlugin} />
       </div>
 
       <Dashboard stats={dashboardStats} onWhaleClick={handleWhaleClick} />
@@ -106,6 +108,13 @@ export default function Home() {
           pseudonym={selectedWhale.pseudonym}
           totalVolume={selectedWhale.volume}
           onClose={() => setSelectedWhale(null)}
+        />
+      )}
+
+      {selectedPlugin && (
+        <PluginModal
+          pluginKey={selectedPlugin}
+          onClose={() => setSelectedPlugin(null)}
         />
       )}
     </div>

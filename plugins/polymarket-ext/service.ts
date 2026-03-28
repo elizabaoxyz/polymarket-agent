@@ -42,7 +42,12 @@ export class PolymarketExtService {
       return new PolymarketExtService(null, data, "", null);
     }
 
-    const walletAddress = ethers.computeAddress(privateKey);
+    const eoaAddress = ethers.computeAddress(privateKey);
+    // Use proxy/funder address for Data API (positions, trades live there)
+    // Fall back to EOA if no funder is set
+    const funderAddress = runtime.getSetting("POLYMARKET_FUNDER_ADDRESS")
+      ?? process.env.POLYMARKET_FUNDER_ADDRESS?.trim();
+    const walletAddress = funderAddress || eoaAddress;
     const data = new DataApiClient(DEFAULT_DATA_URL);
 
     const apiKey = runtime.getSetting("CLOB_API_KEY") ?? process.env.CLOB_API_KEY?.trim();
@@ -60,7 +65,7 @@ export class PolymarketExtService {
       apiKey,
       secret,
       passphrase,
-      address: walletAddress,
+      address: eoaAddress, // HMAC auth uses the EOA/signer address
     });
 
     const svc = new PolymarketExtService(clob, data, walletAddress, privateKey);
@@ -72,7 +77,7 @@ export class PolymarketExtService {
       });
     }, HEARTBEAT_INTERVAL_MS);
 
-    console.log(`polymarket-ext: active | wallet: ${walletAddress}`);
+    console.log(`polymarket-ext: active | wallet: ${walletAddress}${funderAddress ? " (proxy)" : " (EOA)"}`);
     return svc;
   }
 

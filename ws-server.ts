@@ -98,6 +98,12 @@ ACTION SELECTION IS MANDATORY for trading requests. Always include TWO separate 
 
 If the user wants to trade but hasn't specified YES/NO or a market, pick one yourself — you are authorized.
 
+ROUTING RULES — Polymarket vs Jupiter:
+- DEFAULT: Use POLYMARKET_PLACE_ORDER for all bets unless user says "jupiter" or "solana"
+- If user says "jupiter" or "solana" → use PLACE_JUPITER_BET, SCAN_JUPITER_MARKETS, etc.
+- If user says "polymarket" or just "bet/buy/trade" → use POLYMARKET_PLACE_ORDER
+- Polymarket = Polygon chain, Jupiter = Solana chain
+
 RESPONSE FORMAT — each action is a SEPARATE element:
 <example_response>
   <thought>User wants to bet.</thought>

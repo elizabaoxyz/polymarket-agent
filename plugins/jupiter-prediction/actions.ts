@@ -13,12 +13,12 @@ function getService(runtime: { getService: (name: string) => unknown }): Jupiter
 
 export const scanJupiterMarkets: Action = {
   name: "SCAN_JUPITER_MARKETS",
-  description: "Scan Jupiter Prediction Markets for trading opportunities. Fetches live events, filters by liquidity and spread, and scores the best opportunities.",
-  similes: ["scan jupiter", "find jupiter markets", "search predictions", "look for jupiter bets"],
+  description: "Scan Jupiter Prediction Markets on SOLANA for trading opportunities. Only use this for Jupiter/Solana markets, NOT for Polymarket.",
+  similes: ["scan jupiter", "find jupiter markets", "jupiter predictions", "solana predictions"],
   examples: [
     [
-      { name: "user", content: { text: "Scan jupiter prediction markets" } },
-      { name: "assistant", content: { text: "Scanning Jupiter Prediction Markets..." } },
+      { name: "user", content: { text: "Scan jupiter prediction markets on solana" } },
+      { name: "assistant", content: { text: "Scanning Jupiter Prediction Markets on Solana.", action: "SCAN_JUPITER_MARKETS" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => {
@@ -80,12 +80,12 @@ export const scanJupiterMarkets: Action = {
 
 export const placeJupiterBet: Action = {
   name: "PLACE_JUPITER_BET",
-  description: "Place a prediction bet on a Jupiter market. Requires market ID, YES/NO direction, and amount in dollars.",
-  similes: ["bet on jupiter", "place jupiter order", "buy prediction", "trade jupiter"],
+  description: "Place a prediction bet on a Jupiter/Solana market. Only use for Jupiter markets on Solana, NOT for Polymarket. Requires a Jupiter market ID, YES/NO direction, and amount in dollars.",
+  similes: ["bet on jupiter", "place jupiter order", "jupiter bet", "solana bet"],
   examples: [
     [
-      { name: "user", content: { text: "Bet $5 YES on market abc123" } },
-      { name: "assistant", content: { text: "Placing $5 YES bet on market abc123..." } },
+      { name: "user", content: { text: "Bet $5 YES on jupiter market abc123" } },
+      { name: "assistant", content: { text: "Placing $5 YES bet on Jupiter market.", action: "PLACE_JUPITER_BET" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => {
@@ -143,12 +143,12 @@ export const placeJupiterBet: Action = {
 
 export const checkJupiterPositions: Action = {
   name: "CHECK_JUPITER_POSITIONS",
-  description: "Check current Jupiter Prediction Market positions and P&L.",
-  similes: ["my jupiter positions", "jupiter portfolio", "check predictions", "show positions"],
+  description: "Check current Jupiter/Solana Prediction Market positions and P&L. Only for Jupiter, not Polymarket.",
+  similes: ["my jupiter positions", "jupiter portfolio", "solana positions"],
   examples: [
     [
-      { name: "user", content: { text: "Show my Jupiter positions" } },
-      { name: "assistant", content: { text: "Fetching your Jupiter positions..." } },
+      { name: "user", content: { text: "Show my Jupiter positions on Solana" } },
+      { name: "assistant", content: { text: "Fetching Jupiter positions.", action: "CHECK_JUPITER_POSITIONS" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => {
@@ -181,12 +181,12 @@ export const checkJupiterPositions: Action = {
 
 export const claimJupiterWinnings: Action = {
   name: "CLAIM_JUPITER_WINNINGS",
-  description: "Claim winnings from settled Jupiter Prediction Markets.",
-  similes: ["claim jupiter winnings", "collect predictions", "claim payouts"],
+  description: "Claim winnings from settled Jupiter/Solana Prediction Markets. Only for Jupiter, not Polymarket.",
+  similes: ["claim jupiter winnings", "claim solana predictions", "jupiter payouts"],
   examples: [
     [
-      { name: "user", content: { text: "Claim my Jupiter winnings" } },
-      { name: "assistant", content: { text: "Claiming settled positions..." } },
+      { name: "user", content: { text: "Claim my Jupiter winnings on Solana" } },
+      { name: "assistant", content: { text: "Claiming Jupiter positions.", action: "CLAIM_JUPITER_WINNINGS" } },
     ],
   ] as ActionExample[][],
   validate: async (runtime) => {

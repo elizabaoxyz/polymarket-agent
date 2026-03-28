@@ -341,9 +341,9 @@ function resolveToken(market: ClobMarket, outcome: string): ClobToken | null {
 export const placePolymarketOrder: Action = {
   name: "POLYMARKET_PLACE_ORDER",
   description:
-    "Place a buy or sell order on Polymarket with correct token resolution. " +
-    "Searches for the market by name, resolves the exact token ID, and places the order. " +
-    "Specify: market name, YES/NO outcome, dollar amount, and optionally a price (defaults to best available).",
+    "Place a buy or sell order on POLYMARKET (Polygon chain). This is the DEFAULT action for placing bets. " +
+    "Use this for any bet/buy/trade request unless the user specifically mentions Jupiter or Solana. " +
+    "Searches for the market by name, resolves the exact token ID, and places the order.",
   similes: [
     "buy on polymarket", "bet on polymarket", "place polymarket order",
     "polymarket buy", "polymarket bet", "place bet", "buy yes", "buy no",

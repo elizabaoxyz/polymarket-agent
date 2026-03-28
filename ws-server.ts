@@ -399,21 +399,26 @@ async function main() {
           const runAutonomyCycle = async () => {
             // Rotate through all plugins: Polymarket → Jupiter → x402/Portfolio check
             const cycles = [
-              // Polymarket cycle
+              // Polymarket cycle — use concrete topics so market search works
               [
-                "scan polymarket for the best opportunity and place a $2 YES bet on the highest-scored market",
-                "show my polymarket positions and PnL",
+                "buy $2 YES on polymarket on Bitcoin",
+                "buy $2 YES on polymarket on election",
+                "buy $2 YES on polymarket on president",
+                "buy $1 YES on polymarket on crypto",
+                "show my positions",
               ],
               // Jupiter cycle
               [
-                "scan jupiter prediction markets on solana and place a $1 YES bet on the best market",
+                "bet $1 YES on jupiter market POLY-567688",
+                "bet $1 YES on jupiter market POLY-898411",
+                "scan jupiter prediction markets on solana",
                 "show my jupiter positions on solana",
               ],
               // Portfolio & x402 cycle
               [
-                "show my positions and check if any should be sold",
+                "show my positions",
                 "show my recent trades",
-                "what x402 payments have you made?",
+                "show me my pnl on polymarket",
               ],
             ];
 

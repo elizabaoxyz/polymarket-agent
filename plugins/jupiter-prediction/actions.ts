@@ -159,10 +159,11 @@ export const checkJupiterPositions: Action = {
         return true;
       }
       const lines = positions.map((pos) => {
-        const avg = microUsdToDollars(pos.averagePrice).toFixed(2);
-        const cur = microUsdToDollars(pos.currentPrice).toFixed(2);
+        const avg = Number(pos.avgPriceUsd) / 1_000_000;
+        const mark = Number(pos.markPriceUsd) / 1_000_000;
+        const pnl = Number(pos.pnlUsd) / 1_000_000;
         const direction = pos.isYes ? "YES" : "NO";
-        return `${pos.marketId}: ${pos.quantity}x ${direction} @ $${avg} (now $${cur}) [${pos.status}]`;
+        return `${pos.marketId}: ${pos.contracts} contracts ${direction} @ $${avg.toFixed(2)} (now $${mark.toFixed(2)}) PnL: $${pnl.toFixed(2)} (${pos.pnlUsdPercent}%)`;
       });
       if (callback) callback({ text: `Positions:\n${lines.join("\n")}` });
       return true;

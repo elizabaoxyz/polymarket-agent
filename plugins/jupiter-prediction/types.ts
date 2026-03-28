@@ -83,14 +83,17 @@ export const OrderStatusSchema = z.object({
 export type OrderStatus = z.infer<typeof OrderStatusSchema>;
 
 export const PositionSchema = z.object({
-  positionPubkey: z.string(),
+  pubkey: z.string(),
   marketId: z.string(),
   isYes: z.boolean(),
-  quantity: z.number(),
-  averagePrice: z.number(),
-  currentPrice: z.number(),
-  status: z.string(),
-});
+  contracts: z.string(),
+  sizeUsd: z.string(),
+  valueUsd: z.string(),
+  avgPriceUsd: z.string(),
+  markPriceUsd: z.string(),
+  pnlUsd: z.string(),
+  pnlUsdPercent: z.number(),
+}).passthrough();
 export type Position = z.infer<typeof PositionSchema>;
 
 export const TradingStatusSchema = z.object({

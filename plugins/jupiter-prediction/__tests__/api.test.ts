@@ -109,13 +109,14 @@ describe("JupiterPredictionClient", () => {
   test("getPositions fetches with ownerPubkey query", async () => {
     setMock("/positions", {
       data: [
-        { positionPubkey: "pos1", marketId: "m1", isYes: true, quantity: 5,
-          averagePrice: 400_000, currentPrice: 600_000, status: "open" },
+        { pubkey: "pos1", marketId: "POLY-898411", isYes: true, contracts: "3",
+          sizeUsd: "1500000", valueUsd: "1470000", avgPriceUsd: "500000",
+          markPriceUsd: "490000", pnlUsd: "-30000", pnlUsdPercent: -2 },
       ],
     });
     const positions = await client.getPositions("wallet1");
     expect(positions).toHaveLength(1);
-    expect(positions[0]!.positionPubkey).toBe("pos1");
+    expect(positions[0]!.pubkey).toBe("pos1");
     expect(capturedRequests[0]!.url).toContain("ownerPubkey=wallet1");
   });
 

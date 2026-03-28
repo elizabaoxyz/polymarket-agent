@@ -144,17 +144,21 @@ describe("OrderStatusSchema", () => {
 describe("PositionSchema", () => {
   test("parses position with P&L", () => {
     const raw = {
-      positionPubkey: "pos123",
-      marketId: "market-abc",
+      pubkey: "pos123",
+      marketId: "POLY-898411",
       isYes: true,
-      quantity: 10,
-      averagePrice: 450_000,
-      currentPrice: 600_000,
-      status: "open",
+      contracts: "3",
+      sizeUsd: "1500000",
+      valueUsd: "1470000",
+      avgPriceUsd: "500000",
+      markPriceUsd: "490000",
+      pnlUsd: "-30000",
+      pnlUsdPercent: -2,
     };
     const parsed = PositionSchema.parse(raw);
     expect(parsed.isYes).toBe(true);
-    expect(parsed.quantity).toBe(10);
+    expect(parsed.contracts).toBe("3");
+    expect(parsed.pnlUsdPercent).toBe(-2);
   });
 });
 

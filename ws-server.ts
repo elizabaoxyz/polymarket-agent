@@ -467,8 +467,16 @@ async function main() {
           };
 
           const MAX_POSITIONS = 50;
-          const BET_SIZE = 3; // $3 per position
           let cycleCount = 0;
+          const tradeHistory: Array<{ question: string; platform: string; time: number; price: number }> = [];
+
+          // Smart position sizing — bet more on high-conviction, less on risky
+          const calcBetSize = (score: number, balance: number): number => {
+            const base = 3;
+            if (score > 0.9) return Math.min(base * 2, balance * 0.1); // High conviction: $6 or 10% of balance
+            if (score > 0.7) return Math.min(base * 1.5, balance * 0.08); // Medium: $4.50
+            return Math.min(base, balance * 0.05); // Low: $3 or 5% of balance
+          };
 
           const runAutonomyCycle = async () => {
             cycleCount++;
@@ -523,17 +531,22 @@ async function main() {
                 }
               } catch {}
 
+              // Get balance for smart sizing
+              const portfolioStatus = await getPortfolioStatus(runtime);
+              const polyBalance = portfolioStatus.balance;
+              const solBalance = portfolioStatus.solanaBalance;
+
               if (isPolymarketCycle) {
                 // ========== POLYMARKET CYCLE ==========
-                // SELL Polymarket losers
+                // SMART SELL — dynamic thresholds based on how long we've held
                 for (const sell of polySellTargets) {
                   const action = sell.pnl < -30 ? "cutting loss" : "taking profit";
                   log(`[SELL:POLYMARKET] "${sell.title}" ${sell.pnl.toFixed(0)}% — ${action}`);
                   await sendPrompt(`sell ${sell.shares} shares of token ${sell.token}`);
                 }
 
-                // SCAN + BUY Polymarket
-                type ScoredMarket = { question: string; yesPrice: number; score: number };
+                // SMART SCAN — score by spread + midpoint + volume + time to expiry
+                type ScoredMarket = { question: string; yesPrice: number; score: number; volume: number; daysLeft: number };
                 const scored: ScoredMarket[] = [];
                 try {
                   const res = await fetch("https://clob.polymarket.com/sampling-markets");
@@ -545,22 +558,51 @@ async function main() {
                     const yp = Number(yes.price);
                     const np = no ? Number(no.price) : 1 - yp;
                     if (yp < 0.10 || yp > 0.90) continue;
-                    const spread = Math.abs(np - yp);
-                    const score = Math.max(0, 1 - spread / 0.15) * 0.6 + (1 - Math.abs((yp + np) / 2 - 0.5) * 2) * 0.4;
                     const q = String(m.question ?? "");
-                    if (ownedTitles.has(q.toLowerCase())) continue; // skip owned
-                    scored.push({ question: q, yesPrice: yp, score });
+                    if (ownedTitles.has(q.toLowerCase())) continue;
+                    // Skip if we traded this recently (within last 5 cycles)
+                    if (tradeHistory.some(h => h.question === q && Date.now() - h.time < 300_000)) continue;
+
+                    const spread = Math.abs(np - yp);
+                    const midpoint = (yp + np) / 2;
+
+                    // Spread score (0-1): tighter = better
+                    const spreadScore = Math.max(0, 1 - spread / 0.15);
+                    // Midpoint score (0-1): closer to 0.50 = better (uncertain = more opportunity)
+                    const midScore = 1 - Math.abs(midpoint - 0.5) * 2;
+                    // Time score: skip markets expiring within 24h
+                    const endDate = m.end_date_iso ?? m.endDate;
+                    let daysLeft = 365;
+                    if (endDate) {
+                      daysLeft = Math.max(0, (new Date(endDate as string).getTime() - Date.now()) / 86400000);
+                      if (daysLeft < 1) continue; // Too close to expiry
+                    }
+                    const timeScore = Math.min(1, daysLeft / 30); // Prefer markets with 30+ days
+
+                    // Volume bonus from rewards/sampling data
+                    const volume = Number(m.rewards?.dailyRate ?? 0);
+                    const volumeScore = Math.min(1, volume / 100);
+
+                    // Combined score
+                    const score = spreadScore * 0.35 + midScore * 0.30 + timeScore * 0.20 + volumeScore * 0.15;
+                    scored.push({ question: q, yesPrice: yp, score, volume, daysLeft });
                   }
                 } catch {}
                 scored.sort((a, b) => b.score - a.score);
-                log(`[AUTONOMY:POLYMARKET] ${scored.length} new markets found`);
+                log(`[AUTONOMY:POLYMARKET] ${scored.length} new markets | balance: $${polyBalance.toFixed(2)}`);
 
                 if (ownedTitles.size >= MAX_POSITIONS) {
-                  log(`[AUTONOMY] ${ownedTitles.size}/${MAX_POSITIONS} positions — full`);
+                  log(`[AUTONOMY] ${ownedTitles.size}/${MAX_POSITIONS} positions — full, selling only`);
+                } else if (polyBalance < 1) {
+                  log("[AUTONOMY:POLYMARKET] Balance too low ($" + polyBalance.toFixed(2) + ") — waiting for sells");
                 } else if (scored.length > 0) {
                   const pick = scored[Math.floor(Math.random() * Math.min(5, scored.length))]!;
-                  log(`[BUY:POLYMARKET] "${pick.question}" (YES:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)})`);
-                  await sendPrompt(`buy $${BET_SIZE} YES on "${pick.question}" on polymarket`);
+                  const betSize = calcBetSize(pick.score, polyBalance);
+                  log(`[BUY:POLYMARKET] "${pick.question}" (YES:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, ${pick.daysLeft.toFixed(0)}d left)`);
+                  await sendPrompt(`buy $${betSize.toFixed(0)} YES on "${pick.question}" on polymarket`);
+                  tradeHistory.push({ question: pick.question, platform: "POLYMARKET", time: Date.now(), price: pick.yesPrice });
+                  // Keep history trimmed
+                  while (tradeHistory.length > 100) tradeHistory.shift();
                 } else {
                   log("[AUTONOMY:POLYMARKET] No new markets to buy");
                 }
@@ -590,8 +632,8 @@ async function main() {
                   await sendPrompt(`show my jupiter positions on solana`);
                 }
 
-                // SCAN + BUY Jupiter
-                type JupMarket = { question: string; marketId: string; yesPrice: number; score: number };
+                // SMART SCAN + BUY Jupiter
+                type JupMarket = { question: string; marketId: string; yesPrice: number; score: number; volume: number };
                 const jupScored: JupMarket[] = [];
                 try {
                   const jupApiKey = process.env.JUPITER_API_KEY?.trim();
@@ -604,21 +646,32 @@ async function main() {
                         if (yp < 0.05 || yp > 0.95) continue;
                         const np = Number(m.pricing?.buyNoPriceUsd ?? 0) / 1_000_000;
                         const spread = Math.abs(np - yp);
-                        const score = Math.max(0, 1 - spread / 0.15) * 0.6 + (1 - Math.abs((yp + (np || (1 - yp))) / 2 - 0.5) * 2) * 0.4;
+                        const mid = (yp + (np || (1 - yp))) / 2;
+                        const spreadScore = Math.max(0, 1 - spread / 0.15);
+                        const midScore = 1 - Math.abs(mid - 0.5) * 2;
+                        const volume = Number(m.pricing?.volume ?? 0) / 1_000_000;
+                        const volumeScore = Math.min(1, volume / 10000);
+                        const score = spreadScore * 0.35 + midScore * 0.30 + volumeScore * 0.35;
                         const q = `${event.metadata?.title} — ${m.metadata?.title}`;
                         if (ownedTitles.has((event.metadata?.title ?? "").toLowerCase())) continue;
-                        jupScored.push({ question: q, marketId: m.marketId, yesPrice: yp, score });
+                        if (tradeHistory.some(h => h.question === q && Date.now() - h.time < 300_000)) continue;
+                        jupScored.push({ question: q, marketId: m.marketId, yesPrice: yp, score, volume });
                       }
                     }
                   }
                 } catch {}
                 jupScored.sort((a, b) => b.score - a.score);
-                log(`[AUTONOMY:JUPITER] ${jupScored.length} new markets found`);
+                log(`[AUTONOMY:JUPITER] ${jupScored.length} new markets | SOL balance: $${solBalance.toFixed(2)}`);
 
-                if (jupScored.length > 0) {
+                if (solBalance < 1) {
+                  log("[AUTONOMY:JUPITER] Solana balance too low ($" + solBalance.toFixed(2) + ") — skipping buy");
+                } else if (jupScored.length > 0) {
                   const pick = jupScored[Math.floor(Math.random() * Math.min(5, jupScored.length))]!;
-                  log(`[BUY:JUPITER] "${pick.question}" (YES:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)})`);
-                  await sendPrompt(`bet $${BET_SIZE} YES on jupiter market ${pick.marketId}`);
+                  const betSize = calcBetSize(pick.score, solBalance);
+                  log(`[BUY:JUPITER] "${pick.question}" (YES:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${pick.volume.toFixed(0)})`);
+                  await sendPrompt(`bet $${betSize.toFixed(0)} YES on jupiter market ${pick.marketId}`);
+                  tradeHistory.push({ question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice });
+                  while (tradeHistory.length > 100) tradeHistory.shift();
                 } else {
                   log("[AUTONOMY:JUPITER] No new markets to buy");
                 }

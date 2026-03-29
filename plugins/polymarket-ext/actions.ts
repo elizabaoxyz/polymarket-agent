@@ -166,24 +166,25 @@ export const sellPolymarketPosition: Action = {
     }
     const shares = parseFloat(sharesMatch[1]!);
 
-    const priceMatch = /\$(\d+(?:\.\d+)?)/i.exec(text);
+    // Always get best bid from order book for sell price
     let price: number;
-
-    if (priceMatch) {
-      price = parseFloat(priceMatch[1]!);
-    } else {
-      try {
-        const book = await svc.clob!.getOrderBook(tokenId);
-        if (book.bids.length === 0) {
-          if (callback) callback({ text: "No bids in order book. Cannot determine sell price." });
-          return false;
-        }
-        price = parseFloat(book.bids[0]!.price);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        if (callback) callback({ text: `Failed to fetch order book: ${msg}` });
+    try {
+      const book = await svc.clob!.getOrderBook(tokenId);
+      if (book.bids.length === 0) {
+        if (callback) callback({ text: "No bids in order book. Cannot determine sell price." });
         return false;
       }
+      price = parseFloat(book.bids[0]!.price);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (callback) callback({ text: `Failed to fetch order book: ${msg}` });
+      return false;
+    }
+
+    // Clamp price to valid Polymarket range
+    if (price < 0.001 || price > 0.999) {
+      if (callback) callback({ text: `Invalid price ${price} — market may be closed or illiquid.` });
+      return false;
     }
 
     try {

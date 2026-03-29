@@ -77,20 +77,29 @@ export class X402SolanaService {
       const client = new x402Client()
         .register(SOLANA_MAINNET, svmSchemeMainnet)
         .register(SOLANA_DEVNET, svmSchemeDevnet)
-        .onBeforePaymentCreation(async (_version, requirements) => {
-          const amount = requirements.maxAmountRequired;
-          if (typeof amount === "string" || typeof amount === "number") {
-            const amountNum = typeof amount === "string" ? parseFloat(amount) : amount;
-            const usdAmount = amountNum / 1_000_000;
-            if (usdAmount > maxPaymentUsd) {
-              throw new X402PaymentCapExceeded(usdAmount, maxPaymentUsd);
+        .onBeforePaymentCreation(async (...args: unknown[]) => {
+          // x402 v2 passes different arg structures depending on version
+          // Try to extract the amount from whatever we get
+          let usdAmount = 0;
+          try {
+            const req = args[1] ?? args[0];
+            const reqObj = req as Record<string, unknown> | undefined;
+            const amount = reqObj?.maxAmountRequired ?? reqObj?.amount ?? reqObj?.maxAmount;
+            if (typeof amount === "string" || typeof amount === "number") {
+              const amountNum = typeof amount === "string" ? parseFloat(amount) : amount;
+              usdAmount = amountNum / 1_000_000;
             }
-            // Track payment
-            svc._paymentCount++;
-            svc._totalPaidUsd += usdAmount;
-            svc._paymentLog.push({ timestamp: Date.now(), amountUsd: usdAmount, url: "402-gated" });
-            console.log(`x402: payment #${svc._paymentCount} — $${usdAmount.toFixed(4)} (total: $${svc._totalPaidUsd.toFixed(4)})`);
+          } catch {}
+
+          if (usdAmount > maxPaymentUsd) {
+            throw new X402PaymentCapExceeded(usdAmount, maxPaymentUsd);
           }
+
+          // Track payment
+          svc._paymentCount++;
+          svc._totalPaidUsd += usdAmount;
+          svc._paymentLog.push({ timestamp: Date.now(), amountUsd: usdAmount, url: "402-gated" });
+          console.log(`x402: payment #${svc._paymentCount} — $${usdAmount.toFixed(4)} (total: $${svc._totalPaidUsd.toFixed(4)})`);
         });
 
       const wrappedFetch = wrapFetchWithPayment(globalThis.fetch, client);

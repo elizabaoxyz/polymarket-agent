@@ -468,8 +468,10 @@ async function main() {
 
           const MAX_POSITIONS = 50;
           const BET_SIZE = 3; // $3 per position
+          let cycleCount = 0;
 
           const runAutonomyCycle = async () => {
+            cycleCount++;
             try { ws.send(JSON.stringify({ type: "thinking", active: true })); } catch {}
 
             try {
@@ -516,24 +518,32 @@ async function main() {
               } catch {}
 
               // ===== STEP 2: Score Jupiter opportunities =====
+              let jupCount = 0;
               try {
                 const jupApiKey = process.env.JUPITER_API_KEY?.trim();
                 if (jupApiKey) {
                   const res = await fetch("https://api.jup.ag/prediction/v1/events?status=live", { headers: { "x-api-key": jupApiKey } });
                   const evData = await res.json();
-                  for (const event of (evData.data ?? []).slice(0, 10)) {
+                  // Scan ALL Jupiter events and markets
+                  for (const event of (evData.data ?? []).slice(0, 30)) {
                     for (const m of (event.markets ?? []).filter((x: Record<string, unknown>) => x.status === "open")) {
                       const yp = Number(m.pricing?.buyYesPriceUsd ?? 0) / 1_000_000;
-                      if (yp < 0.10 || yp > 0.90) continue;
+                      // Wider price range for Jupiter (more markets qualify)
+                      if (yp < 0.05 || yp > 0.95) continue;
                       const np = Number(m.pricing?.buyNoPriceUsd ?? 0) / 1_000_000;
                       const spread = Math.abs(np - yp);
                       const mid = (yp + (np || (1 - yp))) / 2;
                       const score = Math.max(0, 1 - spread / 0.15) * 0.6 + (1 - Math.abs(mid - 0.5) * 2) * 0.4;
-                      scored.push({ platform: "JUPITER", question: `${event.metadata?.title} — ${m.metadata?.title}`, keyword: "", marketId: m.marketId, yesPrice: yp, spread, score });
+                      // Boost Jupiter score slightly so it gets picked sometimes
+                      const boostedScore = score + 0.05;
+                      scored.push({ platform: "JUPITER", question: `${event.metadata?.title} — ${m.metadata?.title}`, keyword: "", marketId: m.marketId, yesPrice: yp, spread, score: boostedScore, category: "crypto" });
+                      jupCount++;
                     }
                   }
                 }
               } catch {}
+
+              log(`[AUTONOMY] Scanned ${scored.length - jupCount} Polymarket + ${jupCount} Jupiter markets`);
 
               // Sort by score
               scored.sort((a, b) => b.score - a.score);
@@ -616,7 +626,17 @@ async function main() {
               if (ownedTitles.size >= MAX_POSITIONS) {
                 log(`[AUTONOMY] ${ownedTitles.size}/${MAX_POSITIONS} positions — portfolio full, sell first`);
               } else if (newOpportunities.length > 0) {
-                const topN = newOpportunities.slice(0, Math.min(5, newOpportunities.length));
+                // Every 3rd cycle, prefer Jupiter to diversify across chains
+                const preferJupiter = cycleCount % 3 === 0;
+                let candidates = newOpportunities;
+                if (preferJupiter) {
+                  const jupOnly = newOpportunities.filter(m => m.platform === "JUPITER");
+                  if (jupOnly.length > 0) {
+                    candidates = jupOnly;
+                    log("[AUTONOMY] Jupiter cycle — prioritizing Solana markets");
+                  }
+                }
+                const topN = candidates.slice(0, Math.min(5, candidates.length));
                 const pick = topN[Math.floor(Math.random() * topN.length)]!;
 
                 if (pick.score >= 0.4) {

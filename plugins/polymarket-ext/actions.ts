@@ -181,9 +181,9 @@ export const sellPolymarketPosition: Action = {
       return false;
     }
 
-    // Clamp price to valid Polymarket range
-    if (price < 0.001 || price > 0.999) {
-      if (callback) callback({ text: `Invalid price ${price} — market may be closed or illiquid.` });
+    // Reject if price is too low (dead market) or out of range
+    if (!price || price <= 0 || price < 0.001 || price > 0.999) {
+      if (callback) callback({ text: `Cannot sell — best bid is $${price?.toFixed(4) ?? "0"}, market is closed or illiquid.` });
       return false;
     }
 

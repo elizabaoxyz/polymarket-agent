@@ -127,6 +127,13 @@ export class PolymarketExtService {
     status: string;
     transactionsHashes: string[];
   }> {
+    // Guard: reject invalid prices
+    if (!params.price || params.price <= 0 || params.price > 0.999) {
+      throw new Error(`Invalid price $${params.price} — must be between 0.001 and 0.999`);
+    }
+    if (!params.size || params.size <= 0) {
+      throw new Error(`Invalid size ${params.size}`);
+    }
     const client = await this.getClobClient();
     const order = await client.createAndPostOrder({
       tokenID: params.tokenId,

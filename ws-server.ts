@@ -304,6 +304,14 @@ async function main() {
   console.log("ws-server: runtime ready");
 
   let autonomyTimer: ReturnType<typeof setInterval> | null = null;
+  let autonomyHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+  const cleanupHeartbeat = () => {
+    if (autonomyHeartbeatTimer) {
+      clearInterval(autonomyHeartbeatTimer);
+      autonomyHeartbeatTimer = null;
+    }
+  };
 
   const server = Bun.serve({
     port: WS_PORT,
@@ -333,7 +341,8 @@ async function main() {
         if (autonomyTimer) {
           clearInterval(autonomyTimer);
           autonomyTimer = null;
-          console.log("ws-server: autonomy stopped (client disconnected)");
+          cleanupHeartbeat();
+          console.log("ws-server: autonomy + heartbeat stopped (client disconnected)");
         }
       },
       async message(ws, raw) {
@@ -394,6 +403,22 @@ async function main() {
           }
           console.log("ws-server: autonomy started");
           ws.send(JSON.stringify({ type: "autonomy_status", active: true }));
+
+          // Start heartbeat — keeps GTC limit orders alive while autonomous
+          try {
+            const extSvc = (await runtime.getServiceLoadPromise(POLYMARKET_EXT_SERVICE_TYPE)) as PolymarketExtService;
+            if (extSvc?.clob) {
+              extSvc.clob.resetHeartbeat();
+              extSvc.clob.heartbeat().catch(() => {});
+              autonomyHeartbeatTimer = setInterval(() => {
+                extSvc.clob!.heartbeat().catch((err) => {
+                  const errMsg = err instanceof Error ? err.message : String(err);
+                  console.warn(`ws-server: heartbeat failed: ${errMsg}`);
+                });
+              }, 10_000); // Every 10s — Polymarket cancels orders if no heartbeat within 10s
+              ws.send(JSON.stringify({ type: "action_result", text: "[AUTONOMY] Heartbeat started — GTC orders protected" }));
+            }
+          } catch {}
 
           // Helper to send a prompt and collect the action results
           const sendPrompt = async (prompt: string): Promise<string[]> => {
@@ -592,7 +617,9 @@ async function main() {
           if (autonomyTimer) {
             clearInterval(autonomyTimer);
             autonomyTimer = null;
-            console.log("ws-server: autonomy stopped");
+            cleanupHeartbeat();
+            ws.send(JSON.stringify({ type: "action_result", text: "[AUTONOMY] Stopped — heartbeat ended, GTC orders will auto-cancel" }));
+            console.log("ws-server: autonomy + heartbeat stopped");
           }
           ws.send(JSON.stringify({ type: "autonomy_status", active: false }));
           return;

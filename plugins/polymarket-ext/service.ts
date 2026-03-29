@@ -70,13 +70,8 @@ export class PolymarketExtService {
 
     const svc = new PolymarketExtService(clob, data, walletAddress, privateKey);
 
-    // Heartbeat keeps GTC limit orders alive — if server crashes, orders auto-cancel
-    svc.heartbeatTimer = setInterval(() => {
-      clob.heartbeat().catch((err) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`polymarket-ext: heartbeat failed: ${msg}`);
-      });
-    }, HEARTBEAT_INTERVAL_MS);
+    // Heartbeat managed by autonomy toggle in ws-server.ts
+    // Starts when autonomy ON, stops when autonomy OFF or disconnect
 
     console.log(`polymarket-ext: active | wallet: ${walletAddress}${funderAddress ? " (proxy)" : " (EOA)"}`);
     return svc;

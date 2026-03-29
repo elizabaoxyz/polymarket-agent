@@ -589,24 +589,44 @@ async function main() {
 
               // ===== Parse LLM decision and EXECUTE directly =====
               if (decision.includes("buy") && !decision.includes("hold")) {
-                // Extract what to buy from LLM response
-                // Try to find a market name from the response
-                const quotedMatch = /[""]([^""]+)[""]/.exec(llmResponse.join(" "));
-                const keyword = quotedMatch?.[1]
-                  ?? llmResponse.join(" ").match(/buy[:\s—-]+(.{5,?}?)(?:\s*[-—(at@$]|\.|$)/i)?.[1]?.trim()
-                  ?? "";
+                const responseText = llmResponse.join(" ");
 
-                if (keyword && keyword.length > 3) {
-                  log(`[AUTONOMY:EXECUTE] LLM chose BUY — executing: buy $2 YES on "${keyword}"`);
-                  await sendPrompt(`buy $2 YES on "${keyword}" on polymarket`);
+                // Check for Jupiter market ID first
+                const jupIdMatch = /POLY-\d+[-\d]*/i.exec(responseText);
+                if (jupIdMatch) {
+                  log(`[AUTONOMY:EXECUTE] LLM chose BUY Jupiter — executing: bet $2 YES on jupiter market ${jupIdMatch[0]}`);
+                  await sendPrompt(`bet $2 YES on jupiter market ${jupIdMatch[0]}`);
                 } else {
-                  // Check if it mentioned a Jupiter market ID
-                  const jupIdMatch = /POLY-\d+/i.exec(llmResponse.join(" "));
-                  if (jupIdMatch) {
-                    log(`[AUTONOMY:EXECUTE] LLM chose BUY Jupiter — executing: bet $2 YES on jupiter market ${jupIdMatch[0]}`);
-                    await sendPrompt(`bet $2 YES on jupiter market ${jupIdMatch[0]}`);
+                  // Find which briefing market the LLM is referring to
+                  // Match against our polyMarkets list (exact data we showed the LLM)
+                  let bestMatch = "";
+                  for (const pm of polyMarkets) {
+                    // Each polyMarket entry is: '"question" YES:$0.XX NO:$0.XX'
+                    const question = pm.match(/"([^"]+)"/)?.[1] ?? "";
+                    if (question && decision.includes(question.toLowerCase().slice(0, 20))) {
+                      bestMatch = question;
+                      break;
+                    }
+                  }
+
+                  // If no exact match, try keyword extraction
+                  if (!bestMatch) {
+                    const quotedMatch = /[""\u201C\u201D]([^""\u201C\u201D]{5,})[""\u201C\u201D]/u.exec(responseText);
+                    bestMatch = quotedMatch?.[1] ?? "";
+                  }
+
+                  // Last resort: pick a random market from our list
+                  if (!bestMatch && polyMarkets.length > 0) {
+                    const randomPm = polyMarkets[Math.floor(Math.random() * polyMarkets.length)]!;
+                    bestMatch = randomPm.match(/"([^"]+)"/)?.[1] ?? "";
+                    log(`[AUTONOMY] Couldn't parse LLM's pick — randomly selected: "${bestMatch}"`);
+                  }
+
+                  if (bestMatch) {
+                    log(`[AUTONOMY:EXECUTE] BUY — "${bestMatch}"`);
+                    await sendPrompt(`buy $2 YES on "${bestMatch}" on polymarket`);
                   } else {
-                    log("[AUTONOMY] LLM said BUY but couldn't extract market — skipping");
+                    log("[AUTONOMY] LLM said BUY but no market found — skipping");
                   }
                 }
               } else if (decision.includes("sell") && !decision.includes("hold")) {

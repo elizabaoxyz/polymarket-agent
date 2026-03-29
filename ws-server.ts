@@ -18,7 +18,6 @@ dotenv.config({ path: path.join(__dirname, ".env") });
 import {
   AgentRuntime,
   ChannelType,
-  ModelType,
   createCharacter,
   createMessageMemory,
   stringToUuid,
@@ -619,33 +618,22 @@ async function main() {
                     `${i + 1}. "${c.question}" — YES: $${c.yesPrice.toFixed(2)}, NO: $${(1 - c.yesPrice).toFixed(2)}, score: ${c.score.toFixed(2)}, ${c.daysLeft.toFixed(0)} days left`
                   ).join("\n");
 
-                  // Call LLM directly (bypasses elizaOS action routing)
+                  // Ask LLM to analyze markets via sendPrompt (collects response text)
                   log(`[ANALYSIS] Analyzing top ${candidates.length} markets...`);
-                  let analysisText = "";
-                  try {
-                    analysisText = await runtime.useModel(ModelType.TEXT_LARGE, {
-                      prompt: `You are an autonomous prediction market trader. Today is ${new Date().toISOString().split("T")[0]}. Analyze these markets and pick the BEST one to bet on. Consider current events, probability, and expected value.\n\n${candidateList}\n\nRespond in this EXACT format (one line each):\nPICK: <number 1-${candidates.length}>\nSIDE: <YES or NO>\nREASON: <one sentence why this side will win>`,
-                      temperature: 0.3,
-                      maxTokens: 200,
-                    } as { prompt: string; temperature?: number; maxTokens?: number });
-                  } catch (err) {
-                    log(`[ANALYSIS] LLM call failed: ${err instanceof Error ? err.message : String(err)}`);
-                  }
+                  const analysisResults = await sendPrompt(
+                    `DO NOT place any orders or execute any actions. Just analyze these prediction markets and tell me which one is the best bet and why. Today is ${new Date().toISOString().split("T")[0]}.\n\n${candidateList}\n\nRespond in this EXACT format:\nPICK: <number 1-${candidates.length}>\nSIDE: <YES or NO>\nREASON: <one sentence why>`
+                  );
+                  const analysisText = analysisResults.join(" ");
 
                   // Parse LLM response
-                  if (analysisText) {
-                    console.log("[ANALYSIS:RAW]", analysisText.slice(0, 500));
-                  } else {
-                    console.log("[ANALYSIS:RAW] empty response");
-                  }
                   const pickMatch = /PICK:\s*(\d+)/i.exec(analysisText);
                   const sideMatch = /SIDE:\s*(YES|NO)/i.exec(analysisText);
-                  const reasonMatch = /REASON:\s*(.+?)(?:\n|$)/i.exec(analysisText);
+                  const reasonMatch = /REASON:\s*(.+?)(?:\.|$)/i.exec(analysisText);
 
                   const pickIdx = pickMatch ? Math.min(parseInt(pickMatch[1]!) - 1, candidates.length - 1) : 0;
                   const pick = candidates[Math.max(0, pickIdx)]!;
                   const side = sideMatch ? sideMatch[1]!.toUpperCase() : (pick.yesPrice < 0.50 ? "YES" : "NO");
-                  const reason = reasonMatch ? reasonMatch[1]!.trim() : "price-based fallback";
+                  const reason = reasonMatch ? reasonMatch[1]!.trim() : (analysisText.slice(0, 100) || "price-based fallback");
 
                   const betSize = calcBetSize(pick.score, polyBalance);
                   log(`[ANALYSIS] ${reason}`);
@@ -741,30 +729,35 @@ async function main() {
 
                   // Call LLM directly (bypasses elizaOS action routing)
                   log(`[ANALYSIS] Analyzing top ${jupCandidates.length} Jupiter markets...`);
-                  let jupText = "";
-                  try {
-                    jupText = await runtime.useModel(ModelType.TEXT_LARGE, {
-                      prompt: `You are an autonomous prediction market trader on Solana. Today is ${new Date().toISOString().split("T")[0]}. Analyze these Jupiter markets and pick the BEST one to bet on. Consider current events, probability, and value.\n\n${jupCandidateList}\n\nRespond in this EXACT format (one line each):\nPICK: <number 1-${jupCandidates.length}>\nSIDE: <YES or NO>\nREASON: <one sentence why this side will win>`,
-                      temperature: 0.3,
-                      maxTokens: 200,
-                    } as { prompt: string; temperature?: number; maxTokens?: number });
-                  } catch (err) {
-                    log(`[ANALYSIS] LLM call failed: ${err instanceof Error ? err.message : String(err)}`);
-                  }
+                  const jupAnalysis = await sendPrompt(
+                    `DO NOT place any orders or execute any actions. Just analyze these Jupiter prediction markets and tell me which one is the best bet and why. Today is ${new Date().toISOString().split("T")[0]}.\n\n${jupCandidateList}\n\nRespond in this EXACT format:\nPICK: <number 1-${jupCandidates.length}>\nSIDE: <YES or NO>\nREASON: <one sentence why>`
+                  );
+                  const jupText = jupAnalysis.join(" ");
 
                   const jupPickMatch = /PICK:\s*(\d+)/i.exec(jupText);
                   const jupSideMatch = /SIDE:\s*(YES|NO)/i.exec(jupText);
-                  const jupReasonMatch = /REASON:\s*(.+?)(?:\n|$)/i.exec(jupText);
+                  const jupReasonMatch = /REASON:\s*(.+?)(?:\.|$)/i.exec(jupText);
 
                   const jupPickIdx = jupPickMatch ? Math.min(parseInt(jupPickMatch[1]!) - 1, jupCandidates.length - 1) : 0;
                   const pick = jupCandidates[Math.max(0, jupPickIdx)]!;
                   const side = jupSideMatch ? jupSideMatch[1]!.toUpperCase() : (pick.yesPrice < 0.50 ? "YES" : "NO");
-                  const reason = jupReasonMatch ? jupReasonMatch[1]!.trim() : "price-based fallback";
+                  const reason = jupReasonMatch ? jupReasonMatch[1]!.trim() : (jupText.slice(0, 100) || "price-based fallback");
 
+                  // Try placing the bet — if it fails (no liquidity), try next candidate
                   const betSize = calcBetSize(pick.score, solBalance);
                   log(`[ANALYSIS] ${reason}`);
                   log(`[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${pick.volume.toFixed(0)})`);
-                  await sendPrompt(`bet $${betSize.toFixed(0)} ${side} on jupiter market ${pick.marketId}`);
+                  const betResults = await sendPrompt(`bet $${betSize.toFixed(0)} ${side} on jupiter market ${pick.marketId}`);
+                  const betFailed = betResults.some(r => /failed|error|no shares/i.test(r));
+                  if (betFailed && jupCandidates.length > 1) {
+                    // Try next candidate with opposite approach
+                    const fallback = jupCandidates.find(c => c.marketId !== pick.marketId);
+                    if (fallback) {
+                      const fbSide = fallback.yesPrice < 0.50 ? "YES" : "NO";
+                      log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${fbSide}:$${fallback.yesPrice.toFixed(2)})`);
+                      await sendPrompt(`bet $${betSize.toFixed(0)} ${fbSide} on jupiter market ${fallback.marketId}`);
+                    }
+                  }
                   tradeHistory.push({ question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice });
                   while (tradeHistory.length > 100) tradeHistory.shift();
                 } else {

@@ -8,8 +8,8 @@ export const metadata: Metadata = {
   title: "ElizaBAO",
   description: "AI-powered Polymarket trading agent",
   icons: {
-    icon: "/elizabaobao.png",
-    apple: "/elizabaobao.png",
+    icon: "/favicon-circle.png",
+    apple: "/favicon-circle.png",
   },
 };
 

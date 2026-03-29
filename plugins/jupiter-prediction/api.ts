@@ -119,11 +119,15 @@ export class JupiterPredictionClient {
     return response.data;
   }
 
-  async closePosition(positionPubkey: string): Promise<PlaceOrderResponse> {
-    return this.request(`/positions/${positionPubkey}`, PlaceOrderResponseSchema, { method: "DELETE" });
+  async closePosition(positionPubkey: string, ownerPubkey: string): Promise<PlaceOrderResponse> {
+    return this.request(`/positions/${positionPubkey}`, PlaceOrderResponseSchema, { method: "DELETE", body: { ownerPubkey } });
   }
 
-  async claimPosition(positionPubkey: string): Promise<PlaceOrderResponse> {
-    return this.request(`/positions/${positionPubkey}/claim`, PlaceOrderResponseSchema, { method: "POST" });
+  async closeAllPositions(ownerPubkey: string): Promise<PlaceOrderResponse> {
+    return this.request("/positions", PlaceOrderResponseSchema, { method: "DELETE", body: { ownerPubkey } });
+  }
+
+  async claimPosition(positionPubkey: string, ownerPubkey: string): Promise<PlaceOrderResponse> {
+    return this.request(`/positions/${positionPubkey}/claim`, PlaceOrderResponseSchema, { method: "POST", body: { ownerPubkey } });
   }
 }

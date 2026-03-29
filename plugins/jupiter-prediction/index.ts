@@ -3,6 +3,7 @@ import {
   scanJupiterMarkets,
   placeJupiterBet,
   checkJupiterPositions,
+  sellJupiterPosition,
   claimJupiterWinnings,
 } from "./actions";
 import { JupiterPredictionService } from "./service";
@@ -14,6 +15,7 @@ export const jupiterPredictionPlugin: Plugin = {
     scanJupiterMarkets,
     placeJupiterBet,
     checkJupiterPositions,
+    sellJupiterPosition,
     claimJupiterWinnings,
   ],
   providers: [],

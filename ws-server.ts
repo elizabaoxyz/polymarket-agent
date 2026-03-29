@@ -626,12 +626,11 @@ async function main() {
                   } catch {}
                 }
 
-                // SELL Jupiter losers
+                // SELL Jupiter losers/winners via close position
                 for (const sell of jupSellTargets) {
                   const action = sell.pnl < -30 ? "cutting loss" : "taking profit";
-                  log(`[SELL:JUPITER] "${sell.title}" ${sell.pnl}% — ${action}`);
-                  // Jupiter doesn't have a direct sell action yet — flag it
-                  await sendPrompt(`show my jupiter positions on solana`);
+                  log(`[SELL:JUPITER] "${sell.title}" ${sell.pnl.toFixed(0)}% — ${action}`);
+                  await sendPrompt(`sell my jupiter position on market ${sell.marketId}`);
                 }
 
                 // SMART SCAN + BUY Jupiter

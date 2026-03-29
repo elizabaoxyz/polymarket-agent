@@ -176,6 +176,61 @@ export const checkJupiterPositions: Action = {
   },
 };
 
+export const sellJupiterPosition: Action = {
+  name: "SELL_JUPITER_POSITION",
+  description: "Sell/close a Jupiter/Solana prediction market position. Closes the position by selling contracts back. Requires a position pubkey OR market ID.",
+  similes: ["sell jupiter position", "close jupiter position", "exit jupiter", "sell solana position"],
+  examples: [
+    [
+      { name: "user", content: { text: "Sell my jupiter position on market abc123" } },
+      { name: "assistant", content: { text: "Closing Jupiter position.", action: "SELL_JUPITER_POSITION" } },
+    ],
+  ] as ActionExample[][],
+  validate: async (runtime) => {
+    const svc = runtime.getService(SERVICE_KEY);
+    return svc !== undefined;
+  },
+  handler: async (runtime, message, state, options, callback) => {
+    const svc = getService(runtime);
+    const text = typeof message.content === "string" ? message.content : message.content?.text ?? "";
+
+    // Try to extract position pubkey or market ID
+    const posKeyMatch = /position[:\s]+([a-zA-Z0-9]+)/i.exec(text);
+    const marketIdMatch = /market[:\s]+([a-zA-Z0-9_-]+)/i.exec(text);
+
+    try {
+      let positionPubkey: string | undefined;
+
+      if (posKeyMatch) {
+        positionPubkey = posKeyMatch[1]!;
+      } else if (marketIdMatch) {
+        // Look up position by market ID
+        const positions = await svc.client.getPositions(svc.ownerPubkey);
+        const match = positions.find((p) => p.marketId === marketIdMatch![1]);
+        if (!match) {
+          if (callback) callback({ text: `No open position found for market ${marketIdMatch[1]}` });
+          return false;
+        }
+        positionPubkey = match.pubkey;
+        const pnl = Number(match.pnlUsd) / 1_000_000;
+        if (callback) callback({ text: `Found position: ${match.contracts} contracts ${match.isYes ? "YES" : "NO"} | PnL: $${pnl.toFixed(2)} (${match.pnlUsdPercent}%) — closing...` });
+      } else {
+        if (callback) callback({ text: "Specify a position pubkey or market ID. Use CHECK_JUPITER_POSITIONS to see your positions first." });
+        return false;
+      }
+
+      const { transaction } = await svc.client.closePosition(positionPubkey!, svc.ownerPubkey);
+      const signature = await svc.signAndSubmit(transaction);
+      if (callback) callback({ text: `Jupiter position closed! Signature: ${signature}` });
+      return true;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (callback) callback({ text: `Failed to close Jupiter position: ${msg}` });
+      return false;
+    }
+  },
+};
+
 export const claimJupiterWinnings: Action = {
   name: "CLAIM_JUPITER_WINNINGS",
   description: "Claim winnings from settled Jupiter/Solana Prediction Markets. Only for Jupiter, not Polymarket.",
@@ -194,7 +249,7 @@ export const claimJupiterWinnings: Action = {
     const svc = getService(runtime);
     try {
       const positions = await svc.client.getPositions(svc.ownerPubkey);
-      const claimable = positions.filter((p) => p.status === "won" || p.status === "claimable");
+      const claimable = positions.filter((p) => (p as Record<string, unknown>).claimable === true && (p as Record<string, unknown>).claimed !== true);
       if (claimable.length === 0) {
         if (callback) callback({ text: "No claimable positions found." });
         return true;
@@ -202,12 +257,12 @@ export const claimJupiterWinnings: Action = {
       const results: string[] = [];
       for (const pos of claimable) {
         try {
-          const { transaction } = await svc.client.claimPosition(pos.positionPubkey);
+          const { transaction } = await svc.client.claimPosition(pos.pubkey, svc.ownerPubkey);
           const signature = await svc.signAndSubmit(transaction);
-          results.push(`Claimed ${pos.positionPubkey}: ${signature}`);
+          results.push(`Claimed ${pos.pubkey}: ${signature}`);
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error);
-          results.push(`Failed ${pos.positionPubkey}: ${msg}`);
+          results.push(`Failed ${pos.pubkey}: ${msg}`);
         }
       }
       if (callback) callback({ text: results.join("\n") });

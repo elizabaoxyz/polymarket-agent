@@ -38,6 +38,7 @@ import { polymarketExtPlugin } from "./plugins/polymarket-ext/index";
 import { PolymarketExtService } from "./plugins/polymarket-ext/service";
 import { POLYMARKET_EXT_SERVICE_TYPE } from "./plugins/polymarket-ext/types";
 import { jupiterPredictionPlugin } from "./plugins/jupiter-prediction/index";
+import { JupiterPredictionService, JUPITER_SERVICE_TYPE } from "./plugins/jupiter-prediction/service";
 import { x402SolanaPlugin } from "./plugins/x402-solana/index";
 import { X402SolanaService } from "./plugins/x402-solana/service";
 import { X402_SERVICE_TYPE } from "./plugins/x402-solana/types";
@@ -471,11 +472,14 @@ async function main() {
           const tradeHistory: Array<{ question: string; platform: string; time: number; price: number }> = [];
 
           // Smart position sizing — bet more on high-conviction, less on risky
-          const calcBetSize = (score: number, balance: number): number => {
+          // Enforces platform minimums: $1 Polymarket, $1.10 Jupiter
+          const calcBetSize = (score: number, balance: number, minBet = 1): number => {
             const base = 3;
-            if (score > 0.9) return Math.min(base * 2, balance * 0.1); // High conviction: $6 or 10% of balance
-            if (score > 0.7) return Math.min(base * 1.5, balance * 0.08); // Medium: $4.50
-            return Math.min(base, balance * 0.05); // Low: $3 or 5% of balance
+            let size: number;
+            if (score > 0.9) size = Math.min(base * 2, balance * 0.1);
+            else if (score > 0.7) size = Math.min(base * 1.5, balance * 0.08);
+            else size = Math.min(base, balance * 0.05);
+            return Math.max(minBet, size);
           };
 
           const runAutonomyCycle = async () => {
@@ -490,7 +494,7 @@ async function main() {
               // ===== Collect owned positions =====
               const ownedTitles = new Set<string>();
               const polySellTargets: Array<{ token: string; shares: number; title: string; pnl: number }> = [];
-              const jupSellTargets: Array<{ marketId: string; title: string; pnl: number }> = [];
+              const jupSellTargets: Array<{ marketId: string; pubkey: string; title: string; pnl: number }> = [];
 
               try {
                 const funder = process.env.POLYMARKET_FUNDER_ADDRESS?.trim();
@@ -523,8 +527,8 @@ async function main() {
                       const title = pos.eventMetadata?.title ?? pos.marketId ?? "";
                       if (title) ownedTitles.add(title.toLowerCase());
                       const pnl = pos.pnlUsdPercent ?? 0;
-                      if (pnl < -30 || pnl > 50) {
-                        jupSellTargets.push({ marketId: pos.marketId, title: pos.marketMetadata?.title ?? pos.marketId, pnl });
+                      if ((pnl < -30 || pnl > 50) && pos.pubkey) {
+                        jupSellTargets.push({ marketId: pos.marketId, pubkey: pos.pubkey, title: pos.marketMetadata?.title ?? pos.marketId, pnl });
                       }
                     }
                   }
@@ -626,11 +630,26 @@ async function main() {
                   } catch {}
                 }
 
-                // SELL Jupiter losers/winners via close position
-                for (const sell of jupSellTargets) {
-                  const action = sell.pnl < -30 ? "cutting loss" : "taking profit";
-                  log(`[SELL:JUPITER] "${sell.title}" ${sell.pnl.toFixed(0)}% — ${action}`);
-                  await sendPrompt(`sell my jupiter position on market ${sell.marketId}`);
+                // SELL Jupiter losers/winners via direct API call (bypasses LLM routing)
+                if (jupSellTargets.length > 0) {
+                  let jupSvc: JupiterPredictionService | null = null;
+                  try {
+                    jupSvc = (await runtime.getServiceLoadPromise(JUPITER_SERVICE_TYPE)) as JupiterPredictionService | null;
+                  } catch {}
+                  for (const sell of jupSellTargets) {
+                    const action = sell.pnl < -30 ? "cutting loss" : "taking profit";
+                    log(`[SELL:JUPITER] "${sell.title}" ${sell.pnl.toFixed(0)}% — ${action}`);
+                    if (jupSvc) {
+                      try {
+                        const { transaction } = await jupSvc.client.closePosition(sell.pubkey, jupSvc.ownerPubkey);
+                        const signature = await jupSvc.signAndSubmit(transaction);
+                        log(`[SELL:JUPITER] Closed! Signature: ${signature}`);
+                      } catch (err) {
+                        const errMsg = err instanceof Error ? err.message : String(err);
+                        log(`[SELL:JUPITER] Failed to close: ${errMsg}`);
+                      }
+                    }
+                  }
                 }
 
                 // SMART SCAN + BUY Jupiter
@@ -668,7 +687,7 @@ async function main() {
                   log("[AUTONOMY:JUPITER] Solana balance too low ($" + solBalance.toFixed(2) + ") — skipping buy");
                 } else if (jupScored.length > 0) {
                   const pick = jupScored[Math.floor(Math.random() * Math.min(5, jupScored.length))]!;
-                  const betSize = calcBetSize(pick.score, solBalance);
+                  const betSize = calcBetSize(pick.score, solBalance, 1.1); // Jupiter min $1.10
                   const side = pick.yesPrice < 0.50 ? "YES" : "NO";
                   log(`[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${pick.volume.toFixed(0)})`);
                   await sendPrompt(`bet $${betSize.toFixed(0)} ${side} on jupiter market ${pick.marketId}`);

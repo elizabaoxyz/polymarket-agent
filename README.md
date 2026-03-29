@@ -1,163 +1,318 @@
-# elizaOS Polymarket Trading Agent (TypeScript)
+# ElizaBAO — Autonomous Prediction Market Trading Agent
 
-An **AI-powered trading agent** that analyzes Polymarket prediction markets and makes strategic trading decisions using elizaOS.
+An **AI-powered autonomous trading agent** that scans, analyzes, buys, and sells across **Polymarket** (Polygon) and **Jupiter Prediction Markets** (Solana), with **x402** payment protocol for accessing paid APIs.
 
-## Features
+Built on [elizaOS](https://github.com/elizaos/eliza) with a custom web dashboard.
 
-This demo showcases core elizaOS capabilities:
+**Live Demo**: [elizabao.xyz](https://elizabao.xyz)
 
-- **AgentRuntime** with multiple plugins (SQL, OpenAI, EVM, Polymarket)
-- **Message Service Pipeline** for AI decision making via `handleMessage()`
-- **Memory Persistence** for trading history via `createMemory()`
-- **Character-based AI** with trading personality and strategy
-- **Advanced Planning** (`advancedPlanning: true`) for multi-step trading strategies
-- **Advanced Memory** (`advancedMemory: true`) for remembering past trades and patterns
-- **Autonomy Service** (`runtime.enableAutonomy`) for continuous autonomous trading
+---
 
-## How It Works
+## What It Does
 
-1. **Scanning Phase**: Agent scans Polymarket for active markets with order books
-2. **Analysis Phase**: Scores opportunities based on spread, liquidity, and midpoint
-3. **Decision Phase**: AI agent analyzes top opportunities and decides whether to trade
-4. **Execution Phase**: Uses Polymarket plugin actions to place orders
+ElizaBAO is a fully autonomous prediction market trader that:
 
-The AI agent ("Poly the Trader") receives market data as messages and responds with trading decisions, using the same pattern as the text-adventure example.
+1. **Scans** 500+ markets across Polymarket and Jupiter every 60 seconds
+2. **Scores** each market by spread tightness, midpoint proximity, volume, and time to expiry
+3. **Buys** the best opportunities with smart position sizing ($3-$6 based on conviction)
+4. **Sells** losers (down >30%) and takes profit on winners (up >50%)
+5. **Pays** for premium market data via x402 protocol on Solana
+6. **Alternates** between Polymarket (Polygon) and Jupiter (Solana) each cycle
+7. **Protects** open orders with Polymarket heartbeat (auto-cancels if agent crashes)
+8. **Never repeats** — tracks owned positions and diversifies into new markets
+9. **Runs 24/7** — autonomy persists even when browser disconnects
 
-## Setup
-
-Create a `.env` file (or export environment variables):
-
-```bash
-# Required
-export OPENAI_API_KEY="sk-..."        # For AI decision making
-export EVM_PRIVATE_KEY="0x..."        # Wallet for Polymarket
-
-# Optional (defaults shown)
-export CLOB_API_URL="https://clob.polymarket.com"
-export GAMMA_API_URL="https://gamma-api.polymarket.com"
-export PGLITE_DATA_DIR="memory://"    # Use "./polymarket-db" for persistence
-
-# Required only for live trading (--execute)
-export CLOB_API_KEY="..."
-export CLOB_API_SECRET="..."
-export CLOB_API_PASSPHRASE="..."
-```
-
-## Usage
-
-```bash
-cd examples/polymarket/typescript
-bun install
-
-# Verify configuration (offline by default)
-bun run start verify
-bun run start verify --network  # Also test API connectivity
-
-# AI analyzes markets (dry-run, no real orders)
-bun run start once --network
-
-# AI analyzes and places real orders
-bun run start once --network --execute
-
-# Continuous trading loop (10 iterations, 30s interval)
-bun run start run --network --iterations 10 --interval-ms 30000
-
-# Live continuous trading
-bun run start run --network --execute --iterations 10
-```
-
-## CLI Flags
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--network` | Enable API calls (required for trading) | false |
-| `--execute` | Place real orders (requires CLOB creds) | false |
-| `--max-pages <n>` | Pages of markets to scan | 1 |
-| `--order-size <n>` | Order size in shares | 1 |
-| `--iterations <n>` | Loop count for `run` command | 10 |
-| `--interval-ms <n>` | Delay between iterations | 30000 |
-| `--chain <name>` | EVM chain name | polygon |
-| `--rpc-url <url>` | Custom RPC URL | — |
-| `--private-key <hex>` | Override wallet key | — |
-
-## Example Output
-
-```
-╔════════════════════════════════════════════════════════════════════╗
-║                 POLYMARKET TRADING AGENT                           ║
-╠════════════════════════════════════════════════════════════════════╣
-║  Watch as Poly the AI Trader analyzes prediction markets!          ║
-╚════════════════════════════════════════════════════════════════════╝
-
-✅ Autonomous trading agent ready!
-🤖 Advanced Planning: enabled
-🧠 Advanced Memory: enabled
-🔄 Autonomy: enabled
-
-🔄 PHASE 1: SCANNING MARKETS
-────────────────────────────────────────────────────────────────
-📊 Scan Results: Source: clob | Markets: 50 | Opportunities: 12
-
-🔄 PHASE 2: AI ANALYSIS
-────────────────────────────────────────────────────────────────
-🎯 Recommended Market: Will BTC reach $100k by March 2026?
-📈 Bid: 0.4500 | Ask: 0.4800
-📏 Spread: 0.0300 | Midpoint: 0.4650
-
-────────────────────────────────────────────────────────────────
-🤖 Agent Decision: BUY
-   Price: 0.4600
-   Size: 1 shares
-   Reasoning: Tight 3% spread with good liquidity. Bidding below midpoint for favorable entry.
-```
-
-## Opportunity Scoring
-
-The agent evaluates markets using:
-
-- **Spread Score** (55%): Tighter spreads indicate better liquidity
-- **Midpoint Score** (30%): Prices near 0.5 suggest market uncertainty (good for trading)
-- **Depth Score** (15%): More orders on both sides = more reliable pricing
+---
 
 ## Architecture
 
 ```
-polymarket-demo.ts   → Entry point, CLI parsing
-runner.ts            → TradingAgent class with elizaOS integration
-lib.ts               → Configuration and argument parsing
-
-Key elizaOS patterns:
-- AgentRuntime initialization with plugins
-- createMessageMemory() for market analysis messages
-- runtime.messageService.handleMessage() for AI decisions
-- runtime.createMemory() for persisting trading history
+┌─────────────────────────────────────────────────────────────┐
+│                     NEXT.JS WEB APP (port 3000)              │
+│  ┌──────────┬─────────────────────────┬──────────────────┐  │
+│  │  Left    │     Center Chat          │   Right          │  │
+│  │  Sidebar │  (agent messages,        │   Sidebar        │  │
+│  │          │   trade results,         │  (plugins,       │  │
+│  │ Agent    │   autonomy logs)         │   quick actions) │  │
+│  │ Portfolio│                          │                  │  │
+│  │ Live Feed│                          │                  │  │
+│  └──────────┴─────────────────────────┴──────────────────┘  │
+│  ┌──────────────────────────────────────────────────────┐    │
+│  │            WHALE ANALYTICS DASHBOARD                  │    │
+│  │  Volume | Trades | Whales | Buy/Sell Pressure         │    │
+│  └──────────────────────────────────────────────────────┘    │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ WebSocket
+┌──────────────────────────▼──────────────────────────────────┐
+│                  BUN WEBSOCKET SERVER (port 3001)             │
+│                                                              │
+│  ┌─────────────┐  ┌──────────────┐  ┌────────────────────┐  │
+│  │ elizaOS     │  │ Autonomy     │  │ Heartbeat          │  │
+│  │ Runtime     │  │ Loop (60s)   │  │ Loop (10s)         │  │
+│  │             │  │              │  │                    │  │
+│  │ - Plugins   │  │ Cycle 1:     │  │ POST /v1/heartbeats│  │
+│  │ - Actions   │  │  Polymarket  │  │ (keeps GTC orders  │  │
+│  │ - Services  │  │ Cycle 2:     │  │  alive)            │  │
+│  │             │  │  Jupiter+x402│  │                    │  │
+│  └─────────────┘  └──────────────┘  └────────────────────┘  │
+│                                                              │
+│  ┌─────────────────────────────────────────────────────────┐ │
+│  │                    PLUGINS                               │ │
+│  │  ┌──────────────┐ ┌──────────────┐ ┌─────────────────┐ │ │
+│  │  │ polymarket-  │ │ jupiter-     │ │ x402-solana     │ │ │
+│  │  │ ext (8 tools)│ │ prediction   │ │ (auto-pay)      │ │ │
+│  │  │              │ │ (4 tools)    │ │                 │ │ │
+│  │  │ Buy, Sell,   │ │ Scan, Bet,   │ │ Wraps fetch()   │ │ │
+│  │  │ Cancel, PnL  │ │ Positions,   │ │ Pays 402 APIs   │ │ │
+│  │  │ Positions,   │ │ Claim        │ │ via Solana USDC  │ │ │
+│  │  │ Trades,      │ │              │ │                 │ │ │
+│  │  │ Open Orders  │ │              │ │ Cap: $0.10/req   │ │ │
+│  │  └──────────────┘ └──────────────┘ └─────────────────┘ │ │
+│  └─────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-## Advanced elizaOS Features
+---
 
-### Advanced Planning (`advancedPlanning: true`)
+## Plugins
 
-When enabled on the character, the runtime auto-loads the planning service which allows the agent to:
-- Plan multi-step trading strategies
-- Break down complex decisions into actionable steps
-- Maintain planning context across turns
+### Polymarket Extended (8 actions)
 
-### Advanced Memory (`advancedMemory: true`)
+| Action | Description |
+|--------|-------------|
+| `POLYMARKET_PLACE_ORDER` | Buy/sell with smart market search and token resolution |
+| `POLYMARKET_CANCEL_ORDER` | Cancel a specific order by ID |
+| `POLYMARKET_CANCEL_ALL` | Cancel all open orders |
+| `POLYMARKET_GET_ORDERS` | List open orders |
+| `POLYMARKET_SELL` | Sell shares at best bid price |
+| `POLYMARKET_GET_POSITIONS` | Show portfolio positions with PnL |
+| `POLYMARKET_GET_TRADES` | Show recent trade history |
+| `POLYMARKET_GET_PNL` | Show profit/loss summary |
 
-When enabled on the character, the runtime auto-loads advanced memory capabilities:
-- Remember past trading decisions and outcomes
-- Learn from successful and unsuccessful trades
-- Build contextual awareness of market patterns
+**Chain**: Polygon | **Auth**: CLOB API keys + EVM wallet | **Signature Type**: POLY_PROXY (type 1)
 
-### Autonomy Service (`runtime.enableAutonomy: true`)
+### Jupiter Prediction (4 actions)
 
-For continuous trading mode (`run` command), autonomy is enabled:
-- Creates an "Autonomous Thoughts" room for agent reflection
-- Runs periodic thinking loops between trading cycles
-- Maintains persistent state across iterations
+| Action | Description |
+|--------|-------------|
+| `SCAN_JUPITER_MARKETS` | Scan live Solana prediction markets |
+| `PLACE_JUPITER_BET` | Place a bet on a Jupiter market |
+| `CHECK_JUPITER_POSITIONS` | Check positions and PnL |
+| `CLAIM_JUPITER_WINNINGS` | Claim settled positions |
 
-## Tests
+**Chain**: Solana | **Auth**: Jupiter API key + Solana wallet
+
+### x402 Solana (auto-pay protocol)
+
+| Feature | Description |
+|---------|-------------|
+| `wrapFetchWithPayment()` | Wraps all HTTP calls to detect 402 responses |
+| `ExactSvmScheme` | Signs Solana USDC payment transactions |
+| `onBeforePaymentCreation` | Validates payment cap, tracks spending |
+| Payment tracking | Count, total USD, timestamped log |
+
+**Chain**: Solana mainnet + devnet | **Asset**: USDC | **Cap**: $0.10/request
+
+---
+
+## Autonomous Trading
+
+### How It Works
+
+The autonomy engine runs a cycle every 60 seconds, alternating between platforms:
+
+**Cycle 1 — Polymarket (Polygon):**
+1. Check positions → sell losers (>30% down) and take profit (>50% up)
+2. Scan 500+ markets → score by spread, midpoint, volume, time to expiry
+3. Filter out owned markets → pick from top 5 new opportunities
+4. Calculate bet size based on conviction score and balance
+5. Place order on Polymarket
+
+**Cycle 2 — Jupiter (Solana + x402):**
+1. Pay for market analysis via x402 ($0.01 USDC on Solana)
+2. Check Jupiter positions → flag losers
+3. Scan 30+ Jupiter events → score by spread, midpoint, volume
+4. Pick best new market → place bet via Solana
+5. Report x402 payment status
+
+### Smart Features
+
+| Feature | How It Works |
+|---------|-------------|
+| **Dynamic sizing** | $3-$6 per bet based on score (high conviction = bigger bet) |
+| **Balance-aware** | Never bets more than 10% of available balance |
+| **Time filtering** | Skips markets expiring within 24 hours |
+| **No repeats** | Tracks all owned positions, never buys same market twice |
+| **Trade cooldown** | Won't re-trade same market within 5 minutes |
+| **Max positions** | Caps at 50 open positions |
+| **Heartbeat** | Sends signal every 10s — orders auto-cancel on crash |
+| **Persistence** | Keeps running when browser disconnects |
+
+### Scoring Algorithm
+
+Each market is scored 0-1 using 4 weighted factors:
+
+```
+Score = Spread(35%) + Midpoint(30%) + Time(20%) + Volume(15%)
+
+Spread:   1 - (spread / 0.15)         → tighter spread = better
+Midpoint: 1 - |midpoint - 0.5| × 2    → closer to 50/50 = more opportunity
+Time:     min(1, daysLeft / 30)        → prefer 30+ days to expiry
+Volume:   min(1, volume / threshold)   → prefer liquid markets
+```
+
+---
+
+## Web Dashboard
+
+ElizaBAO-style 3-panel layout with green/black theme:
+
+- **Left sidebar**: Agent info, portfolio (Polymarket + Jupiter balances), live whale feed
+- **Center chat**: Talk to the agent, see autonomy logs and trade results
+- **Right sidebar**: Plugin status (3 plugins, tool counts), quick action buttons
+- **Bottom dashboard**: Whale analytics — 24h volume, trade count, buy/sell pressure, whale wallets
+- **Header**: Autonomy ON/OFF toggle, x402 payment badge (click for details)
+- **Animations**: Dot grid background, scanline effect, green glow, hover effects
+
+### Modals
+
+- **Plugin modal**: Click any plugin → shows version, tools, MCP endpoint, config
+- **Whale modal**: Click any whale card → shows trade history, volume, Polymarket profile link
+- **x402 modal**: Click x402 badge → shows payment count, total spent, how it works
+
+---
+
+## Setup
+
+### Environment Variables
 
 ```bash
-bun test
+# LLM (at least one required)
+OPENAI_API_KEY=sk-...
+
+# Polymarket (Polygon)
+EVM_PRIVATE_KEY=0x...
+CLOB_API_KEY=...
+CLOB_API_SECRET=...
+CLOB_API_PASSPHRASE=...
+POLYMARKET_FUNDER_ADDRESS=0x...     # Proxy wallet address
+POLYMARKET_SIGNATURE_TYPE=1          # 1 = POLY_PROXY
+
+# Jupiter (Solana)
+JUPITER_API_KEY=...
+SOLANA_PRIVATE_KEY=...               # Base58
+SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+
+# x402
+X402_ENABLED=true
+X402_MAX_PAYMENT_USD=0.10
+X402_API_URL=https://your-x402-server.railway.app  # Optional
+
+# Server
+WS_PORT=3001
 ```
+
+### Local Development
+
+```bash
+# Terminal 1: WebSocket server
+bun run ws-server.ts
+
+# Terminal 2: Next.js web app
+cd web && npm install && npm run dev
+
+# Open http://localhost:3000
+```
+
+### Railway Deployment
+
+Three services from the same repo:
+
+| Service | Dockerfile | Port | Purpose |
+|---------|-----------|------|---------|
+| WS Server | `Dockerfile.ws` | 8080 | Agent runtime + WebSocket |
+| Web App | `web/Dockerfile` | 3000 | Next.js frontend |
+| x402 API | `Dockerfile.x402` | 8080 | Payment-gated test API |
+
+Set `NEXT_PUBLIC_WS_URL=wss://your-ws-server.railway.app` on the web app service.
+
+---
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| Runtime | [elizaOS](https://github.com/elizaos/eliza) 2.0 |
+| Language | TypeScript |
+| Server | Bun |
+| Frontend | Next.js 15, Tailwind CSS, Framer Motion |
+| Icons | Lucide React |
+| Font | Kode Mono |
+| Polymarket | `@polymarket/clob-client`, CLOB REST API, Data API |
+| Jupiter | Jupiter Prediction API (`api.jup.ag/prediction/v1`) |
+| x402 | `@x402/fetch`, `@x402/svm`, `@x402/core` |
+| Wallet | ethers.js (Polygon), @solana/web3.js (Solana) |
+| Validation | Zod |
+| Testing | bun:test (130+ tests) |
+
+---
+
+## Project Structure
+
+```
+polymarket-agent/
+├── ws-server.ts                  # Bun WebSocket server (autonomy + heartbeat)
+├── runner.ts                     # CLI TUI runner
+├── lib.ts                        # Shared utilities (LLM, env, config)
+├── x402-test-server.ts           # x402 payment-gated API
+├── plugins/
+│   ├── polymarket-ext/           # 8 Polymarket actions + CLOB/Data clients
+│   │   ├── types.ts              # Zod schemas, error classes
+│   │   ├── clob-client.ts        # Authenticated CLOB API (HMAC L2)
+│   │   ├── data-client.ts        # Public Data API
+│   │   ├── service.ts            # Heartbeat, order signing, wallet
+│   │   ├── actions.ts            # 8 elizaOS actions
+│   │   └── index.ts              # Plugin export
+│   ├── jupiter-prediction/       # 4 Jupiter actions
+│   │   ├── types.ts              # Market/order schemas
+│   │   ├── api.ts                # Jupiter REST client
+│   │   ├── scanner.ts            # Market scoring
+│   │   ├── service.ts            # Solana signing
+│   │   ├── actions.ts            # 4 elizaOS actions
+│   │   └── index.ts              # Plugin export
+│   └── x402-solana/              # x402 payment protocol
+│       ├── types.ts              # Config, cap error
+│       ├── service.ts            # Fetch wrapper, payment tracking
+│       └── index.ts              # Plugin export
+├── web/                          # Next.js frontend
+│   ├── app/
+│   │   ├── globals.css           # Green/black theme
+│   │   ├── layout.tsx            # Kode Mono font
+│   │   └── page.tsx              # 3-panel layout orchestrator
+│   ├── components/
+│   │   ├── header.tsx            # Autonomy toggle, x402 badge
+│   │   ├── left-sidebar.tsx      # Agent/Portfolio/Activity tabs
+│   │   ├── center-chat.tsx       # Chat messages + input
+│   │   ├── right-sidebar.tsx     # Plugins + quick actions
+│   │   ├── message.tsx           # User/agent/action bubbles
+│   │   ├── dashboard.tsx         # Whale analytics
+│   │   ├── whale-card.tsx        # Whale wallet card
+│   │   ├── whale-modal.tsx       # Whale detail popup
+│   │   ├── plugin-modal.tsx      # Plugin detail popup
+│   │   ├── x402-modal.tsx        # x402 payment details
+│   │   └── animated.tsx          # Framer Motion wrappers
+│   └── lib/
+│       ├── types.ts              # Shared TypeScript types
+│       ├── ws-client.ts          # WebSocket React hook
+│       ├── keys.ts               # localStorage key management
+│       └── polymarket-api.ts     # Client-side Polymarket API
+├── Dockerfile.ws                 # WS server container
+├── Dockerfile.x402               # x402 API container
+└── web/Dockerfile                # Next.js container
+```
+
+---
+
+## License
+
+MIT

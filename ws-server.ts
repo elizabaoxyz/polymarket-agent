@@ -467,7 +467,7 @@ async function main() {
 
           const log = (text: string) => ws.send(JSON.stringify({ type: "action_result", text }));
 
-          const MAX_POSITIONS = 20;
+          const MAX_POSITIONS = 50;
           const BET_SIZE = 3; // $3 per position
 
           const runAutonomyCycle = async () => {

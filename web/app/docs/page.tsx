@@ -139,27 +139,28 @@ export default function DocsPage() {
 
           <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-lg p-5 mb-6 mono text-[12px] text-[var(--text-secondary)] leading-loose">
             <div className="text-[var(--accent)] font-bold mb-2">CYCLE FLOW:</div>
-            <div>1. <span className="text-[var(--red)]">SELL</span> — LLM analyzes positions hitting thresholds (-15% loss / +25% profit)</div>
-            <div>2. <span className="text-[var(--text)]">SCAN</span> — Fetch 500+ markets, filter by price, spread, volume, time</div>
-            <div>3. <span className="text-[var(--accent)]">ANALYZE</span> — LLM reviews top 5 candidates, picks market + YES/NO side</div>
+            <div>1. <span className="text-[var(--red)]">SELL</span> — LLM analyzes positions hitting thresholds (-15% loss / +25% profit). Can say HOLD to override.</div>
+            <div>2. <span className="text-[var(--text)]">SCAN</span> — Fetch 500+ markets, filter by price, spread, volume, time, liquidity</div>
+            <div>3. <span className="text-[var(--accent)]">ANALYZE</span> — LLM reviews top 5 candidates, picks market + YES/NO side with reasoning</div>
             <div>4. <span className="text-[var(--green)]">BUY</span> — Place $3-$6 bet based on conviction score and balance</div>
+            <div>5. <span className="text-[var(--text-muted)]">SKIP</span> — Dead positions (&le;-95%), failed sells/buys, and recently sold positions are skipped</div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card
               icon={<TrendingDown size={18} className="text-[var(--red)]" />}
               title="Smart Selling"
-              description="Positions down >15% or up >25% are sent to the LLM for review. The LLM can override and say HOLD if the market outlook is favorable."
+              description="Positions down >15% or up >25% are sent to the LLM for review. The LLM can override and say HOLD if the market outlook is favorable. Dead positions at -95% or worse are auto-skipped (unsellable)."
             />
             <Card
               icon={<RefreshCw size={18} className="text-[var(--green)]" />}
               title="Alternating Platforms"
-              description="Odd cycles trade on Polymarket (Polygon). Even cycles trade on Jupiter (Solana) with x402 payments. Diversifies across chains."
+              description="Odd cycles trade on Polymarket (Polygon). Even cycles trade on Jupiter (Solana). x402 payments only trigger when there are markets to buy — no wasted payments."
             />
             <Card
               icon={<Shield size={18} className="text-[var(--green)]" />}
               title="Safety Guards"
-              description="Minimum $3 bets, max 50 positions, 10-minute hold before selling, no sells below $0.05, 5-minute trade cooldown per market."
+              description="Minimum $3 bets, max 50 positions, 10-minute hold before selling, no sells below $0.05, 5-minute trade cooldown, failed operations skipped for 30 minutes."
             />
             <Card
               icon={<Heart size={18} className="text-[var(--red)]" />}
@@ -232,7 +233,8 @@ export default function DocsPage() {
               <p className="text-[13px] text-[var(--text-secondary)] leading-relaxed">
                 Wraps all HTTP calls to detect 402 Payment Required responses. When a paid API responds with 402,
                 x402 automatically signs a Solana USDC payment transaction and retries. Cost: $0.01/prediction,
-                $0.02/analysis. Maximum $0.10 per request.
+                $0.02/analysis. Maximum $0.10 per request. Payments only trigger during Jupiter cycles when there
+                are markets available to buy — no wasted spending on empty scans.
               </p>
             </div>
           </div>
@@ -260,11 +262,11 @@ export default function DocsPage() {
             {[
               {
                 q: "How does the agent decide YES or NO?",
-                a: "The LLM analyzes the market question considering current events, probability, and expected value. It picks the side it believes is most likely to win. If the LLM can't decide, the agent skips the bet entirely — no blind guessing.",
+                a: "The LLM analyzes the market question considering current events, probability, and expected value. For multiple candidates, it uses a structured PICK/SIDE/REASON format. For single candidates, it asks a simple YES/NO question. If neither works, it tries a fallback prompt. The agent never bets blindly on price alone.",
               },
               {
                 q: "Why does Jupiter show 0 new markets?",
-                a: "Jupiter Prediction Markets is a newer product with ~10 events total. If you already own positions in most events, the dedup filter skips them. Your Solana balance stays safe until new events appear.",
+                a: "Jupiter Prediction Markets is a newer product with ~10 events total. If you already own positions in most events, the dedup filter skips them. Failed buy attempts (no liquidity) are also skipped for 30 minutes. Your Solana balance stays safe until new events appear.",
               },
               {
                 q: "What happens if the agent crashes?",
@@ -276,11 +278,19 @@ export default function DocsPage() {
               },
               {
                 q: "What is x402?",
-                a: "x402 is a payment protocol that wraps HTTP requests. When an API returns a 402 Payment Required response, x402 automatically signs a Solana USDC payment and retries the request. It's used for paid Jupiter/Solana API calls.",
+                a: "x402 is a payment protocol that wraps HTTP requests. When an API returns a 402 Payment Required response, x402 automatically signs a Solana USDC payment and retries the request. It's used for paid Jupiter/Solana API calls. Payments only trigger when the agent has markets to buy — no wasted spending.",
               },
               {
                 q: "How much does the agent bet?",
-                a: "Minimum $3 per bet on both platforms. Maximum $6 for high-conviction bets (score > 0.9). The agent never bets more than 10% of available balance on a single trade.",
+                a: "Minimum $3 per bet on both platforms. Maximum $6 for high-conviction bets (score > 0.9). The agent never bets more than 10% of available balance on a single trade. If balance drops below $3, it waits for sells to replenish.",
+              },
+              {
+                q: "What happens to positions at -100% loss?",
+                a: "Positions at -95% or worse are automatically skipped — there are no buyers and attempting to sell would fail. These positions are effectively dead and will either settle at $0 or need to be claimed if the market resolves in your favor.",
+              },
+              {
+                q: "Why did the agent sell then immediately re-sell?",
+                a: "This was a bug that's now fixed. Successfully sold positions are tracked to prevent double-sells caused by API lag. Failed sell attempts are also tracked and skipped for 30 minutes before retrying.",
               },
             ].map((item, i) => (
               <div key={i} className="p-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-lg">

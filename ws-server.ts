@@ -472,8 +472,8 @@ async function main() {
           const tradeHistory: Array<{ question: string; platform: string; time: number; price: number }> = [];
 
           // Smart position sizing — bet more on high-conviction, less on risky
-          // Enforces platform minimums: $2 Polymarket (covers rounding), $1.10 Jupiter
-          const calcBetSize = (score: number, balance: number, minBet = 2): number => {
+          // Enforces platform minimums: $3 Polymarket, $3 Jupiter
+          const calcBetSize = (score: number, balance: number, minBet = 3): number => {
             const base = 3;
             let size: number;
             if (score > 0.9) size = Math.min(base * 2, balance * 0.1);
@@ -687,7 +687,7 @@ async function main() {
                   log("[AUTONOMY:JUPITER] Solana balance too low ($" + solBalance.toFixed(2) + ") — skipping buy");
                 } else if (jupScored.length > 0) {
                   const pick = jupScored[Math.floor(Math.random() * Math.min(5, jupScored.length))]!;
-                  const betSize = calcBetSize(pick.score, solBalance, 1.1); // Jupiter min $1.10
+                  const betSize = calcBetSize(pick.score, solBalance);
                   const side = pick.yesPrice < 0.50 ? "YES" : "NO";
                   log(`[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${pick.volume.toFixed(0)})`);
                   await sendPrompt(`bet $${betSize.toFixed(0)} ${side} on jupiter market ${pick.marketId}`);

@@ -471,11 +471,12 @@ async function main() {
             ws.send(JSON.stringify({ type: "thinking", active: true }));
 
             try {
-              // ===== STEP 1: Gather all data for the LLM to decide =====
-              log("[AUTONOMY] Gathering market data + positions...");
+              log("[AUTONOMY] Scanning all markets...");
 
-              // Fetch top Polymarket markets
-              const polyMarkets: string[] = [];
+              // ===== STEP 1: Score Polymarket opportunities =====
+              type ScoredMarket = { platform: string; question: string; keyword: string; marketId: string; yesPrice: number; spread: number; score: number };
+              const scored: ScoredMarket[] = [];
+
               try {
                 const res = await fetch("https://clob.polymarket.com/sampling-markets");
                 const data = await res.json();
@@ -486,182 +487,99 @@ async function main() {
                   const no = tokens.find((t: Record<string, unknown>) => t.outcome === "No");
                   if (!yes) continue;
                   const yesPrice = Number(yes.price);
-                  // Only show tradeable markets — YES price between $0.10 and $0.90
+                  const noPrice = no ? Number(no.price) : 1 - yesPrice;
                   if (yesPrice < 0.10 || yesPrice > 0.90) continue;
-                  polyMarkets.push(`"${m.question}" YES:$${yesPrice.toFixed(2)} NO:$${no ? Number(no.price).toFixed(2) : "?"}`);
-                  if (polyMarkets.length >= 10) break;
+                  const spread = Math.abs(noPrice - yesPrice);
+                  const midScore = 1 - Math.abs((yesPrice + noPrice) / 2 - 0.5) * 2;
+                  const spreadScore = Math.max(0, 1 - spread / 0.15);
+                  const score = spreadScore * 0.6 + midScore * 0.4;
+                  const question = String(m.question ?? "");
+                  const words = question.split(/\s+/).filter((w: string) => w.length > 4);
+                  scored.push({ platform: "POLYMARKET", question, keyword: words[0] ?? "market", marketId: "", yesPrice, spread, score });
                 }
               } catch {}
 
-              // Fetch Jupiter markets
-              const jupMarkets: string[] = [];
+              // ===== STEP 2: Score Jupiter opportunities =====
               try {
                 const jupApiKey = process.env.JUPITER_API_KEY?.trim();
                 if (jupApiKey) {
                   const res = await fetch("https://api.jup.ag/prediction/v1/events?status=live", { headers: { "x-api-key": jupApiKey } });
-                  const data = await res.json();
-                  for (const event of (data.data ?? []).slice(0, 5)) {
-                    for (const m of (event.markets ?? []).filter((x: Record<string, unknown>) => x.status === "open").slice(0, 2)) {
+                  const evData = await res.json();
+                  for (const event of (evData.data ?? []).slice(0, 10)) {
+                    for (const m of (event.markets ?? []).filter((x: Record<string, unknown>) => x.status === "open")) {
                       const yp = Number(m.pricing?.buyYesPriceUsd ?? 0) / 1_000_000;
-                      jupMarkets.push(`"${event.metadata?.title} — ${m.metadata?.title}" ID:${m.marketId} YES:$${yp.toFixed(2)}`);
+                      if (yp < 0.10 || yp > 0.90) continue;
+                      const np = Number(m.pricing?.buyNoPriceUsd ?? 0) / 1_000_000;
+                      const spread = Math.abs(np - yp);
+                      const mid = (yp + (np || (1 - yp))) / 2;
+                      const score = Math.max(0, 1 - spread / 0.15) * 0.6 + (1 - Math.abs(mid - 0.5) * 2) * 0.4;
+                      scored.push({ platform: "JUPITER", question: `${event.metadata?.title} — ${m.metadata?.title}`, keyword: "", marketId: m.marketId, yesPrice: yp, spread, score });
                     }
                   }
                 }
               } catch {}
 
-              // Fetch current positions
-              const posLines: string[] = [];
+              // Sort by score
+              scored.sort((a, b) => b.score - a.score);
+
+              // ===== STEP 3: Check positions for sells =====
+              const sellTargets: Array<{ token: string; shares: number; title: string; pnl: number }> = [];
               try {
                 const funder = process.env.POLYMARKET_FUNDER_ADDRESS?.trim();
                 if (funder) {
                   const posRes = await fetch(`https://data-api.polymarket.com/positions?user=${funder}`);
                   if (posRes.ok) {
-                    const positions = await posRes.json();
-                    for (const pos of positions) {
-                      const curPrice = pos.curPrice ?? 0;
-                      // Skip dead/illiquid markets — price below $0.02 means no real order book
-                      if (curPrice < 0.02 || pos.redeemable) continue;
-                      posLines.push(`[POLYMARKET] "${pos.title}" ${pos.outcome} ${pos.size} shares avg:$${(pos.avgPrice ?? 0).toFixed(2)} now:$${curPrice.toFixed(2)} pnl:${(pos.percentPnl ?? 0).toFixed(0)}% token:${pos.asset}`);
-                    }
-                  }
-                }
-              } catch {}
-              try {
-                const jupApiKey = process.env.JUPITER_API_KEY?.trim();
-                const solKey = process.env.SOLANA_PRIVATE_KEY?.trim();
-                if (jupApiKey && solKey) {
-                  const { Keypair } = await import("@solana/web3.js");
-                  const bs58 = await import("bs58");
-                  const kp = Keypair.fromSecretKey(bs58.default.decode(solKey));
-                  const posRes = await fetch(`https://api.jup.ag/prediction/v1/positions?ownerPubkey=${kp.publicKey.toBase58()}`, { headers: { "x-api-key": jupApiKey } });
-                  if (posRes.ok) {
-                    const posData = await posRes.json();
-                    for (const pos of (posData.data ?? [])) {
-                      const title = pos.marketMetadata?.title ?? pos.marketId;
-                      posLines.push(`[JUPITER] "${pos.eventMetadata?.title} — ${title}" ${pos.isYes ? "YES" : "NO"} ${pos.contracts} contracts pnl:${pos.pnlUsdPercent}% id:${pos.marketId}`);
+                    for (const pos of await posRes.json()) {
+                      const pnl = pos.percentPnl ?? 0;
+                      const price = pos.curPrice ?? 0;
+                      if (price < 0.02 || pos.redeemable) continue;
+                      if (pnl < -30 || pnl > 50) {
+                        sellTargets.push({ token: pos.asset, shares: pos.size, title: pos.title, pnl });
+                      }
                     }
                   }
                 }
               } catch {}
 
-              // ===== STEP 2: Let the LLM decide what to do =====
-              // Get x402 payment stats
-              let x402Status = "x402: disabled";
+              // x402 status
+              let x402Payments = 0;
               try {
                 const x402Svc = (await runtime.getServiceLoadPromise(X402_SERVICE_TYPE)) as X402SolanaService | null;
-                if (x402Svc && x402Svc.isActive()) {
-                  const stats = x402Svc.getPaymentStats();
-                  x402Status = `x402: active | ${stats.count} payments | $${stats.totalUsd.toFixed(4)} total spent | cap: $${x402Svc.getMaxPaymentUsd().toFixed(2)}/req`;
-                }
+                if (x402Svc?.isActive()) x402Payments = x402Svc.getPaymentStats().count;
               } catch {}
 
-              const portfolioStatus = await getPortfolioStatus(runtime);
+              log(`[AUTONOMY] ${scored.length} markets scored | ${sellTargets.length} sell targets | x402: ${x402Payments} payments`);
 
-              const briefing = [
-                "You are an autonomous trading agent. Analyze the data below and make ONE decision.",
-                "",
-                "RULES:",
-                "- You MUST pick one action: BUY or SELL. Only say HOLD if you truly have no cash left.",
-                "- You are a trader — TRADE. Pick a market and BUY it. Be decisive.",
-                "- Do NOT buy a market you already own — pick something new each cycle",
-                "- BUY markets near 50/50 odds — those have the best value",
-                "- SELL positions down >30% or up >50%",
-                "- Pick a DIFFERENT market each time — diversify",
-                "",
-                `BALANCES: Polymarket $${portfolioStatus.balance.toFixed(2)} | Solana $${portfolioStatus.solanaBalance.toFixed(2)}`,
-                `${x402Status}`,
-                "",
-                "TOP POLYMARKET MARKETS (pick one to buy):",
-                ...polyMarkets.map((m, i) => `  ${i + 1}. ${m}`),
-                "",
-                "TOP JUPITER MARKETS (pick one to buy):",
-                ...(jupMarkets.length > 0 ? jupMarkets.map((m, i) => `  ${i + 1}. ${m}`) : ["  (none)"]),
-                "",
-                posLines.length > 0 ? "YOUR SELLABLE POSITIONS (only these can be sold):" : "NO SELLABLE POSITIONS",
-                ...posLines,
-                "",
-                "DECIDE: BUY (specify market name), SELL (specify token ID from above), or HOLD. One action only.",
-              ].join("\n");
-
-              log(`[AUTONOMY] ${polyMarkets.length} Polymarket + ${jupMarkets.length} Jupiter markets | ${posLines.length} positions | ${x402Status}`);
-              const llmResponse = await sendPrompt(briefing);
-              const decision = llmResponse.join(" ").toLowerCase();
-
-              // ===== Parse LLM decision and EXECUTE directly =====
-              if (decision.includes("buy") && !decision.includes("hold")) {
-                const responseText = llmResponse.join(" ");
-
-                // Check for Jupiter market ID first
-                const jupIdMatch = /POLY-\d+[-\d]*/i.exec(responseText);
-                if (jupIdMatch) {
-                  log(`[AUTONOMY:EXECUTE] LLM chose BUY Jupiter — executing: bet $2 YES on jupiter market ${jupIdMatch[0]}`);
-                  await sendPrompt(`bet $2 YES on jupiter market ${jupIdMatch[0]}`);
-                } else {
-                  // Find which briefing market the LLM is referring to
-                  let bestMatch = "";
-                  let bestScore = 0;
-
-                  for (const pm of polyMarkets) {
-                    const question = pm.match(/"([^"]+)"/)?.[1] ?? "";
-                    if (!question) continue;
-                    // Count how many words from the LLM response match the question
-                    const qWords = question.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-                    const matchCount = qWords.filter(w => decision.includes(w)).length;
-                    if (matchCount > bestScore) {
-                      bestScore = matchCount;
-                      bestMatch = question;
-                    }
-                  }
-
-                  // Need at least 2 matching words to be confident
-                  if (bestScore < 2) {
-                    // Try quoted text from LLM response
-                    const quotedMatch = /[""\u201C\u201D]([^""\u201C\u201D]{5,})[""\u201C\u201D]/u.exec(responseText);
-                    if (quotedMatch?.[1]) {
-                      // Check if this quoted text is in our list
-                      const quoted = quotedMatch[1].toLowerCase();
-                      for (const pm of polyMarkets) {
-                        const question = pm.match(/"([^"]+)"/)?.[1] ?? "";
-                        if (question.toLowerCase().includes(quoted.slice(0, 15))) {
-                          bestMatch = question;
-                          bestScore = 5;
-                          break;
-                        }
-                      }
-                      if (bestScore < 2) bestMatch = quotedMatch[1];
-                    }
-                  }
-
-                  // Last resort: pick a random market (but NOT China/Taiwan)
-                  if (!bestMatch && polyMarkets.length > 0) {
-                    const idx = Math.floor(Math.random() * polyMarkets.length);
-                    const randomPm = polyMarkets[idx]!;
-                    bestMatch = randomPm.match(/"([^"]+)"/)?.[1] ?? "";
-                    log(`[AUTONOMY] Couldn't parse LLM's pick — randomly selected: "${bestMatch}"`);
-                  }
-
-                  if (bestMatch) {
-                    log(`[AUTONOMY:EXECUTE] BUY — "${bestMatch}"`);
-                    await sendPrompt(`buy $2 YES on "${bestMatch}" on polymarket`);
-                  } else {
-                    log("[AUTONOMY] LLM said BUY but no market found — skipping");
-                  }
-                }
-              } else if (decision.includes("sell") && !decision.includes("hold")) {
-                // Extract token ID from LLM response
-                const tokenMatch = /token[:\s]+(\d{10,})/i.exec(llmResponse.join(" "));
-                const sharesMatch = /(\d+(?:\.\d+)?)\s*shares/i.exec(llmResponse.join(" "));
-                if (tokenMatch && sharesMatch) {
-                  log(`[AUTONOMY:EXECUTE] LLM chose SELL — executing: sell ${sharesMatch[1]} shares of token ${tokenMatch[1]}`);
-                  await sendPrompt(`sell ${sharesMatch[1]} shares of token ${tokenMatch[1]}`);
-                } else {
-                  log("[AUTONOMY] LLM said SELL but couldn't extract token/shares — skipping");
-                }
-              } else {
-                log("[AUTONOMY] LLM chose HOLD — no action this cycle");
+              // ===== STEP 4: SELL losers first =====
+              for (const sell of sellTargets) {
+                const action = sell.pnl < -30 ? "cutting loss" : "taking profit";
+                log(`[SELL] "${sell.title}" ${sell.pnl.toFixed(0)}% — ${action}, ${sell.shares} shares`);
+                await sendPrompt(`sell ${sell.shares} shares of token ${sell.token}`);
               }
 
-              // ===== x402 payment — call 402-gated API =====
+              // ===== STEP 5: BUY best opportunity =====
+              if (scored.length > 0) {
+                // Pick randomly from top 5 (not always #1) for diversification
+                const topN = scored.slice(0, Math.min(5, scored.length));
+                const pick = topN[Math.floor(Math.random() * topN.length)]!;
+
+                if (pick.score >= 0.4) {
+                  log(`[BUY] ${pick.platform} — "${pick.question}" (YES:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)})`);
+
+                  if (pick.platform === "JUPITER" && pick.marketId) {
+                    await sendPrompt(`bet $2 YES on jupiter market ${pick.marketId}`);
+                  } else {
+                    // Use the EXACT question from the CLOB API
+                    await sendPrompt(`buy $2 YES on "${pick.question}" on polymarket`);
+                  }
+                } else {
+                  log(`[AUTONOMY] Best score ${pick.score.toFixed(2)} < 0.4 — no good opportunities`);
+                }
+              } else {
+                log("[AUTONOMY] No markets found");
+              }
+
+              // ===== STEP 6: x402 payment test =====
               const x402ApiUrl = process.env.X402_API_URL;
               if (x402ApiUrl) {
                 try {
@@ -669,16 +587,11 @@ async function main() {
                   const x402Res = await fetch(`${x402ApiUrl}/prediction`);
                   if (x402Res.status === 200) {
                     const x402Data = await x402Res.json();
-                    log(`[x402:PAID] $0.01 USDC — ${JSON.stringify(x402Data.data ?? x402Data).slice(0, 200)}`);
+                    log(`[x402:PAID] ${JSON.stringify(x402Data.payment ?? {}).slice(0, 100)}`);
                   } else if (x402Res.status === 402) {
                     log("[x402:402] Payment required — x402 attempting auto-pay with Solana USDC...");
-                  } else {
-                    log(`[x402:INFO] API returned ${x402Res.status}`);
                   }
-                } catch (err) {
-                  const errMsg = err instanceof Error ? err.message : String(err);
-                  log(`[x402:ERROR] ${errMsg}`);
-                }
+                } catch {}
               }
 
               log("[AUTONOMY] Cycle complete.");

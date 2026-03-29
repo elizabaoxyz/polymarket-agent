@@ -499,6 +499,7 @@ async function main() {
               const ownedTitles = new Set<string>();
               const polySellTargets: Array<{ token: string; shares: number; title: string; pnl: number }> = [];
               const jupSellTargets: Array<{ marketId: string; pubkey: string; title: string; pnl: number }> = [];
+              const jupClaimable: Array<{ pubkey: string; title: string; payout: number }> = [];
 
               try {
                 const funder = process.env.POLYMARKET_FUNDER_ADDRESS?.trim();
@@ -542,6 +543,12 @@ async function main() {
                     for (const pos of ((await posRes.json()).data ?? [])) {
                       const title = pos.eventMetadata?.title ?? pos.marketId ?? "";
                       if (title) ownedTitles.add(title.toLowerCase());
+                      // Check if position is claimable (market settled in our favor)
+                      if (pos.claimable === true && pos.claimed !== true && pos.pubkey) {
+                        const payout = Number(pos.payoutUsd ?? 0) / 1_000_000;
+                        jupClaimable.push({ pubkey: pos.pubkey, title: pos.marketMetadata?.title ?? pos.marketId, payout });
+                        continue; // Don't also try to sell claimable positions
+                      }
                       const pnl = pos.pnlUsdPercent ?? 0;
                       // Don't sell freshly bought positions (< 10 min old)
                       const recentJup = tradeHistory.some(
@@ -702,6 +709,27 @@ async function main() {
 
               } else {
                 // ========== JUPITER CYCLE + x402 ==========
+                // CLAIM settled Jupiter positions first
+                if (jupClaimable.length > 0) {
+                  let jupSvc: JupiterPredictionService | null = null;
+                  try {
+                    jupSvc = (await runtime.getServiceLoadPromise(JUPITER_SERVICE_TYPE)) as JupiterPredictionService | null;
+                  } catch {}
+                  for (const claim of jupClaimable) {
+                    log(`[CLAIM:JUPITER] "${claim.title}" — payout: $${claim.payout.toFixed(2)}`);
+                    if (jupSvc) {
+                      try {
+                        const { transaction } = await jupSvc.client.claimPosition(claim.pubkey, jupSvc.ownerPubkey);
+                        const signature = await jupSvc.signAndSubmit(transaction);
+                        log(`[CLAIM:JUPITER] Claimed! Signature: ${signature}`);
+                      } catch (err) {
+                        const errMsg = err instanceof Error ? err.message : String(err);
+                        log(`[CLAIM:JUPITER] Failed: ${errMsg}`);
+                      }
+                    }
+                  }
+                }
+
                 // SELL Jupiter — LLM analyzes positions before selling
                 if (jupSellTargets.length > 0) {
                   const jupSellList = jupSellTargets.map((s, i) =>

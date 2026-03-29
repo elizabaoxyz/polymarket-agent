@@ -30,7 +30,7 @@ function makePaymentRequirements(url: string, description: string, amount: strin
       asset: USDC_MAINNET,
       payTo: PAY_TO,
       maxTimeoutSeconds: 300,
-      extra: { name: "USDC", version: "1" },
+      extra: { name: "USDC", version: "1", feePayer: PAY_TO },
     }],
   })).toString("base64");
 }

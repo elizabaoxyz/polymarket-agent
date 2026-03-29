@@ -6,5 +6,5 @@ RUN bun install --frozen-lockfile
 
 COPY x402-test-server.ts ./
 
-EXPOSE 4020
+EXPOSE 8080
 CMD ["bun", "run", "x402-test-server.ts"]

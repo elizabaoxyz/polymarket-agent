@@ -663,17 +663,34 @@ async function main() {
                   const sideMatch = /SIDE:\s*(YES|NO)/i.exec(analysisText);
                   const reasonMatch = /REASON:\s*(.+?)(?:\.|$)/i.exec(analysisText);
 
-                  // If LLM didn't return a clear SIDE, skip — don't bet blindly
-                  if (!sideMatch) {
-                    log(`[ANALYSIS] LLM didn't pick a clear side — skipping bet. Response: ${analysisText.slice(0, 150)}`);
-                  } else {
-                    const pickIdx = pickMatch ? Math.min(parseInt(pickMatch[1]!) - 1, candidates.length - 1) : 0;
-                    const pick = candidates[Math.max(0, pickIdx)]!;
-                    const side = sideMatch[1]!.toUpperCase();
-                    const reason = reasonMatch ? reasonMatch[1]!.trim() : analysisText.slice(0, 100);
+                  let pick = candidates[0]!;
+                  let side: string;
+                  let reason: string;
 
+                  if (sideMatch) {
+                    const pickIdx = pickMatch ? Math.min(parseInt(pickMatch[1]!) - 1, candidates.length - 1) : 0;
+                    pick = candidates[Math.max(0, pickIdx)]!;
+                    side = sideMatch[1]!.toUpperCase();
+                    reason = reasonMatch ? reasonMatch[1]!.trim() : analysisText.slice(0, 100);
+                  } else {
+                    // Fallback: ask simpler YES/NO question on top pick
+                    log(`[ANALYSIS] Structured response failed, asking simpler question...`);
+                    const fallbackAnalysis = await sendPrompt(
+                      `DO NOT place any orders. Answer only YES or NO. Today is ${new Date().toISOString().split("T")[0]}. Should I bet YES or NO on: "${pick.question}"? Current YES price: $${pick.yesPrice.toFixed(2)}. Reply with just YES or NO and why.`
+                    );
+                    const fbText = fallbackAnalysis.join(" ");
+                    const yesNo = /\b(YES|NO)\b/i.exec(fbText);
+                    if (!yesNo) {
+                      log(`[ANALYSIS] LLM can't decide — skipping. Response: ${fbText.slice(0, 100)}`);
+                    } else {
+                      side = yesNo[1]!.toUpperCase();
+                      reason = fbText.slice(0, 100) || "fallback analysis";
+                    }
+                  }
+
+                  if (side!) {
                     const betSize = calcBetSize(pick.score, polyBalance);
-                    log(`[ANALYSIS] ${reason}`);
+                    log(`[ANALYSIS] ${reason!}`);
                     log(`[BUY:POLYMARKET] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, ${pick.daysLeft.toFixed(0)}d left)`);
                     await sendPrompt(`buy $${betSize.toFixed(0)} ${side} on "${pick.question}" on polymarket`);
                     tradeHistory.push({ question: pick.question, platform: "POLYMARKET", time: Date.now(), price: pick.yesPrice });
@@ -685,21 +702,6 @@ async function main() {
 
               } else {
                 // ========== JUPITER CYCLE + x402 ==========
-                // x402 payment for market analysis
-                const x402ApiUrl = process.env.X402_API_URL;
-                if (x402ApiUrl) {
-                  try {
-                    log("[x402] Paying for market analysis on Solana...");
-                    const x402Res = await fetch(`${x402ApiUrl}/prediction`);
-                    if (x402Res.status === 200) {
-                      const x402Data = await x402Res.json();
-                      log(`[x402:PAID] $${x402Data.payment?.amount ?? "0.01"} USDC — ${x402Data.data?.prediction ?? "analysis received"}`);
-                    } else if (x402Res.status === 402) {
-                      log("[x402:402] Payment required — x402 auto-paying with Solana USDC...");
-                    }
-                  } catch {}
-                }
-
                 // SELL Jupiter — LLM analyzes positions before selling
                 if (jupSellTargets.length > 0) {
                   const jupSellList = jupSellTargets.map((s, i) =>
@@ -776,57 +778,79 @@ async function main() {
                 jupScored.sort((a, b) => b.score - a.score);
                 log(`[AUTONOMY:JUPITER] ${jupScored.length} new markets | SOL balance: $${solBalance.toFixed(2)}`);
 
+                // x402 payment — only when we have markets to buy
                 if (solBalance < 3) {
                   log("[AUTONOMY:JUPITER] Solana balance too low ($" + solBalance.toFixed(2) + ") — skipping buy");
                 } else if (jupScored.length > 0) {
-                  // Pick top candidates for LLM analysis
+                  // Pay for x402 analysis before buying
+                  const x402ApiUrl = process.env.X402_API_URL;
+                  if (x402ApiUrl) {
+                    try {
+                      log("[x402] Paying for market analysis on Solana...");
+                      const x402Res = await fetch(`${x402ApiUrl}/prediction`);
+                      if (x402Res.status === 402) {
+                        log("[x402:402] Payment required — x402 auto-paying with Solana USDC...");
+                      }
+                    } catch {}
+                  }
+
                   const jupCandidates = jupScored.slice(0, 5);
-                  const jupCandidateList = jupCandidates.map((c, i) =>
-                    `${i + 1}. "${c.question}" — YES: $${c.yesPrice.toFixed(2)}, NO: $${(1 - c.yesPrice).toFixed(2)}, vol: $${c.volume.toFixed(0)}`
-                  ).join("\n");
+                  const pick = jupCandidates[0]!;
+                  let side: string;
+                  let reason: string;
 
-                  // Call LLM directly (bypasses elizaOS action routing)
-                  log(`[ANALYSIS] Analyzing top ${jupCandidates.length} Jupiter markets...`);
-                  const jupAnalysis = await sendPrompt(
-                    `DO NOT place any orders or execute any actions. Just analyze these Jupiter prediction markets and tell me which one is the best bet and why. Today is ${new Date().toISOString().split("T")[0]}.\n\n${jupCandidateList}\n\nRespond in this EXACT format:\nPICK: <number 1-${jupCandidates.length}>\nSIDE: <YES or NO>\nREASON: <one sentence why>`
-                  );
-                  const jupText = jupAnalysis.join(" ");
+                  if (jupCandidates.length >= 2) {
+                    // Multiple candidates — ask LLM to pick
+                    const jupCandidateList = jupCandidates.map((c, i) =>
+                      `${i + 1}. "${c.question}" — YES: $${c.yesPrice.toFixed(2)}, NO: $${(1 - c.yesPrice).toFixed(2)}, vol: $${c.volume.toFixed(0)}`
+                    ).join("\n");
+                    log(`[ANALYSIS] Analyzing top ${jupCandidates.length} Jupiter markets...`);
+                    const jupAnalysis = await sendPrompt(
+                      `DO NOT place any orders. Just analyze these Jupiter prediction markets. Today is ${new Date().toISOString().split("T")[0]}.\n\n${jupCandidateList}\n\nPICK: <number 1-${jupCandidates.length}>\nSIDE: YES or NO\nREASON: one sentence`
+                    );
+                    const jupText = jupAnalysis.join(" ");
+                    const jupPickMatch = /PICK:\s*(\d+)/i.exec(jupText);
+                    const jupSideMatch = /SIDE:\s*(YES|NO)/i.exec(jupText);
+                    const jupReasonMatch = /REASON:\s*(.+?)(?:\.|$)/i.exec(jupText);
 
-                  const jupPickMatch = /PICK:\s*(\d+)/i.exec(jupText);
-                  const jupSideMatch = /SIDE:\s*(YES|NO)/i.exec(jupText);
-                  const jupReasonMatch = /REASON:\s*(.+?)(?:\.|$)/i.exec(jupText);
-
-                  if (!jupSideMatch) {
-                    log(`[ANALYSIS] LLM didn't pick a clear side — skipping bet. Response: ${jupText.slice(0, 150)}`);
+                    if (jupPickMatch) {
+                      const idx = Math.min(parseInt(jupPickMatch[1]!) - 1, jupCandidates.length - 1);
+                      Object.assign(pick, jupCandidates[Math.max(0, idx)]!);
+                    }
+                    side = jupSideMatch ? jupSideMatch[1]!.toUpperCase() : (pick.yesPrice < 0.50 ? "YES" : "NO");
+                    reason = jupReasonMatch ? jupReasonMatch[1]!.trim() : "best scored market";
                   } else {
-                    const jupPickIdx = jupPickMatch ? Math.min(parseInt(jupPickMatch[1]!) - 1, jupCandidates.length - 1) : 0;
-                    const pick = jupCandidates[Math.max(0, jupPickIdx)]!;
-                    const side = jupSideMatch[1]!.toUpperCase();
-                    const reason = jupReasonMatch ? jupReasonMatch[1]!.trim() : jupText.slice(0, 100);
+                    // Single candidate — ask LLM just for YES/NO
+                    log(`[ANALYSIS] Single market: "${pick.question}" YES:$${pick.yesPrice.toFixed(2)}`);
+                    const sideAnalysis = await sendPrompt(
+                      `DO NOT place any orders. Answer only YES or NO. Today is ${new Date().toISOString().split("T")[0]}. Should I bet YES or NO on: "${pick.question}"? Current YES price: $${pick.yesPrice.toFixed(2)}. Reply with just YES or NO and a short reason.`
+                    );
+                    const sideText = sideAnalysis.join(" ");
+                    const yesNo = /\b(YES|NO)\b/i.exec(sideText);
+                    side = yesNo ? yesNo[1]!.toUpperCase() : (pick.yesPrice < 0.50 ? "YES" : "NO");
+                    reason = sideText.slice(0, 100) || "single candidate";
+                  }
 
-                    // Try placing the bet — if it fails (no liquidity), try next candidate
-                    const betSize = calcBetSize(pick.score, solBalance);
-                    log(`[ANALYSIS] ${reason}`);
-                    log(`[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${pick.volume.toFixed(0)})`);
-                    const betResults = await sendPrompt(`bet $${betSize.toFixed(0)} ${side} on jupiter market ${pick.marketId}`);
-                    const betFailed = betResults.some(r => /failed|error|no shares|no buyers/i.test(r));
-                    if (betFailed) {
-                      failedBuys.set(pick.marketId, Date.now()); // Skip for 30 min
-                      if (jupCandidates.length > 1) {
-                        const fallback = jupCandidates.find(c => c.marketId !== pick.marketId && !failedBuys.has(c.marketId));
-                        if (fallback) {
-                          const fbSide = jupSideMatch ? jupSideMatch[1]!.toUpperCase() : (fallback.yesPrice < 0.50 ? "YES" : "NO");
-                          log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${fbSide})`);
-                          const fbResults = await sendPrompt(`bet $${betSize.toFixed(0)} ${fbSide} on jupiter market ${fallback.marketId}`);
-                          if (fbResults.some(r => /failed|error|no shares|no buyers/i.test(r))) {
-                            failedBuys.set(fallback.marketId, Date.now());
-                          }
+                  const betSize = calcBetSize(pick.score, solBalance);
+                  log(`[ANALYSIS] ${reason}`);
+                  log(`[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${pick.volume.toFixed(0)})`);
+                  const betResults = await sendPrompt(`bet $${betSize.toFixed(0)} ${side} on jupiter market ${pick.marketId}`);
+                  const betFailed = betResults.some(r => /failed|error|no shares|no buyers/i.test(r));
+                  if (betFailed) {
+                    failedBuys.set(pick.marketId, Date.now());
+                    if (jupCandidates.length > 1) {
+                      const fallback = jupCandidates.find(c => c.marketId !== pick.marketId && !failedBuys.has(c.marketId));
+                      if (fallback) {
+                        log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${side})`);
+                        const fbResults = await sendPrompt(`bet $${betSize.toFixed(0)} ${side} on jupiter market ${fallback.marketId}`);
+                        if (fbResults.some(r => /failed|error|no shares|no buyers/i.test(r))) {
+                          failedBuys.set(fallback.marketId, Date.now());
                         }
                       }
                     }
-                    tradeHistory.push({ question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice });
-                    while (tradeHistory.length > 100) tradeHistory.shift();
                   }
+                  tradeHistory.push({ question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice });
+                  while (tradeHistory.length > 100) tradeHistory.shift();
                 } else {
                   log("[AUTONOMY:JUPITER] No new markets to buy");
                 }

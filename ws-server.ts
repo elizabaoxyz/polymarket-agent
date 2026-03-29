@@ -18,6 +18,7 @@ dotenv.config({ path: path.join(__dirname, ".env") });
 import {
   AgentRuntime,
   ChannelType,
+  ModelType,
   createCharacter,
   createMessageMemory,
   stringToUuid,
@@ -606,14 +607,20 @@ async function main() {
                     `${i + 1}. "${c.question}" — YES: $${c.yesPrice.toFixed(2)}, NO: $${(1 - c.yesPrice).toFixed(2)}, score: ${c.score.toFixed(2)}, ${c.daysLeft.toFixed(0)} days left`
                   ).join("\n");
 
-                  // Ask LLM to analyze and pick the best market + side
+                  // Call LLM directly (bypasses elizaOS action routing)
                   log(`[ANALYSIS] Analyzing top ${candidates.length} markets...`);
-                  const analysisResults = await sendPrompt(
-                    `You are an autonomous prediction market trader. Analyze these markets and pick the BEST one to bet on. Consider current events, probability, and value.\n\n${candidateList}\n\nRespond in this EXACT format (one line each):\nPICK: <number 1-${candidates.length}>\nSIDE: <YES or NO>\nREASON: <one sentence why this side will win>`
-                  );
+                  let analysisText = "";
+                  try {
+                    analysisText = await runtime.useModel(ModelType.TEXT_LARGE, {
+                      prompt: `You are an autonomous prediction market trader. Today is ${new Date().toISOString().split("T")[0]}. Analyze these markets and pick the BEST one to bet on. Consider current events, probability, and expected value.\n\n${candidateList}\n\nRespond in this EXACT format (one line each):\nPICK: <number 1-${candidates.length}>\nSIDE: <YES or NO>\nREASON: <one sentence why this side will win>`,
+                      temperature: 0.3,
+                      maxTokens: 200,
+                    } as { prompt: string; temperature?: number; maxTokens?: number });
+                  } catch (err) {
+                    log(`[ANALYSIS] LLM call failed: ${err instanceof Error ? err.message : String(err)}`);
+                  }
 
                   // Parse LLM response
-                  const analysisText = analysisResults.join(" ");
                   const pickMatch = /PICK:\s*(\d+)/i.exec(analysisText);
                   const sideMatch = /SIDE:\s*(YES|NO)/i.exec(analysisText);
                   const reasonMatch = /REASON:\s*(.+?)(?:\n|$)/i.exec(analysisText);
@@ -690,6 +697,7 @@ async function main() {
                         const spreadScore = Math.max(0, 1 - spread / 0.15);
                         const midScore = 1 - Math.abs(mid - 0.5) * 2;
                         const volume = Number(m.pricing?.volume ?? 0) / 1_000_000;
+                        if (volume < 50) continue; // Skip illiquid markets — "No shares available"
                         const volumeScore = Math.min(1, volume / 10000);
                         const score = spreadScore * 0.35 + midScore * 0.30 + volumeScore * 0.35;
                         const q = `${event.metadata?.title} — ${m.metadata?.title}`;
@@ -712,12 +720,19 @@ async function main() {
                     `${i + 1}. "${c.question}" — YES: $${c.yesPrice.toFixed(2)}, NO: $${(1 - c.yesPrice).toFixed(2)}, vol: $${c.volume.toFixed(0)}`
                   ).join("\n");
 
+                  // Call LLM directly (bypasses elizaOS action routing)
                   log(`[ANALYSIS] Analyzing top ${jupCandidates.length} Jupiter markets...`);
-                  const jupAnalysis = await sendPrompt(
-                    `You are an autonomous prediction market trader on Solana. Analyze these Jupiter markets and pick the BEST one to bet on. Consider current events, probability, and value.\n\n${jupCandidateList}\n\nRespond in this EXACT format (one line each):\nPICK: <number 1-${jupCandidates.length}>\nSIDE: <YES or NO>\nREASON: <one sentence why this side will win>`
-                  );
+                  let jupText = "";
+                  try {
+                    jupText = await runtime.useModel(ModelType.TEXT_LARGE, {
+                      prompt: `You are an autonomous prediction market trader on Solana. Today is ${new Date().toISOString().split("T")[0]}. Analyze these Jupiter markets and pick the BEST one to bet on. Consider current events, probability, and value.\n\n${jupCandidateList}\n\nRespond in this EXACT format (one line each):\nPICK: <number 1-${jupCandidates.length}>\nSIDE: <YES or NO>\nREASON: <one sentence why this side will win>`,
+                      temperature: 0.3,
+                      maxTokens: 200,
+                    } as { prompt: string; temperature?: number; maxTokens?: number });
+                  } catch (err) {
+                    log(`[ANALYSIS] LLM call failed: ${err instanceof Error ? err.message : String(err)}`);
+                  }
 
-                  const jupText = jupAnalysis.join(" ");
                   const jupPickMatch = /PICK:\s*(\d+)/i.exec(jupText);
                   const jupSideMatch = /SIDE:\s*(YES|NO)/i.exec(jupText);
                   const jupReasonMatch = /REASON:\s*(.+?)(?:\n|$)/i.exec(jupText);

@@ -72,26 +72,7 @@ export function Header({ isConnected, isAutonomyActive, onToggleAutonomy, x402St
         </div>
 
         {/* Right section */}
-        <div className="flex items-center gap-1">
-          <button
-            className="p-2 text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--bg-card)] rounded-lg transition-colors"
-            title="Settings"
-          >
-            <Settings size={16} />
-          </button>
-
-          <button
-            className="p-2 text-[var(--text-secondary)] hover:text-[var(--text)] hover:bg-[var(--bg-card)] rounded-lg transition-colors"
-            title="Open external"
-          >
-            <ExternalLink size={16} />
-          </button>
-
-          <button className="flex items-center gap-1.5 ml-2 px-3 py-1.5 bg-[var(--red)] hover:opacity-90 text-white text-xs font-semibold rounded-lg transition-opacity">
-            <LogIn size={14} />
-            <span>SIGN IN</span>
-          </button>
-        </div>
+        <div />
       </div>
     </header>
   );

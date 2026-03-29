@@ -70,12 +70,8 @@ export class PolymarketExtService {
 
     const svc = new PolymarketExtService(clob, data, walletAddress, privateKey);
 
-    svc.heartbeatTimer = setInterval(() => {
-      clob.heartbeat().catch((err) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`polymarket-ext: heartbeat failed: ${msg}`);
-      });
-    }, HEARTBEAT_INTERVAL_MS);
+    // Heartbeat disabled — causes "Invalid Heartbeat ID" errors with proxy wallets
+    // Not needed since we don't maintain long-lived GTC order sessions
 
     console.log(`polymarket-ext: active | wallet: ${walletAddress}${funderAddress ? " (proxy)" : " (EOA)"}`);
     return svc;

@@ -17,6 +17,9 @@ export class X402SolanaService {
 
   private wrappedFetch: typeof globalThis.fetch;
   private readonly config: X402Config | null;
+  private _paymentCount = 0;
+  private _totalPaidUsd = 0;
+  private _paymentLog: Array<{ timestamp: number; amountUsd: number; url: string }> = [];
 
   private constructor(
     wrappedFetch: typeof globalThis.fetch,
@@ -67,6 +70,8 @@ export class X402SolanaService {
 
       const svmScheme = new ExactSvmScheme(signer, rpcUrl ? { rpcUrl } : undefined);
 
+      const svc = new X402SolanaService(globalThis.fetch, config);
+
       const client = new x402Client()
         .register(SOLANA_MAINNET, svmScheme)
         .onBeforePaymentCreation(async (_version, requirements) => {
@@ -77,12 +82,18 @@ export class X402SolanaService {
             if (usdAmount > maxPaymentUsd) {
               throw new X402PaymentCapExceeded(usdAmount, maxPaymentUsd);
             }
+            // Track payment
+            svc._paymentCount++;
+            svc._totalPaidUsd += usdAmount;
+            svc._paymentLog.push({ timestamp: Date.now(), amountUsd: usdAmount, url: "402-gated" });
+            console.log(`x402: payment #${svc._paymentCount} — $${usdAmount.toFixed(4)} (total: $${svc._totalPaidUsd.toFixed(4)})`);
           }
         });
 
       const wrappedFetch = wrapFetchWithPayment(globalThis.fetch, client);
+      svc.wrappedFetch = wrappedFetch;
       console.log(`x402: active | cap: $${maxPaymentUsd.toFixed(2)}/request | network: solana mainnet`);
-      return new X402SolanaService(wrappedFetch, config);
+      return svc;
     } catch (error) {
       if (error instanceof X402PaymentCapExceeded) throw error;
       const msg = error instanceof Error ? error.message : String(error);
@@ -101,5 +112,9 @@ export class X402SolanaService {
 
   getMaxPaymentUsd(): number {
     return this.config?.maxPaymentUsd ?? DEFAULT_MAX_PAYMENT_USD;
+  }
+
+  getPaymentStats(): { count: number; totalUsd: number; log: Array<{ timestamp: number; amountUsd: number; url: string }> } {
+    return { count: this._paymentCount, totalUsd: this._totalPaidUsd, log: [...this._paymentLog] };
   }
 }

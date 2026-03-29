@@ -531,17 +531,31 @@ async function main() {
               } catch {}
 
               // ===== STEP 2: Let the LLM decide what to do =====
+              // Get x402 payment stats
+              let x402Status = "x402: disabled";
+              try {
+                const x402Svc = (await runtime.getServiceLoadPromise(X402_SERVICE_TYPE)) as X402SolanaService | null;
+                if (x402Svc && x402Svc.isActive()) {
+                  const stats = x402Svc.getPaymentStats();
+                  x402Status = `x402: active | ${stats.count} payments | $${stats.totalUsd.toFixed(4)} total spent | cap: $${x402Svc.getMaxPaymentUsd().toFixed(2)}/req`;
+                }
+              } catch {}
+
+              const portfolioStatus = await getPortfolioStatus(runtime);
+
               const briefing = [
                 "You are an autonomous trading agent. Analyze the data below and decide what to do.",
                 "You can: BUY a new position, SELL an existing position, or HOLD (do nothing).",
                 "Be smart — don't always buy. Sell losers. Take profit on winners. Wait if nothing looks good.",
                 "",
-                `POLYMARKET BALANCE: $${(await getPortfolioStatus(runtime)).balance.toFixed(2)}`,
+                `POLYMARKET BALANCE: $${portfolioStatus.balance.toFixed(2)}`,
+                `SOLANA BALANCE: $${portfolioStatus.solanaBalance.toFixed(2)}`,
+                `${x402Status}`,
                 "",
                 "TOP POLYMARKET MARKETS:",
                 ...polyMarkets.map((m, i) => `  ${i + 1}. ${m}`),
                 "",
-                "TOP JUPITER MARKETS:",
+                "TOP JUPITER MARKETS (via x402):",
                 ...(jupMarkets.length > 0 ? jupMarkets.map((m, i) => `  ${i + 1}. ${m}`) : ["  (none available)"]),
                 "",
                 "YOUR CURRENT POSITIONS:",
@@ -550,7 +564,7 @@ async function main() {
                 "DECIDE: What is the best action right now? If buying, specify the market. If selling, specify the token ID or market ID. If holding, explain why.",
               ].join("\n");
 
-              log(`[AUTONOMY] ${polyMarkets.length} Polymarket + ${jupMarkets.length} Jupiter markets | ${posLines.length} positions`);
+              log(`[AUTONOMY] ${polyMarkets.length} Polymarket + ${jupMarkets.length} Jupiter markets | ${posLines.length} positions | ${x402Status}`);
               await sendPrompt(briefing);
 
               log("[AUTONOMY] Cycle complete.");

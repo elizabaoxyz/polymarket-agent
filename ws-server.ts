@@ -567,6 +567,22 @@ async function main() {
               log(`[AUTONOMY] ${polyMarkets.length} Polymarket + ${jupMarkets.length} Jupiter markets | ${posLines.length} positions | ${x402Status}`);
               await sendPrompt(briefing);
 
+              // ===== x402 payment test — call 402-gated endpoint =====
+              try {
+                const x402TestUrl = process.env.X402_TEST_URL ?? "https://www.x402.org/protected";
+                const x402Res = await fetch(x402TestUrl);
+                if (x402Res.status === 200) {
+                  const x402Data = await x402Res.json();
+                  log(`[x402:PAID] Access granted! Response: ${JSON.stringify(x402Data).slice(0, 150)}`);
+                } else if (x402Res.status === 402) {
+                  log(`[x402:INFO] Endpoint returned 402 — payment required but x402 couldn't auto-pay (check network/balance)`);
+                } else {
+                  log(`[x402:INFO] Endpoint returned ${x402Res.status}`);
+                }
+              } catch (err) {
+                // Silently skip if no x402 test endpoint available
+              }
+
               log("[AUTONOMY] Cycle complete.");
 
             } catch (err) {

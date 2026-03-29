@@ -89,7 +89,7 @@ export function Header({ isConnected, isAutonomyActive, onToggleAutonomy, x402St
         </div>
 
         {/* Right section */}
-        <div className="flex items-center gap-2">
+        <div className="hidden sm:flex items-center gap-2">
           <a
             href="https://x.com/elizabao_ai"
             target="_blank"

@@ -549,24 +549,12 @@ async function main() {
               log(`[AUTONOMY] Best opportunity: ${best.platform} — "${best.title}" (YES @ $${best.price.toFixed(2)}, score: ${best.score.toFixed(3)})`);
               log(`[AUTONOMY] ${opportunities.length} markets scanned across Polymarket + Jupiter`);
 
-              // ===== STEP 2: Only bet if score is good enough =====
-              const MIN_SCORE = 0.6;
-              if (best.score >= MIN_SCORE) {
-                log(`[AUTONOMY] Score ${best.score.toFixed(3)} >= ${MIN_SCORE} threshold — placing bet`);
-                if (best.platform === "POLYMARKET") {
-                  await sendPrompt(`buy $2 YES on "${best.keyword}" on polymarket`);
-                } else {
-                  log("[AUTONOMY:JUPITER+x402] Placing bet via Solana — x402 handles any payment-gated API calls");
-                  await sendPrompt(`bet $2 YES on jupiter market ${best.marketId}`);
-                }
-              } else {
-                log(`[AUTONOMY] Score ${best.score.toFixed(3)} < ${MIN_SCORE} threshold — skipping, no good opportunities`);
-              }
+              // ===== STEP 2: SELL FIRST — check positions and sell losers =====
+              log("[AUTONOMY] Checking positions — sell losers first, then buy...");
+              let soldCount = 0;
+              let activePositionCount = 0;
 
-              // ===== STEP 3: Check positions and sell losers =====
-              log("[AUTONOMY] Checking positions for sell opportunities...");
-
-              // Check Polymarket positions
+              // Sell Polymarket losers
               try {
                 const funder = process.env.POLYMARKET_FUNDER_ADDRESS?.trim();
                 if (funder) {
@@ -580,17 +568,20 @@ async function main() {
                       const curPrice = pos.curPrice ?? 0;
                       const redeemable = pos.redeemable ?? false;
 
-                      // Skip expired/settled markets (curPrice=0, no order book)
-                      if (curPrice === 0 || redeemable) {
-                        if (size > 0) {
-                          log(`[AUTONOMY:SKIP] "${pos.title}" — market expired/settled (price=$0), cannot sell`);
-                        }
-                        continue;
-                      }
+                      if (curPrice === 0 || redeemable) continue;
+                      activePositionCount++;
 
+                      // SELL if down more than 20%
                       if (pnlPct < -20 && size > 0 && tokenId) {
-                        log(`[AUTONOMY:SELL] "${pos.title}" is down ${pnlPct.toFixed(0)}% — selling ${size} shares`);
+                        log(`[SELL:POLYMARKET] "${pos.title}" down ${pnlPct.toFixed(0)}% — selling ${size} shares`);
                         await sendPrompt(`sell ${size} shares of token ${tokenId}`);
+                        soldCount++;
+                      }
+                      // SELL if up more than 80% — take profit
+                      else if (pnlPct > 80 && size > 0 && tokenId) {
+                        log(`[SELL:POLYMARKET] "${pos.title}" up ${pnlPct.toFixed(0)}% — taking profit, selling ${size} shares`);
+                        await sendPrompt(`sell ${size} shares of token ${tokenId}`);
+                        soldCount++;
                       }
                     }
                   }
@@ -605,7 +596,6 @@ async function main() {
                   const { Keypair } = await import("@solana/web3.js");
                   const bs58 = await import("bs58");
                   const kp = Keypair.fromSecretKey(bs58.default.decode(solKey));
-                  // x402: globalThis.fetch handles 402 payment challenges automatically
                   const posRes = await fetch(
                     `https://api.jup.ag/prediction/v1/positions?ownerPubkey=${kp.publicKey.toBase58()}`,
                     { headers: { "x-api-key": jupApiKey } },
@@ -613,21 +603,46 @@ async function main() {
                   if (posRes.ok) {
                     const posData = await posRes.json();
                     const jupPositions = posData.data ?? [];
-                    if (jupPositions.length > 0) {
-                      log(`[AUTONOMY:JUPITER+x402] Checking ${jupPositions.length} Jupiter positions...`);
-                    }
+                    activePositionCount += jupPositions.length;
                     for (const pos of jupPositions) {
                       const pnlPct = pos.pnlUsdPercent ?? 0;
                       const title = pos.marketMetadata?.title ?? pos.marketId;
-                      if (pnlPct < -20) {
-                        log(`[AUTONOMY:SELL] Jupiter "${title}" is down ${pnlPct}% — flagged for review`);
-                      } else if (pnlPct > 50) {
-                        log(`[AUTONOMY:JUPITER] "${title}" is up ${pnlPct}% — consider taking profit`);
+                      const sellPrice = pos.sellPriceUsd ? Number(pos.sellPriceUsd) / 1_000_000 : 0;
+                      if (pnlPct < -20 && sellPrice > 0) {
+                        log(`[SELL:JUPITER+x402] "${title}" down ${pnlPct}% — selling via agent`);
+                        await sendPrompt(`sell my jupiter position on "${title}"`);
+                        soldCount++;
+                      } else if (pnlPct > 80 && sellPrice > 0) {
+                        log(`[SELL:JUPITER+x402] "${title}" up ${pnlPct}% — taking profit`);
+                        await sendPrompt(`sell my jupiter position on "${title}"`);
+                        soldCount++;
                       }
                     }
                   }
                 }
               } catch {}
+
+              if (soldCount > 0) {
+                log(`[AUTONOMY] Sold ${soldCount} positions this cycle`);
+              }
+
+              // ===== STEP 3: BUY — only if score is good AND not too many open positions =====
+              const MIN_SCORE = 0.6;
+              const MAX_POSITIONS = 15;
+
+              if (activePositionCount >= MAX_POSITIONS) {
+                log(`[AUTONOMY] ${activePositionCount} positions open (max ${MAX_POSITIONS}) — skipping buy, managing existing`);
+              } else if (best.score >= MIN_SCORE) {
+                log(`[AUTONOMY:BUY] Score ${best.score.toFixed(3)} >= ${MIN_SCORE} | ${activePositionCount}/${MAX_POSITIONS} positions — placing bet`);
+                if (best.platform === "POLYMARKET") {
+                  await sendPrompt(`buy $2 YES on "${best.keyword}" on polymarket`);
+                } else {
+                  log("[AUTONOMY:JUPITER+x402] Placing bet via Solana — x402 handles any payment-gated API calls");
+                  await sendPrompt(`bet $2 YES on jupiter market ${best.marketId}`);
+                }
+              } else {
+                log(`[AUTONOMY] Score ${best.score.toFixed(3)} < ${MIN_SCORE} — no good opportunities, holding`);
+              }
 
               log("[AUTONOMY] Cycle complete.");
 

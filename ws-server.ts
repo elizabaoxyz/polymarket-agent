@@ -554,11 +554,29 @@ async function main() {
 
               if (isPolymarketCycle) {
                 // ========== POLYMARKET CYCLE ==========
-                // SMART SELL — dynamic thresholds based on how long we've held
-                for (const sell of polySellTargets) {
-                  const action = sell.pnl < -15 ? "cutting loss" : "taking profit";
-                  log(`[SELL:POLYMARKET] "${sell.title}" ${sell.pnl.toFixed(0)}% — ${action}`);
-                  await sendPrompt(`sell ${sell.shares} shares of token ${sell.token}`);
+                // SMART SELL — LLM analyzes positions before selling
+                if (polySellTargets.length > 0) {
+                  const sellList = polySellTargets.map((s, i) =>
+                    `${i + 1}. "${s.title}" — PnL: ${s.pnl.toFixed(0)}%, shares: ${s.shares}`
+                  ).join("\n");
+                  log(`[SELL ANALYSIS] Analyzing ${polySellTargets.length} positions...`);
+                  const sellAnalysis = await sendPrompt(
+                    `DO NOT place any orders. You are reviewing your Polymarket positions. Today is ${new Date().toISOString().split("T")[0]}. These positions hit sell thresholds. For each one, decide SELL or HOLD.\n\n${sellList}\n\nRules: Cut losses below -15%. Take profits above +25%. Consider if the market outcome is likely to change.\n\nRespond with one line per position:\n<number>: SELL or HOLD — <reason>`
+                  );
+                  const sellText = sellAnalysis.join(" ");
+
+                  for (let i = 0; i < polySellTargets.length; i++) {
+                    const sell = polySellTargets[i]!;
+                    // Check if LLM said HOLD for this position
+                    const holdPattern = new RegExp(`${i + 1}[:\\s]*HOLD`, "i");
+                    if (holdPattern.test(sellText)) {
+                      log(`[HOLD:POLYMARKET] "${sell.title}" ${sell.pnl.toFixed(0)}% — LLM says hold`);
+                      continue;
+                    }
+                    const action = sell.pnl < -15 ? "cutting loss" : "taking profit";
+                    log(`[SELL:POLYMARKET] "${sell.title}" ${sell.pnl.toFixed(0)}% — ${action}`);
+                    await sendPrompt(`sell ${sell.shares} shares of token ${sell.token}`);
+                  }
                 }
 
                 // SMART SCAN — score by spread + midpoint + volume + time to expiry
@@ -662,13 +680,28 @@ async function main() {
                   } catch {}
                 }
 
-                // SELL Jupiter losers/winners via direct API call (bypasses LLM routing)
+                // SELL Jupiter — LLM analyzes positions before selling
                 if (jupSellTargets.length > 0) {
+                  const jupSellList = jupSellTargets.map((s, i) =>
+                    `${i + 1}. "${s.title}" — PnL: ${s.pnl.toFixed(0)}%`
+                  ).join("\n");
+                  log(`[SELL ANALYSIS] Analyzing ${jupSellTargets.length} Jupiter positions...`);
+                  const jupSellAnalysis = await sendPrompt(
+                    `DO NOT place any orders. You are reviewing your Jupiter/Solana positions. Today is ${new Date().toISOString().split("T")[0]}. These positions hit sell thresholds. For each one, decide SELL or HOLD.\n\n${jupSellList}\n\nRules: Cut losses below -15%. Take profits above +25%. Consider if the market outcome is likely to change.\n\nRespond with one line per position:\n<number>: SELL or HOLD — <reason>`
+                  );
+                  const jupSellText = jupSellAnalysis.join(" ");
+
                   let jupSvc: JupiterPredictionService | null = null;
                   try {
                     jupSvc = (await runtime.getServiceLoadPromise(JUPITER_SERVICE_TYPE)) as JupiterPredictionService | null;
                   } catch {}
-                  for (const sell of jupSellTargets) {
+                  for (let i = 0; i < jupSellTargets.length; i++) {
+                    const sell = jupSellTargets[i]!;
+                    const holdPattern = new RegExp(`${i + 1}[:\\s]*HOLD`, "i");
+                    if (holdPattern.test(jupSellText)) {
+                      log(`[HOLD:JUPITER] "${sell.title}" ${sell.pnl.toFixed(0)}% — LLM says hold`);
+                      continue;
+                    }
                     const action = sell.pnl < -15 ? "cutting loss" : "taking profit";
                     log(`[SELL:JUPITER] "${sell.title}" ${sell.pnl.toFixed(0)}% — ${action}`);
                     if (jupSvc) {

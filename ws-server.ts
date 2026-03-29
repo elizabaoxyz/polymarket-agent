@@ -522,7 +522,8 @@ async function main() {
               // Sort by score
               scored.sort((a, b) => b.score - a.score);
 
-              // ===== STEP 3: Check positions for sells =====
+              // ===== STEP 3: Check positions — collect owned markets + sell targets =====
+              const ownedTitles = new Set<string>();
               const sellTargets: Array<{ token: string; shares: number; title: string; pnl: number }> = [];
               try {
                 const funder = process.env.POLYMARKET_FUNDER_ADDRESS?.trim();
@@ -530,12 +531,33 @@ async function main() {
                   const posRes = await fetch(`https://data-api.polymarket.com/positions?user=${funder}`);
                   if (posRes.ok) {
                     for (const pos of await posRes.json()) {
+                      // Track all owned markets (even dead ones)
+                      if (pos.title) ownedTitles.add(pos.title.toLowerCase());
+
                       const pnl = pos.percentPnl ?? 0;
                       const price = pos.curPrice ?? 0;
                       if (price < 0.02 || pos.redeemable) continue;
                       if (pnl < -30 || pnl > 50) {
                         sellTargets.push({ token: pos.asset, shares: pos.size, title: pos.title, pnl });
                       }
+                    }
+                  }
+                }
+              } catch {}
+              // Also track Jupiter positions
+              try {
+                const jupApiKey = process.env.JUPITER_API_KEY?.trim();
+                const solKey = process.env.SOLANA_PRIVATE_KEY?.trim();
+                if (jupApiKey && solKey) {
+                  const { Keypair } = await import("@solana/web3.js");
+                  const bs58 = await import("bs58");
+                  const kp = Keypair.fromSecretKey(bs58.default.decode(solKey));
+                  const posRes = await fetch(`https://api.jup.ag/prediction/v1/positions?ownerPubkey=${kp.publicKey.toBase58()}`, { headers: { "x-api-key": jupApiKey } });
+                  if (posRes.ok) {
+                    const posData = await posRes.json();
+                    for (const pos of (posData.data ?? [])) {
+                      const title = pos.eventMetadata?.title ?? pos.marketId ?? "";
+                      if (title) ownedTitles.add(title.toLowerCase());
                     }
                   }
                 }
@@ -557,10 +579,21 @@ async function main() {
                 await sendPrompt(`sell ${sell.shares} shares of token ${sell.token}`);
               }
 
-              // ===== STEP 5: BUY best opportunity =====
-              if (scored.length > 0) {
-                // Pick randomly from top 5 (not always #1) for diversification
-                const topN = scored.slice(0, Math.min(5, scored.length));
+              // ===== STEP 5: BUY best opportunity (that we DON'T already own) =====
+              // Filter out markets we already have positions in
+              const newOpportunities = scored.filter(m => {
+                const q = m.question.toLowerCase();
+                for (const owned of ownedTitles) {
+                  // Check if any owned title overlaps with this market
+                  if (q.includes(owned.slice(0, 20)) || owned.includes(q.slice(0, 20))) return false;
+                }
+                return true;
+              });
+
+              log(`[AUTONOMY] ${newOpportunities.length} NEW markets (${scored.length - newOpportunities.length} already owned)`);
+
+              if (newOpportunities.length > 0) {
+                const topN = newOpportunities.slice(0, Math.min(5, newOpportunities.length));
                 const pick = topN[Math.floor(Math.random() * topN.length)]!;
 
                 if (pick.score >= 0.4) {
@@ -589,6 +622,8 @@ async function main() {
                 } else {
                   log(`[AUTONOMY] Best score ${pick.score.toFixed(2)} < 0.4 — no good opportunities`);
                 }
+              } else if (scored.length > 0) {
+                log("[AUTONOMY] All top markets already owned — holding cash for new opportunities");
               } else {
                 log("[AUTONOMY] No markets found");
               }

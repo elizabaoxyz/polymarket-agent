@@ -166,24 +166,20 @@ export const sellPolymarketPosition: Action = {
     }
     const shares = parseFloat(sharesMatch[1]!);
 
-    // Always get best bid from order book for sell price
-    let price: number;
+    // Get best bid from order book for sell price
+    let price = 0;
     try {
       const book = await svc.clob!.getOrderBook(tokenId);
-      if (book.bids.length === 0) {
-        if (callback) callback({ text: "No bids in order book. Cannot determine sell price." });
-        return false;
+      if (book.bids.length > 0) {
+        price = parseFloat(book.bids[0]!.price);
       }
-      price = parseFloat(book.bids[0]!.price);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      if (callback) callback({ text: `Failed to fetch order book: ${msg}` });
-      return false;
+    } catch {
+      // Order book fetch failed — market likely closed
     }
 
-    // Reject if price is too low (dead market) or out of range
-    if (!price || price <= 0 || price < 0.001 || price > 0.999) {
-      if (callback) callback({ text: `Cannot sell — best bid is $${price?.toFixed(4) ?? "0"}, market is closed or illiquid.` });
+    // Hard reject: must have a real price between $0.01 and $0.99
+    if (price < 0.01 || price > 0.99) {
+      if (callback) callback({ text: `Cannot sell — best bid is $${price.toFixed(4)}. Market is closed, expired, or has no liquidity.` });
       return false;
     }
 

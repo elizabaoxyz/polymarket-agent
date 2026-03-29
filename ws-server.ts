@@ -472,8 +472,8 @@ async function main() {
           const tradeHistory: Array<{ question: string; platform: string; time: number; price: number }> = [];
 
           // Smart position sizing — bet more on high-conviction, less on risky
-          // Enforces platform minimums: $1 Polymarket, $1.10 Jupiter
-          const calcBetSize = (score: number, balance: number, minBet = 1): number => {
+          // Enforces platform minimums: $2 Polymarket (covers rounding), $1.10 Jupiter
+          const calcBetSize = (score: number, balance: number, minBet = 2): number => {
             const base = 3;
             let size: number;
             if (score > 0.9) size = Math.min(base * 2, balance * 0.1);

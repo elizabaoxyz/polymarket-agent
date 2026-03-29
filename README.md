@@ -159,13 +159,13 @@ When autonomy starts, three things happen simultaneously:
 ### Cycle 1 — Polymarket (Polygon)
 
 ```
-SELL PHASE → SCAN PHASE → FILTER PHASE → SIZE PHASE → BUY PHASE
+SELL PHASE → SCAN PHASE → FILTER PHASE → LLM ANALYSIS → BUY PHASE
 ```
 
 **Step 1 — Collect & Sell:**
 - Fetch all positions from Polymarket Data API (`/positions?user={proxyWallet}`)
 - Build an `ownedTitles` set (lowercase market titles) for deduplication
-- Identify sell targets: positions **down >30%** (cut loss) or **up >50%** (take profit)
+- Identify sell targets: positions **down >15%** (cut loss) or **up >25%** (take profit)
 - Skip dead markets (price < $0.02 or already redeemable)
 - Execute sells via elizaOS action `POLYMARKET_SELL` — sells at best bid price from order book
 
@@ -178,11 +178,26 @@ SELL PHASE → SCAN PHASE → FILTER PHASE → SIZE PHASE → BUY PHASE
 - Filter: remove markets expiring within 24 hours
 - Score each remaining market (see Scoring Algorithm below)
 
-**Step 3 — Pick & Buy:**
-- Sort by score descending
-- Randomly pick from top 5 (adds diversification, avoids always picking #1)
+**Step 3 — LLM Market Analysis:**
+- Take top 5 scored candidates
+- Send all 5 to the LLM with prices, scores, and days left
+- LLM analyzes each market question considering **current events, probability, and value**
+- LLM responds with: `PICK: <number>`, `SIDE: <YES/NO>`, `REASON: <why this side will win>`
+- Falls back to price-based heuristic if LLM parsing fails
+
+Example LLM analysis flow:
+```
+[ANALYSIS] Analyzing top 5 markets...
+  1. "Will bitcoin hit $1m before GTA VI?" — YES: $0.49, NO: $0.51, score: 0.80, 123 days left
+  2. "2026 Balance of Power: D Senate, D House" — YES: $0.49, NO: $0.51, score: 0.80, 218 days left
+  ...
+[ANALYSIS] Bitcoin is unlikely to reach $1m in 4 months given current market conditions.
+[BUY:POLYMARKET] "2026 Balance of Power: D Senate, D House" (YES:$0.49, $3.00, 218d left)
+```
+
+**Step 4 — Buy:**
 - Calculate bet size: `$3–$6` based on score and balance (see Position Sizing)
-- Smart side selection: buy **YES** if price < $0.50 (undervalued), **NO** if price > $0.50
+- Use the LLM's chosen side (YES/NO) instead of price-based heuristic
 - Execute via elizaOS action `POLYMARKET_PLACE_ORDER`
 - Record in `tradeHistory` for cooldown tracking
 
@@ -198,8 +213,8 @@ Same structure as Polymarket but on Solana:
 **Step 2 — Collect & Sell:**
 - Fetch positions from Jupiter API (`GET /positions?ownerPubkey={wallet}`)
 - Each position includes `pnlUsdPercent` — the agent knows if it's winning or losing
-- Identify sell targets: positions **down >30%** (cut loss) or **up >50%** (take profit)
-- Execute sells via `SELL_JUPITER_POSITION` action → calls `DELETE /positions/{positionPubkey}` with `ownerPubkey`
+- Identify sell targets: positions **down >15%** (cut loss) or **up >25%** (take profit)
+- Sells directly via API: `DELETE /positions/{positionPubkey}` with `ownerPubkey` (bypasses LLM routing)
 - Jupiter closes the entire position (no partial sells) — contracts are sold back and USDC returned
 
 **Step 3 — Smart Scan:**
@@ -207,9 +222,13 @@ Same structure as Polymarket but on Solana:
 - Score each market's spread, midpoint, and volume
 - Jupiter uses higher volume threshold ($10,000) and heavier volume weight (35% vs 15%)
 
-**Step 4 — Pick & Buy:**
-- Same logic: random pick from top 5, smart side selection, dynamic sizing
-- Minimum bet: $1.10 (Jupiter's minimum deposit)
+**Step 4 — LLM Market Analysis:**
+- Same as Polymarket: top 5 candidates sent to LLM for analysis
+- LLM picks the best market and side (YES/NO) with reasoning
+- Falls back to price-based heuristic if parsing fails
+
+**Step 5 — Buy:**
+- Minimum bet: $3 on both platforms
 - Execute via elizaOS action `PLACE_JUPITER_BET`
 
 ### Scoring Algorithm
@@ -245,7 +264,7 @@ Score > 0.7  →  $4.50 or 8% of balance
 Score ≤ 0.7  →  $3  or 5% of balance
 ```
 
-The balance cap prevents blowing up on a single trade. If balance drops below $1, the agent stops buying and waits for sells to replenish.
+The balance cap prevents blowing up on a single trade. Minimum bet is $3 on both platforms. If balance drops below $3, the agent stops buying and waits for sells to replenish.
 
 ### Smart Features
 
@@ -253,11 +272,13 @@ The balance cap prevents blowing up on a single trade. If balance drops below $1
 |---------|-------------|
 | **Alternating platforms** | Odd cycles = Polymarket (Polygon), even cycles = Jupiter (Solana) |
 | **Sell before buy** | Always evaluates exits first — frees up capital for new bets |
-| **Smart side selection** | Buys YES when price < $0.50, NO when price > $0.50 |
-| **Dynamic sizing** | $3–$6 based on score × balance cap |
+| **Aggressive sell thresholds** | Cut loss at -15%, take profit at +25% — locks in gains and exits losers fast |
+| **LLM market analysis** | Top 5 candidates analyzed by LLM — picks market AND side with reasoning |
+| **Dynamic sizing** | $3–$6 based on score × balance cap (minimum $3 both platforms) |
 | **No repeats** | Tracks `ownedTitles` set, deduplicates across both platforms |
 | **Trade cooldown** | 5-minute cooldown per market to avoid churning |
 | **Max 50 positions** | Stops buying when position count hits cap |
+| **Direct Jupiter sells** | Calls `DELETE /positions/{pubkey}` directly — bypasses LLM routing for reliability |
 | **Persistence** | Timer survives browser disconnect — only stops on explicit OFF |
 | **Trade history** | Rolling log of last 100 trades for cooldown + analytics |
 

@@ -515,6 +515,8 @@ async function main() {
                         h => h.question.toLowerCase() === (pos.title ?? "").toLowerCase() && Date.now() - h.time < 600_000
                       );
                       if (recentlyBought) continue;
+                      // Skip dead positions — no buyers at -95% or worse
+                      if (pnl <= -95) continue;
                       // Don't sell at garbage prices — best bid must be > $0.05
                       if (price < 0.05) continue;
                       // Skip if sell failed recently (retry after 30 min)
@@ -547,6 +549,8 @@ async function main() {
                       );
                       if (recentJup) continue;
                       if ((pnl < -15 || pnl > 25) && pos.pubkey) {
+                        // Skip dead positions — no buyers at -95% or worse
+                        if (pnl <= -95) continue;
                         // Skip if already sold (API lag) or failed recently (retry after 30 min)
                         if (recentlySold.has(pos.pubkey)) continue;
                         const jupFailTime = failedSells.get(pos.pubkey);

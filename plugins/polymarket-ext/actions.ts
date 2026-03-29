@@ -481,7 +481,7 @@ export const placePolymarketOrder: Action = {
         ? ` | tx: ${shortenId(result.transactionsHashes[0]!)}`
         : "";
       const total = (size * price).toFixed(2);
-      const statusIcon = result.status === "matched" ? "FILLED" : result.status.toUpperCase();
+      const statusIcon = result.status === "matched" ? "FILLED" : String(result.status).toUpperCase();
       if (callback) callback({
         text: `Order ${statusIcon}: ${side} ${size} ${outcome} shares of "${market.question}" @ $${price.toFixed(2)} ($${total})\nOrder ID: ${shortenId(result.orderID)}${txInfo}`,
       });

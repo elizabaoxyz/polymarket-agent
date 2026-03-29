@@ -144,9 +144,14 @@ export class PolymarketExtService {
       nonce: 0,
     });
 
+    // Handle error responses (status might be a number like 400)
+    if (order.error || (typeof order.status === "number" && order.status >= 400)) {
+      throw new Error(order.error ?? order.errorMsg ?? `Order failed with status ${order.status}`);
+    }
+
     return {
       orderID: order.orderID ?? order.id ?? "unknown",
-      status: order.status ?? "submitted",
+      status: String(order.status ?? "submitted"),
       transactionsHashes: order.transactionsHashes ?? [],
     };
   }

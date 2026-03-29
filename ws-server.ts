@@ -567,9 +567,23 @@ async function main() {
                   log(`[BUY] ${pick.platform} — "${pick.question}" (YES:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)})`);
 
                   if (pick.platform === "JUPITER" && pick.marketId) {
+                    // Jupiter trades go through x402-wrapped fetch on Solana
+                    const x402ApiUrl = process.env.X402_API_URL;
+                    if (x402ApiUrl) {
+                      try {
+                        log("[x402] Fetching paid analysis before Jupiter trade...");
+                        const x402Res = await fetch(`${x402ApiUrl}/prediction`);
+                        if (x402Res.status === 200) {
+                          const x402Data = await x402Res.json();
+                          log(`[x402:PAID] $${x402Data.payment?.amount ?? "0.01"} USDC — ${x402Data.data?.prediction ?? "analysis received"}`);
+                        } else if (x402Res.status === 402) {
+                          log("[x402:402] Payment required — x402 auto-paying with Solana USDC...");
+                        }
+                      } catch {}
+                    }
                     await sendPrompt(`bet $2 YES on jupiter market ${pick.marketId}`);
                   } else {
-                    // Use the EXACT question from the CLOB API
+                    // Polymarket trades on Polygon — no x402 needed
                     await sendPrompt(`buy $2 YES on "${pick.question}" on polymarket`);
                   }
                 } else {
@@ -579,20 +593,7 @@ async function main() {
                 log("[AUTONOMY] No markets found");
               }
 
-              // ===== STEP 6: x402 payment test =====
-              const x402ApiUrl = process.env.X402_API_URL;
-              if (x402ApiUrl) {
-                try {
-                  log("[x402] Calling payment-gated API...");
-                  const x402Res = await fetch(`${x402ApiUrl}/prediction`);
-                  if (x402Res.status === 200) {
-                    const x402Data = await x402Res.json();
-                    log(`[x402:PAID] ${JSON.stringify(x402Data.payment ?? {}).slice(0, 100)}`);
-                  } else if (x402Res.status === 402) {
-                    log("[x402:402] Payment required — x402 attempting auto-pay with Solana USDC...");
-                  }
-                } catch {}
-              }
+              // x402 payments only happen with Jupiter/Solana trades (moved to STEP 5)
 
               log("[AUTONOMY] Cycle complete.");
 

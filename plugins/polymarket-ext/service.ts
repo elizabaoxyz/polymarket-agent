@@ -127,9 +127,9 @@ export class PolymarketExtService {
     status: string;
     transactionsHashes: string[];
   }> {
-    // Guard: reject invalid prices — Polymarket range is 0.01 to 0.99
-    if (params.price < 0.01 || params.price > 0.99) {
-      throw new Error(`Invalid price $${params.price} — must be between $0.01 and $0.99. Market may be closed.`);
+    // Guard: reject invalid prices — Polymarket range is 0.01 to 0.999
+    if (params.price < 0.01 || params.price > 0.999) {
+      throw new Error(`Invalid price $${params.price} — must be between $0.01 and $0.999. Market may be closed.`);
     }
     if (!params.size || params.size <= 0) {
       throw new Error(`Invalid size ${params.size}`);

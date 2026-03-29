@@ -480,13 +480,16 @@ async function main() {
                 const res = await fetch("https://clob.polymarket.com/sampling-markets");
                 const data = await res.json();
                 const markets = (data.data ?? []).filter((m: Record<string, unknown>) => m.active && !m.closed && m.accepting_orders);
-                for (const m of markets.slice(0, 10)) {
+                for (const m of markets.slice(0, 50)) {
                   const tokens = m.tokens ?? [];
                   const yes = tokens.find((t: Record<string, unknown>) => t.outcome === "Yes");
                   const no = tokens.find((t: Record<string, unknown>) => t.outcome === "No");
-                  if (yes) {
-                    polyMarkets.push(`"${m.question}" YES:$${Number(yes.price).toFixed(2)} NO:$${no ? Number(no.price).toFixed(2) : "?"}`);
-                  }
+                  if (!yes) continue;
+                  const yesPrice = Number(yes.price);
+                  // Only show tradeable markets — YES price between $0.10 and $0.90
+                  if (yesPrice < 0.10 || yesPrice > 0.90) continue;
+                  polyMarkets.push(`"${m.question}" YES:$${yesPrice.toFixed(2)} NO:$${no ? Number(no.price).toFixed(2) : "?"}`);
+                  if (polyMarkets.length >= 10) break;
                 }
               } catch {}
 

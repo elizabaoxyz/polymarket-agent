@@ -461,100 +461,43 @@ async function main() {
             ws.send(JSON.stringify({ type: "thinking", active: true }));
 
             try {
-              // ===== STEP 1: Scan both platforms for opportunities =====
-              log("[AUTONOMY] Scanning all markets...");
+              // ===== STEP 1: Gather all data for the LLM to decide =====
+              log("[AUTONOMY] Gathering market data + positions...");
 
-              type Opportunity = { platform: string; title: string; marketId: string; keyword: string; price: number; score: number };
-              const opportunities: Opportunity[] = [];
-
-              // Scan Polymarket
+              // Fetch top Polymarket markets
+              const polyMarkets: string[] = [];
               try {
                 const res = await fetch("https://clob.polymarket.com/sampling-markets");
                 const data = await res.json();
                 const markets = (data.data ?? []).filter((m: Record<string, unknown>) => m.active && !m.closed && m.accepting_orders);
-
-                for (const m of markets.slice(0, 30)) {
+                for (const m of markets.slice(0, 10)) {
                   const tokens = m.tokens ?? [];
-                  const yesToken = tokens.find((t: Record<string, unknown>) => t.outcome === "Yes");
-                  const noToken = tokens.find((t: Record<string, unknown>) => t.outcome === "No");
-                  if (!yesToken) continue;
-
-                  const yesPrice = Number(yesToken.price);
-                  const noPrice = noToken ? Number(noToken.price) : 1 - yesPrice;
-                  const spread = Math.abs(noPrice - yesPrice);
-                  const midpoint = (yesPrice + noPrice) / 2;
-
-                  // Score: prefer tight spreads near 50/50
-                  const spreadScore = Math.max(0, 1 - spread / 0.15);
-                  const midpointScore = 1 - Math.abs(midpoint - 0.5) * 2;
-                  const score = spreadScore * 0.6 + midpointScore * 0.4;
-
-                  const question = m.question ?? "";
-                  const words = (question as string).split(/\s+/).filter((w: string) => w.length > 4);
-                  const keyword = words[Math.floor(Math.random() * words.length)] ?? "market";
-
-                  opportunities.push({
-                    platform: "POLYMARKET",
-                    title: question,
-                    marketId: m.condition_id ?? "",
-                    keyword,
-                    price: yesPrice,
-                    score,
-                  });
+                  const yes = tokens.find((t: Record<string, unknown>) => t.outcome === "Yes");
+                  const no = tokens.find((t: Record<string, unknown>) => t.outcome === "No");
+                  if (yes) {
+                    polyMarkets.push(`"${m.question}" YES:$${Number(yes.price).toFixed(2)} NO:$${no ? Number(no.price).toFixed(2) : "?"}`);
+                  }
                 }
               } catch {}
 
-              // Scan Jupiter (via x402-wrapped fetch if active)
+              // Fetch Jupiter markets
+              const jupMarkets: string[] = [];
               try {
                 const jupApiKey = process.env.JUPITER_API_KEY?.trim();
                 if (jupApiKey) {
-                  // globalThis.fetch is x402-wrapped — any 402 responses auto-paid
-                  const res = await fetch("https://api.jup.ag/prediction/v1/events?status=live", {
-                    headers: { "x-api-key": jupApiKey },
-                  });
+                  const res = await fetch("https://api.jup.ag/prediction/v1/events?status=live", { headers: { "x-api-key": jupApiKey } });
                   const data = await res.json();
-                  for (const event of (data.data ?? []).slice(0, 10)) {
-                    for (const m of (event.markets ?? []).filter((x: Record<string, unknown>) => x.status === "open")) {
-                      const yesPrice = Number(m.pricing?.buyYesPriceUsd ?? 0) / 1_000_000;
-                      const noPrice = Number(m.pricing?.buyNoPriceUsd ?? 0) / 1_000_000;
-                      const spread = Math.abs(noPrice - yesPrice);
-                      const midpoint = (yesPrice + (noPrice || (1 - yesPrice))) / 2;
-                      const spreadScore = Math.max(0, 1 - spread / 0.15);
-                      const midpointScore = 1 - Math.abs(midpoint - 0.5) * 2;
-                      const score = spreadScore * 0.6 + midpointScore * 0.4;
-
-                      opportunities.push({
-                        platform: "JUPITER",
-                        title: `${event.metadata?.title ?? ""} — ${m.metadata?.title ?? m.marketId}`,
-                        marketId: m.marketId,
-                        keyword: "",
-                        price: yesPrice,
-                        score,
-                      });
+                  for (const event of (data.data ?? []).slice(0, 5)) {
+                    for (const m of (event.markets ?? []).filter((x: Record<string, unknown>) => x.status === "open").slice(0, 2)) {
+                      const yp = Number(m.pricing?.buyYesPriceUsd ?? 0) / 1_000_000;
+                      jupMarkets.push(`"${event.metadata?.title} — ${m.metadata?.title}" ID:${m.marketId} YES:$${yp.toFixed(2)}`);
                     }
                   }
                 }
               } catch {}
 
-              // Sort by score, best first
-              opportunities.sort((a, b) => b.score - a.score);
-
-              if (opportunities.length === 0) {
-                log("[AUTONOMY] No opportunities found on either platform.");
-                ws.send(JSON.stringify({ type: "thinking", active: false }));
-                return;
-              }
-
-              const best = opportunities[0]!;
-              log(`[AUTONOMY] Best opportunity: ${best.platform} — "${best.title}" (YES @ $${best.price.toFixed(2)}, score: ${best.score.toFixed(3)})`);
-              log(`[AUTONOMY] ${opportunities.length} markets scanned across Polymarket + Jupiter`);
-
-              // ===== STEP 2: SELL FIRST — check positions and sell losers =====
-              log("[AUTONOMY] Checking positions — sell losers first, then buy...");
-              let soldCount = 0;
-              let activePositionCount = 0;
-
-              // Sell Polymarket losers
+              // Fetch current positions
+              const posLines: string[] = [];
               try {
                 const funder = process.env.POLYMARKET_FUNDER_ADDRESS?.trim();
                 if (funder) {
@@ -562,33 +505,13 @@ async function main() {
                   if (posRes.ok) {
                     const positions = await posRes.json();
                     for (const pos of positions) {
-                      const pnlPct = pos.percentPnl ?? 0;
-                      const size = pos.size ?? 0;
-                      const tokenId = pos.asset ?? "";
                       const curPrice = pos.curPrice ?? 0;
-                      const redeemable = pos.redeemable ?? false;
-
-                      if (curPrice === 0 || redeemable) continue;
-                      activePositionCount++;
-
-                      // SELL if down more than 20%
-                      if (pnlPct < -20 && size > 0 && tokenId) {
-                        log(`[SELL:POLYMARKET] "${pos.title}" down ${pnlPct.toFixed(0)}% — selling ${size} shares`);
-                        await sendPrompt(`sell ${size} shares of token ${tokenId}`);
-                        soldCount++;
-                      }
-                      // SELL if up more than 80% — take profit
-                      else if (pnlPct > 80 && size > 0 && tokenId) {
-                        log(`[SELL:POLYMARKET] "${pos.title}" up ${pnlPct.toFixed(0)}% — taking profit, selling ${size} shares`);
-                        await sendPrompt(`sell ${size} shares of token ${tokenId}`);
-                        soldCount++;
-                      }
+                      if (curPrice === 0 || pos.redeemable) continue;
+                      posLines.push(`[POLYMARKET] "${pos.title}" ${pos.outcome} ${pos.size} shares avg:$${(pos.avgPrice ?? 0).toFixed(2)} now:$${curPrice.toFixed(2)} pnl:${(pos.percentPnl ?? 0).toFixed(0)}% token:${pos.asset}`);
                     }
                   }
                 }
               } catch {}
-
-              // Check Jupiter positions (via x402-wrapped fetch)
               try {
                 const jupApiKey = process.env.JUPITER_API_KEY?.trim();
                 const solKey = process.env.SOLANA_PRIVATE_KEY?.trim();
@@ -596,53 +519,39 @@ async function main() {
                   const { Keypair } = await import("@solana/web3.js");
                   const bs58 = await import("bs58");
                   const kp = Keypair.fromSecretKey(bs58.default.decode(solKey));
-                  const posRes = await fetch(
-                    `https://api.jup.ag/prediction/v1/positions?ownerPubkey=${kp.publicKey.toBase58()}`,
-                    { headers: { "x-api-key": jupApiKey } },
-                  );
+                  const posRes = await fetch(`https://api.jup.ag/prediction/v1/positions?ownerPubkey=${kp.publicKey.toBase58()}`, { headers: { "x-api-key": jupApiKey } });
                   if (posRes.ok) {
                     const posData = await posRes.json();
-                    const jupPositions = posData.data ?? [];
-                    activePositionCount += jupPositions.length;
-                    for (const pos of jupPositions) {
-                      const pnlPct = pos.pnlUsdPercent ?? 0;
+                    for (const pos of (posData.data ?? [])) {
                       const title = pos.marketMetadata?.title ?? pos.marketId;
-                      const sellPrice = pos.sellPriceUsd ? Number(pos.sellPriceUsd) / 1_000_000 : 0;
-                      if (pnlPct < -20 && sellPrice > 0) {
-                        log(`[SELL:JUPITER+x402] "${title}" down ${pnlPct}% — selling via agent`);
-                        await sendPrompt(`sell my jupiter position on "${title}"`);
-                        soldCount++;
-                      } else if (pnlPct > 80 && sellPrice > 0) {
-                        log(`[SELL:JUPITER+x402] "${title}" up ${pnlPct}% — taking profit`);
-                        await sendPrompt(`sell my jupiter position on "${title}"`);
-                        soldCount++;
-                      }
+                      posLines.push(`[JUPITER] "${pos.eventMetadata?.title} — ${title}" ${pos.isYes ? "YES" : "NO"} ${pos.contracts} contracts pnl:${pos.pnlUsdPercent}% id:${pos.marketId}`);
                     }
                   }
                 }
               } catch {}
 
-              if (soldCount > 0) {
-                log(`[AUTONOMY] Sold ${soldCount} positions this cycle`);
-              }
+              // ===== STEP 2: Let the LLM decide what to do =====
+              const briefing = [
+                "You are an autonomous trading agent. Analyze the data below and decide what to do.",
+                "You can: BUY a new position, SELL an existing position, or HOLD (do nothing).",
+                "Be smart — don't always buy. Sell losers. Take profit on winners. Wait if nothing looks good.",
+                "",
+                `POLYMARKET BALANCE: $${(await getPortfolioStatus(runtime)).balance.toFixed(2)}`,
+                "",
+                "TOP POLYMARKET MARKETS:",
+                ...polyMarkets.map((m, i) => `  ${i + 1}. ${m}`),
+                "",
+                "TOP JUPITER MARKETS:",
+                ...(jupMarkets.length > 0 ? jupMarkets.map((m, i) => `  ${i + 1}. ${m}`) : ["  (none available)"]),
+                "",
+                "YOUR CURRENT POSITIONS:",
+                ...(posLines.length > 0 ? posLines : ["  (no positions)"]),
+                "",
+                "DECIDE: What is the best action right now? If buying, specify the market. If selling, specify the token ID or market ID. If holding, explain why.",
+              ].join("\n");
 
-              // ===== STEP 3: BUY — only if score is good AND not too many open positions =====
-              const MIN_SCORE = 0.6;
-              const MAX_POSITIONS = 15;
-
-              if (activePositionCount >= MAX_POSITIONS) {
-                log(`[AUTONOMY] ${activePositionCount} positions open (max ${MAX_POSITIONS}) — skipping buy, managing existing`);
-              } else if (best.score >= MIN_SCORE) {
-                log(`[AUTONOMY:BUY] Score ${best.score.toFixed(3)} >= ${MIN_SCORE} | ${activePositionCount}/${MAX_POSITIONS} positions — placing bet`);
-                if (best.platform === "POLYMARKET") {
-                  await sendPrompt(`buy $2 YES on "${best.keyword}" on polymarket`);
-                } else {
-                  log("[AUTONOMY:JUPITER+x402] Placing bet via Solana — x402 handles any payment-gated API calls");
-                  await sendPrompt(`bet $2 YES on jupiter market ${best.marketId}`);
-                }
-              } else {
-                log(`[AUTONOMY] Score ${best.score.toFixed(3)} < ${MIN_SCORE} — no good opportunities, holding`);
-              }
+              log(`[AUTONOMY] ${polyMarkets.length} Polymarket + ${jupMarkets.length} Jupiter markets | ${posLines.length} positions`);
+              await sendPrompt(briefing);
 
               log("[AUTONOMY] Cycle complete.");
 

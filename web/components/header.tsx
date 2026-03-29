@@ -7,9 +7,10 @@ type HeaderProps = {
   isAutonomyActive: boolean;
   onToggleAutonomy: () => void;
   x402Status?: { active: boolean; payments: number; totalUsd: number };
+  onX402Click?: () => void;
 };
 
-export function Header({ isConnected, isAutonomyActive, onToggleAutonomy, x402Status }: HeaderProps) {
+export function Header({ isConnected, isAutonomyActive, onToggleAutonomy, x402Status, onX402Click }: HeaderProps) {
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-[var(--bg)] border-b border-[var(--border)]">
       <div className="w-full px-4 h-12 flex items-center justify-between">
@@ -42,8 +43,9 @@ export function Header({ isConnected, isAutonomyActive, onToggleAutonomy, x402St
 
           {/* x402 Status Badge */}
           {x402Status && (
-            <div
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] mono ${
+            <button
+              onClick={onX402Click}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] mono cursor-pointer transition-all hover-glow ${
                 x402Status.active
                   ? "bg-[var(--bg-card)] border border-[var(--accent)] text-[var(--accent)]"
                   : "bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-muted)]"
@@ -65,7 +67,7 @@ export function Header({ isConnected, isAutonomyActive, onToggleAutonomy, x402St
                   )}
                 </>
               )}
-            </div>
+            </button>
           )}
         </div>
 

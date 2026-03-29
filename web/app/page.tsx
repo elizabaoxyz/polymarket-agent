@@ -11,6 +11,7 @@ import { RightSidebar } from "@/components/right-sidebar";
 import Dashboard from "@/components/dashboard";
 import WhaleModal from "@/components/whale-modal";
 import PluginModal from "@/components/plugin-modal";
+import X402Modal from "@/components/x402-modal";
 
 export default function Home() {
   const { messages, sendMessage, isConnected, isThinking, portfolio, requestStatus, isAutonomyActive, toggleAutonomy } =
@@ -24,6 +25,7 @@ export default function Home() {
     volume: number;
   } | null>(null);
   const [selectedPlugin, setSelectedPlugin] = useState<string | null>(null);
+  const [showX402, setShowX402] = useState(false);
   const [liveFeed, setLiveFeed] = useState<
     Array<{ address: string; market: string; amount: number; side: "BUY" | "SELL" }>
   >([]);
@@ -81,6 +83,7 @@ export default function Home() {
         isAutonomyActive={isAutonomyActive}
         onToggleAutonomy={toggleAutonomy}
         x402Status={portfolio?.x402}
+        onX402Click={() => setShowX402(true)}
       />
 
       <div className="flex pt-12" style={{ height: "calc(100vh - 48px)", minHeight: "500px" }}>
@@ -118,6 +121,13 @@ export default function Home() {
           pseudonym={selectedWhale.pseudonym}
           totalVolume={selectedWhale.volume}
           onClose={() => setSelectedWhale(null)}
+        />
+      )}
+
+      {showX402 && portfolio?.x402 && (
+        <X402Modal
+          status={portfolio.x402}
+          onClose={() => setShowX402(false)}
         />
       )}
 

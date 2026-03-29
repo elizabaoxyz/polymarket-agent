@@ -598,8 +598,10 @@ async function main() {
                 } else if (scored.length > 0) {
                   const pick = scored[Math.floor(Math.random() * Math.min(5, scored.length))]!;
                   const betSize = calcBetSize(pick.score, polyBalance);
-                  log(`[BUY:POLYMARKET] "${pick.question}" (YES:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, ${pick.daysLeft.toFixed(0)}d left)`);
-                  await sendPrompt(`buy $${betSize.toFixed(0)} YES on "${pick.question}" on polymarket`);
+                  // Smart side: buy YES if price < 0.50 (undervalued), NO if price > 0.50 (overvalued)
+                  const side = pick.yesPrice < 0.50 ? "YES" : "NO";
+                  log(`[BUY:POLYMARKET] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, ${pick.daysLeft.toFixed(0)}d left)`);
+                  await sendPrompt(`buy $${betSize.toFixed(0)} ${side} on "${pick.question}" on polymarket`);
                   tradeHistory.push({ question: pick.question, platform: "POLYMARKET", time: Date.now(), price: pick.yesPrice });
                   // Keep history trimmed
                   while (tradeHistory.length > 100) tradeHistory.shift();
@@ -668,8 +670,9 @@ async function main() {
                 } else if (jupScored.length > 0) {
                   const pick = jupScored[Math.floor(Math.random() * Math.min(5, jupScored.length))]!;
                   const betSize = calcBetSize(pick.score, solBalance);
-                  log(`[BUY:JUPITER] "${pick.question}" (YES:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${pick.volume.toFixed(0)})`);
-                  await sendPrompt(`bet $${betSize.toFixed(0)} YES on jupiter market ${pick.marketId}`);
+                  const side = pick.yesPrice < 0.50 ? "YES" : "NO";
+                  log(`[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${pick.volume.toFixed(0)})`);
+                  await sendPrompt(`bet $${betSize.toFixed(0)} ${side} on jupiter market ${pick.marketId}`);
                   tradeHistory.push({ question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice });
                   while (tradeHistory.length > 100) tradeHistory.shift();
                 } else {

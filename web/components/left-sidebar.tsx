@@ -75,7 +75,7 @@ export function LeftSidebar({
   const [tab, setTab] = useState<SidebarTab>("agent");
 
   return (
-    <aside className="w-[240px] min-w-[240px] h-full bg-[var(--bg-panel)] border-r border-[var(--border)] flex flex-col overflow-hidden">
+    <aside className="w-full md:w-[240px] md:min-w-[240px] h-full bg-[var(--bg-panel)] md:border-r border-[var(--border)] flex flex-col overflow-hidden">
       {/* Tabs */}
       <div className="flex border-b border-[var(--border)]">
         <TabButton active={tab === "agent"} onClick={() => setTab("agent")}>AGENT</TabButton>

@@ -30,7 +30,7 @@ const mono: React.CSSProperties = {
 
 export default function Dashboard({ stats, onWhaleClick }: DashboardProps) {
   return (
-    <div className="p-6 space-y-6 shimmer-border">
+    <div className="p-4 md:p-6 space-y-4 md:space-y-6 shimmer-border">
       {/* Section title */}
       <div className="flex items-center gap-2">
         <div className="w-3 h-3 rounded-sm bg-[var(--green)]" />
@@ -49,7 +49,7 @@ export default function Dashboard({ stats, onWhaleClick }: DashboardProps) {
       ) : (
         <>
           {/* Stats row */}
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <StatCard
               icon={<DollarSign size={16} />}
               label="24H_VOLUME"
@@ -147,7 +147,7 @@ export default function Dashboard({ stats, onWhaleClick }: DashboardProps) {
                 WHALE_WALLETS ({stats.whales.length})
               </h3>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               {stats.whales.map((whale) => (
                 <WhaleCard
                   key={whale.address}

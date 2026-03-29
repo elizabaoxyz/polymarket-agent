@@ -31,8 +31,8 @@ export function Header({ isConnected, isAutonomyActive, onToggleAutonomy, x402St
     <header className="fixed top-0 left-0 right-0 z-50 bg-[var(--bg)] border-b border-[var(--border)]">
       <div className="w-full px-4 h-12 flex items-center justify-between">
         {/* Left section */}
-        <div className="flex items-center gap-3">
-          <span className="mono text-[var(--accent)] font-bold text-sm tracking-wider">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0">
+          <span className="mono text-[var(--accent)] font-bold text-xs md:text-sm tracking-wider shrink-0">
             ELIZABAO
           </span>
 
@@ -54,7 +54,8 @@ export function Header({ isConnected, isAutonomyActive, onToggleAutonomy, x402St
             } disabled:opacity-40`}
           >
             <Bot size={12} />
-            {isAutonomyActive ? "AUTONOMY ON" : "AUTONOMY OFF"}
+            <span className="hidden sm:inline">{isAutonomyActive ? "AUTONOMY ON" : "AUTONOMY OFF"}</span>
+            <span className="sm:hidden">{isAutonomyActive ? "ON" : "OFF"}</span>
           </button>
 
           {/* x402 Status Badge */}
@@ -77,7 +78,7 @@ export function Header({ isConnected, isAutonomyActive, onToggleAutonomy, x402St
                 <>
                   <div className="w-1.5 h-1.5 rounded-full bg-[var(--green)]" />
                   {x402Status.payments > 0 && (
-                    <span className="text-[var(--text-secondary)]">
+                    <span className="hidden sm:inline text-[var(--text-secondary)]">
                       {x402Status.payments}tx · ${x402Status.totalUsd.toFixed(2)}
                     </span>
                   )}

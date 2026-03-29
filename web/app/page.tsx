@@ -12,6 +12,9 @@ import Dashboard from "@/components/dashboard";
 import WhaleModal from "@/components/whale-modal";
 import PluginModal from "@/components/plugin-modal";
 import X402Modal from "@/components/x402-modal";
+import { BarChart3, MessageSquare, Puzzle } from "lucide-react";
+
+type MobileTab = "chat" | "portfolio" | "plugins";
 
 export default function Home() {
   const { messages, sendMessage, isConnected, isThinking, portfolio, requestStatus, isAutonomyActive, toggleAutonomy } =
@@ -26,6 +29,7 @@ export default function Home() {
   } | null>(null);
   const [selectedPlugin, setSelectedPlugin] = useState<string | null>(null);
   const [showX402, setShowX402] = useState(false);
+  const [mobileTab, setMobileTab] = useState<MobileTab>("chat");
   const [liveFeed, setLiveFeed] = useState<
     Array<{ address: string; market: string; amount: number; side: "BUY" | "SELL" }>
   >([]);
@@ -86,7 +90,8 @@ export default function Home() {
         onX402Click={() => setShowX402(true)}
       />
 
-      <div className="flex pt-12" style={{ height: "calc(100vh - 48px)", minHeight: "500px" }}>
+      {/* Desktop layout: 3 columns */}
+      <div className="hidden md:flex pt-12" style={{ height: "calc(100vh - 48px)", minHeight: "500px" }}>
         <LeftSidebar
           balance={portfolio?.balance ?? null}
           solanaBalance={portfolio?.solanaBalance ?? null}
@@ -112,7 +117,67 @@ export default function Home() {
         <RightSidebar onQuickAction={handleQuickAction} onPluginClick={setSelectedPlugin} />
       </div>
 
-      <Dashboard stats={dashboardStats} onWhaleClick={handleWhaleClick} />
+      {/* Mobile layout: single panel with bottom nav */}
+      <div className="md:hidden pt-12 pb-14" style={{ height: "calc(100vh - 48px)" }}>
+        {mobileTab === "chat" && (
+          <div className="h-full flex flex-col overflow-hidden">
+            <CenterChat
+              messages={messages}
+              isThinking={isThinking}
+              isConnected={isConnected}
+              onSend={sendMessage}
+            />
+          </div>
+        )}
+        {mobileTab === "portfolio" && (
+          <div className="h-full overflow-y-auto">
+            <LeftSidebar
+              balance={portfolio?.balance ?? null}
+              solanaBalance={portfolio?.solanaBalance ?? null}
+              positionCount={portfolio?.positions?.length ?? 0}
+              isConnected={isConnected}
+              liveFeed={liveFeed}
+              positions={portfolio?.positions ?? []}
+              trades={portfolio?.trades ?? []}
+              jupiterPositions={portfolio?.jupiterPositions ?? []}
+              onAnalyze={() => sendMessage("analyze polymarket markets and place a bet")}
+              onRefreshPortfolio={requestStatus}
+            />
+          </div>
+        )}
+        {mobileTab === "plugins" && (
+          <div className="h-full overflow-y-auto">
+            <RightSidebar onQuickAction={(prompt) => { handleQuickAction(prompt); setMobileTab("chat"); }} onPluginClick={setSelectedPlugin} />
+          </div>
+        )}
+
+        {/* Mobile bottom nav */}
+        <nav className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--bg-panel)] border-t border-[var(--border)] flex">
+          {([
+            { key: "chat" as MobileTab, icon: <MessageSquare size={18} />, label: "Chat" },
+            { key: "portfolio" as MobileTab, icon: <BarChart3 size={18} />, label: "Portfolio" },
+            { key: "plugins" as MobileTab, icon: <Puzzle size={18} />, label: "Plugins" },
+          ]).map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setMobileTab(tab.key)}
+              className={`flex-1 flex flex-col items-center gap-0.5 py-2 transition-colors ${
+                mobileTab === tab.key
+                  ? "text-[var(--accent)]"
+                  : "text-[var(--text-muted)]"
+              }`}
+            >
+              {tab.icon}
+              <span className="mono text-[9px] tracking-wider">{tab.label.toUpperCase()}</span>
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {/* Dashboard — below main content on both layouts */}
+      <div className="hidden md:block">
+        <Dashboard stats={dashboardStats} onWhaleClick={handleWhaleClick} />
+      </div>
 
       {selectedWhale && (
         <WhaleModal

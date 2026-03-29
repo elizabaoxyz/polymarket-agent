@@ -464,9 +464,19 @@ export const placePolymarketOrder: Action = {
       price = parseFloat(priceMatch[1]!);
     }
 
+    // Reject if price is too low (would create huge order)
+    if (price < 0.01) {
+      if (callback) callback({ text: `Price $${price.toFixed(4)} too low — market likely closed or illiquid.` });
+      return false;
+    }
+
     const size = Math.floor(dollars / price);
     if (size < 1) {
       if (callback) callback({ text: `$${dollars} at $${price.toFixed(2)}/share = ${(dollars / price).toFixed(1)} shares — minimum is 1.` });
+      return false;
+    }
+    if (size > 500) {
+      if (callback) callback({ text: `Order too large (${size} shares at $${price.toFixed(4)}). Max 500 shares per order.` });
       return false;
     }
 

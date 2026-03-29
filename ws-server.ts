@@ -598,26 +598,44 @@ async function main() {
                   await sendPrompt(`bet $2 YES on jupiter market ${jupIdMatch[0]}`);
                 } else {
                   // Find which briefing market the LLM is referring to
-                  // Match against our polyMarkets list (exact data we showed the LLM)
                   let bestMatch = "";
+                  let bestScore = 0;
+
                   for (const pm of polyMarkets) {
-                    // Each polyMarket entry is: '"question" YES:$0.XX NO:$0.XX'
                     const question = pm.match(/"([^"]+)"/)?.[1] ?? "";
-                    if (question && decision.includes(question.toLowerCase().slice(0, 20))) {
+                    if (!question) continue;
+                    // Count how many words from the LLM response match the question
+                    const qWords = question.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+                    const matchCount = qWords.filter(w => decision.includes(w)).length;
+                    if (matchCount > bestScore) {
+                      bestScore = matchCount;
                       bestMatch = question;
-                      break;
                     }
                   }
 
-                  // If no exact match, try keyword extraction
-                  if (!bestMatch) {
+                  // Need at least 2 matching words to be confident
+                  if (bestScore < 2) {
+                    // Try quoted text from LLM response
                     const quotedMatch = /[""\u201C\u201D]([^""\u201C\u201D]{5,})[""\u201C\u201D]/u.exec(responseText);
-                    bestMatch = quotedMatch?.[1] ?? "";
+                    if (quotedMatch?.[1]) {
+                      // Check if this quoted text is in our list
+                      const quoted = quotedMatch[1].toLowerCase();
+                      for (const pm of polyMarkets) {
+                        const question = pm.match(/"([^"]+)"/)?.[1] ?? "";
+                        if (question.toLowerCase().includes(quoted.slice(0, 15))) {
+                          bestMatch = question;
+                          bestScore = 5;
+                          break;
+                        }
+                      }
+                      if (bestScore < 2) bestMatch = quotedMatch[1];
+                    }
                   }
 
-                  // Last resort: pick a random market from our list
+                  // Last resort: pick a random market (but NOT China/Taiwan)
                   if (!bestMatch && polyMarkets.length > 0) {
-                    const randomPm = polyMarkets[Math.floor(Math.random() * polyMarkets.length)]!;
+                    const idx = Math.floor(Math.random() * polyMarkets.length);
+                    const randomPm = polyMarkets[idx]!;
                     bestMatch = randomPm.match(/"([^"]+)"/)?.[1] ?? "";
                     log(`[AUTONOMY] Couldn't parse LLM's pick — randomly selected: "${bestMatch}"`);
                   }

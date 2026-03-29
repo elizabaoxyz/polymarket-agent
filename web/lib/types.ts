@@ -42,12 +42,19 @@ export type JupiterPosition = {
   marketTitle: string;
 };
 
+export type X402Status = {
+  active: boolean;
+  payments: number;
+  totalUsd: number;
+};
+
 export type PortfolioData = {
   balance: number;
   solanaBalance: number;
   positions: Position[];
   trades: Trade[];
   jupiterPositions: JupiterPosition[];
+  x402: X402Status;
 };
 
 export type UserKeys = Record<string, string>;

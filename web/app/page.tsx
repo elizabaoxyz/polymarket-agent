@@ -76,7 +76,12 @@ export default function Home() {
 
   return (
     <div className="flex flex-col bg-[var(--bg)] min-h-screen">
-      <Header isConnected={isConnected} isAutonomyActive={isAutonomyActive} onToggleAutonomy={toggleAutonomy} />
+      <Header
+        isConnected={isConnected}
+        isAutonomyActive={isAutonomyActive}
+        onToggleAutonomy={toggleAutonomy}
+        x402Status={portfolio?.x402}
+      />
 
       <div className="flex pt-12" style={{ height: "calc(100vh - 48px)", minHeight: "500px" }}>
         <LeftSidebar

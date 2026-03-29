@@ -86,6 +86,7 @@ export function useWebSocket() {
             positions: msg.positions,
             trades: msg.trades,
             jupiterPositions: (raw.jupiterPositions as PortfolioData["jupiterPositions"]) ?? [],
+            x402: (raw.x402 as PortfolioData["x402"]) ?? { active: false, payments: 0, totalUsd: 0 },
           });
         }
           break;

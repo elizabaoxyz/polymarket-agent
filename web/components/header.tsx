@@ -1,14 +1,15 @@
 "use client";
 
-import { Settings, ExternalLink, LogIn, Bot } from "lucide-react";
+import { Settings, ExternalLink, LogIn, Bot, CreditCard } from "lucide-react";
 
 type HeaderProps = {
   isConnected: boolean;
   isAutonomyActive: boolean;
   onToggleAutonomy: () => void;
+  x402Status?: { active: boolean; payments: number; totalUsd: number };
 };
 
-export function Header({ isConnected, isAutonomyActive, onToggleAutonomy }: HeaderProps) {
+export function Header({ isConnected, isAutonomyActive, onToggleAutonomy, x402Status }: HeaderProps) {
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-[var(--bg)] border-b border-[var(--border)]">
       <div className="w-full px-4 h-12 flex items-center justify-between">
@@ -38,6 +39,34 @@ export function Header({ isConnected, isAutonomyActive, onToggleAutonomy }: Head
             <Bot size={12} />
             {isAutonomyActive ? "AUTONOMY ON" : "AUTONOMY OFF"}
           </button>
+
+          {/* x402 Status Badge */}
+          {x402Status && (
+            <div
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] mono ${
+                x402Status.active
+                  ? "bg-[var(--bg-card)] border border-[var(--accent)] text-[var(--accent)]"
+                  : "bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-muted)]"
+              }`}
+              title={x402Status.active
+                ? `x402 active — ${x402Status.payments} payments, $${x402Status.totalUsd.toFixed(4)} spent`
+                : "x402 disabled"
+              }
+            >
+              <CreditCard size={12} />
+              <span>x402</span>
+              {x402Status.active && (
+                <>
+                  <div className="w-1.5 h-1.5 rounded-full bg-[var(--green)]" />
+                  {x402Status.payments > 0 && (
+                    <span className="text-[var(--text-secondary)]">
+                      {x402Status.payments}tx · ${x402Status.totalUsd.toFixed(2)}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Right section */}

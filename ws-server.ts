@@ -288,9 +288,19 @@ async function getPortfolioStatus(runtime: AgentRuntime) {
     // Fetch Solana USDC balance (cached for 60s to avoid RPC rate limits)
     const solanaBalance = await getCachedSolanaBalance();
 
-    return { balance, solanaBalance, positions, trades, jupiterPositions };
+    // x402 payment stats
+    let x402 = { active: false, payments: 0, totalUsd: 0 };
+    try {
+      const x402Svc = (await runtime.getServiceLoadPromise(X402_SERVICE_TYPE)) as X402SolanaService | null;
+      if (x402Svc) {
+        const stats = x402Svc.getPaymentStats();
+        x402 = { active: x402Svc.isActive(), payments: stats.count, totalUsd: stats.totalUsd };
+      }
+    } catch {}
+
+    return { balance, solanaBalance, positions, trades, jupiterPositions, x402 };
   } catch {
-    return { balance: 0, solanaBalance: 0, positions: [], trades: [], jupiterPositions: [] };
+    return { balance: 0, solanaBalance: 0, positions: [], trades: [], jupiterPositions: [], x402: { active: false, payments: 0, totalUsd: 0 } };
   }
 }
 

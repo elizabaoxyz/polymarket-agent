@@ -348,12 +348,8 @@ async function main() {
       },
       close(ws) {
         console.log("ws-server: client disconnected");
-        if (autonomyTimer) {
-          clearInterval(autonomyTimer);
-          autonomyTimer = null;
-          cleanupHeartbeat();
-          console.log("ws-server: autonomy + heartbeat stopped (client disconnected)");
-        }
+        // Autonomy keeps running — only stops when user explicitly clicks AUTONOMY OFF
+        // Heartbeat also keeps running to protect GTC orders
       },
       async message(ws, raw) {
         let msg: { type: string; text?: string };
@@ -401,7 +397,7 @@ async function main() {
             ws.send(JSON.stringify({ type: "error", text: errMsg }));
           }
 
-          ws.send(JSON.stringify({ type: "thinking", active: false }));
+          try { ws.send(JSON.stringify({ type: "thinking", active: false })); } catch {}
           return;
         }
 
@@ -460,18 +456,21 @@ async function main() {
               }, {} as never);
             } catch (err) {
               const errMsg = err instanceof Error ? err.message : String(err);
-              ws.send(JSON.stringify({ type: "action_result", text: `[ERROR] ${errMsg}` }));
+              try { ws.send(JSON.stringify({ type: "action_result", text: `[ERROR] ${errMsg}` })); } catch {}
             }
             return results;
           };
 
-          const log = (text: string) => ws.send(JSON.stringify({ type: "action_result", text }));
+          const log = (text: string) => {
+            try { ws.send(JSON.stringify({ type: "action_result", text })); } catch { /* client disconnected, autonomy continues */ }
+            console.log(text); // Always log to server console
+          };
 
           const MAX_POSITIONS = 50;
           const BET_SIZE = 3; // $3 per position
 
           const runAutonomyCycle = async () => {
-            ws.send(JSON.stringify({ type: "thinking", active: true }));
+            try { ws.send(JSON.stringify({ type: "thinking", active: true })); } catch {}
 
             try {
               log("[AUTONOMY] Scanning markets — sports, crypto, politics, finance...");
@@ -661,7 +660,7 @@ async function main() {
               log(`[AUTONOMY] Fatal error: ${errMsg}`);
             }
 
-            ws.send(JSON.stringify({ type: "thinking", active: false }));
+            try { ws.send(JSON.stringify({ type: "thinking", active: false })); } catch {}
           };
 
           // Run first cycle immediately, then every 60s

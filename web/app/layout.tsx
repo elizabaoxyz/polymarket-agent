@@ -7,6 +7,10 @@ const kodeMono = Kode_Mono({ subsets: ["latin"], variable: "--font-mono", weight
 export const metadata: Metadata = {
   title: "ElizaBAO",
   description: "AI-powered Polymarket trading agent",
+  icons: {
+    icon: "/elizabaobao.png",
+    apple: "/elizabaobao.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

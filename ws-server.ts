@@ -470,6 +470,10 @@ async function main() {
           const MAX_POSITIONS = 50;
           let cycleCount = 0;
           const tradeHistory: Array<{ question: string; platform: string; time: number; price: number }> = [];
+          // Skip lists — avoid retrying failed operations every cycle
+          const failedSells = new Map<string, number>(); // pubkey/token → timestamp of failure
+          const failedBuys = new Map<string, number>();  // marketId → timestamp of failure
+          const recentlySold = new Set<string>(); // pubkeys successfully sold (API may lag)
 
           // Smart position sizing — bet more on high-conviction, less on risky
           // Enforces platform minimums: $3 Polymarket, $3 Jupiter
@@ -513,6 +517,9 @@ async function main() {
                       if (recentlyBought) continue;
                       // Don't sell at garbage prices — best bid must be > $0.05
                       if (price < 0.05) continue;
+                      // Skip if sell failed recently (retry after 30 min)
+                      const failTime = failedSells.get(pos.asset);
+                      if (failTime && Date.now() - failTime < 1_800_000) continue;
                       if (pnl < -15 || pnl > 25) {
                         polySellTargets.push({ token: pos.asset, shares: pos.size, title: pos.title, pnl });
                       }
@@ -540,6 +547,10 @@ async function main() {
                       );
                       if (recentJup) continue;
                       if ((pnl < -15 || pnl > 25) && pos.pubkey) {
+                        // Skip if already sold (API lag) or failed recently (retry after 30 min)
+                        if (recentlySold.has(pos.pubkey)) continue;
+                        const jupFailTime = failedSells.get(pos.pubkey);
+                        if (jupFailTime && Date.now() - jupFailTime < 1_800_000) continue;
                         jupSellTargets.push({ marketId: pos.marketId, pubkey: pos.pubkey, title: pos.marketMetadata?.title ?? pos.marketId, pnl });
                       }
                     }
@@ -714,9 +725,11 @@ async function main() {
                         const { transaction } = await jupSvc.client.closePosition(sell.pubkey, jupSvc.ownerPubkey);
                         const signature = await jupSvc.signAndSubmit(transaction);
                         log(`[SELL:JUPITER] Closed! Signature: ${signature}`);
+                        recentlySold.add(sell.pubkey); // Prevent double-sell on API lag
                       } catch (err) {
                         const errMsg = err instanceof Error ? err.message : String(err);
                         log(`[SELL:JUPITER] Failed to close: ${errMsg}`);
+                        failedSells.set(sell.pubkey, Date.now()); // Skip for 30 min
                       }
                     }
                   }
@@ -748,6 +761,9 @@ async function main() {
                         const q = `${event.metadata?.title} — ${m.metadata?.title}`;
                         if (ownedTitles.has((event.metadata?.title ?? "").toLowerCase())) continue;
                         if (tradeHistory.some(h => h.question === q && Date.now() - h.time < 300_000)) continue;
+                        // Skip markets that failed recently (no liquidity)
+                        const buyFailTime = failedBuys.get(m.marketId);
+                        if (buyFailTime && Date.now() - buyFailTime < 1_800_000) continue;
                         jupScored.push({ question: q, marketId: m.marketId, yesPrice: yp, score, volume });
                       }
                     }
@@ -789,12 +805,19 @@ async function main() {
                     log(`[ANALYSIS] ${reason}`);
                     log(`[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${pick.volume.toFixed(0)})`);
                     const betResults = await sendPrompt(`bet $${betSize.toFixed(0)} ${side} on jupiter market ${pick.marketId}`);
-                    const betFailed = betResults.some(r => /failed|error|no shares/i.test(r));
-                    if (betFailed && jupCandidates.length > 1) {
-                      const fallback = jupCandidates.find(c => c.marketId !== pick.marketId);
-                      if (fallback) {
-                        log(`[BUY:JUPITER] Retrying: "${fallback.question}"`);
-                        await sendPrompt(`bet $${betSize.toFixed(0)} ${side} on jupiter market ${fallback.marketId}`);
+                    const betFailed = betResults.some(r => /failed|error|no shares|no buyers/i.test(r));
+                    if (betFailed) {
+                      failedBuys.set(pick.marketId, Date.now()); // Skip for 30 min
+                      if (jupCandidates.length > 1) {
+                        const fallback = jupCandidates.find(c => c.marketId !== pick.marketId && !failedBuys.has(c.marketId));
+                        if (fallback) {
+                          const fbSide = jupSideMatch ? jupSideMatch[1]!.toUpperCase() : (fallback.yesPrice < 0.50 ? "YES" : "NO");
+                          log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${fbSide})`);
+                          const fbResults = await sendPrompt(`bet $${betSize.toFixed(0)} ${fbSide} on jupiter market ${fallback.marketId}`);
+                          if (fbResults.some(r => /failed|error|no shares|no buyers/i.test(r))) {
+                            failedBuys.set(fallback.marketId, Date.now());
+                          }
+                        }
                       }
                     }
                     tradeHistory.push({ question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice });

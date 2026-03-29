@@ -507,6 +507,13 @@ async function main() {
                       const pnl = pos.percentPnl ?? 0;
                       const price = pos.curPrice ?? 0;
                       if (price < 0.02 || pos.redeemable) continue;
+                      // Don't sell freshly bought positions (< 10 min old)
+                      const recentlyBought = tradeHistory.some(
+                        h => h.question.toLowerCase() === (pos.title ?? "").toLowerCase() && Date.now() - h.time < 600_000
+                      );
+                      if (recentlyBought) continue;
+                      // Don't sell at garbage prices — best bid must be > $0.05
+                      if (price < 0.05) continue;
                       if (pnl < -15 || pnl > 25) {
                         polySellTargets.push({ token: pos.asset, shares: pos.size, title: pos.title, pnl });
                       }
@@ -528,6 +535,11 @@ async function main() {
                       const title = pos.eventMetadata?.title ?? pos.marketId ?? "";
                       if (title) ownedTitles.add(title.toLowerCase());
                       const pnl = pos.pnlUsdPercent ?? 0;
+                      // Don't sell freshly bought positions (< 10 min old)
+                      const recentJup = tradeHistory.some(
+                        h => h.question.toLowerCase().includes((title).toLowerCase()) && Date.now() - h.time < 600_000
+                      );
+                      if (recentJup) continue;
                       if ((pnl < -15 || pnl > 25) && pos.pubkey) {
                         jupSellTargets.push({ marketId: pos.marketId, pubkey: pos.pubkey, title: pos.marketMetadata?.title ?? pos.marketId, pnl });
                       }
@@ -621,6 +633,11 @@ async function main() {
                   }
 
                   // Parse LLM response
+                  if (analysisText) {
+                    console.log("[ANALYSIS:RAW]", analysisText.slice(0, 500));
+                  } else {
+                    console.log("[ANALYSIS:RAW] empty response");
+                  }
                   const pickMatch = /PICK:\s*(\d+)/i.exec(analysisText);
                   const sideMatch = /SIDE:\s*(YES|NO)/i.exec(analysisText);
                   const reasonMatch = /REASON:\s*(.+?)(?:\n|$)/i.exec(analysisText);
@@ -697,7 +714,7 @@ async function main() {
                         const spreadScore = Math.max(0, 1 - spread / 0.15);
                         const midScore = 1 - Math.abs(mid - 0.5) * 2;
                         const volume = Number(m.pricing?.volume ?? 0) / 1_000_000;
-                        if (volume < 50) continue; // Skip illiquid markets — "No shares available"
+                        if (volume < 10) continue; // Skip illiquid markets — "No shares available"
                         const volumeScore = Math.min(1, volume / 10000);
                         const score = spreadScore * 0.35 + midScore * 0.30 + volumeScore * 0.35;
                         const q = `${event.metadata?.title} — ${m.metadata?.title}`;

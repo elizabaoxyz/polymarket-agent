@@ -1,6 +1,6 @@
 "use client";
 
-import { Settings, ExternalLink, LogIn, Bot, CreditCard } from "lucide-react";
+import { Bot, CreditCard, FileText, Github, Twitter } from "lucide-react";
 
 type HeaderProps = {
   isConnected: boolean;
@@ -72,7 +72,33 @@ export function Header({ isConnected, isAutonomyActive, onToggleAutonomy, x402St
         </div>
 
         {/* Right section */}
-        <div />
+        <div className="flex items-center gap-2">
+          <a
+            href="https://x.com/elizabao_ai"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-8 h-8 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-card)] transition-colors"
+            title="Twitter"
+          >
+            <Twitter size={15} />
+          </a>
+          <a
+            href="https://github.com/elizabaoxyz/polymarket-agent"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-8 h-8 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-card)] transition-colors"
+            title="GitHub"
+          >
+            <Github size={15} />
+          </a>
+          <a
+            href="/docs"
+            className="w-8 h-8 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-card)] transition-colors"
+            title="Docs"
+          >
+            <FileText size={15} />
+          </a>
+        </div>
       </div>
     </header>
   );

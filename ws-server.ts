@@ -467,21 +467,28 @@ async function main() {
 
           const log = (text: string) => ws.send(JSON.stringify({ type: "action_result", text }));
 
+          const MAX_POSITIONS = 20;
+          const BET_SIZE = 3; // $3 per position
+
           const runAutonomyCycle = async () => {
             ws.send(JSON.stringify({ type: "thinking", active: true }));
 
             try {
-              log("[AUTONOMY] Scanning all markets...");
+              log("[AUTONOMY] Scanning markets — sports, crypto, politics, finance...");
 
-              // ===== STEP 1: Score Polymarket opportunities =====
-              type ScoredMarket = { platform: string; question: string; keyword: string; marketId: string; yesPrice: number; spread: number; score: number };
+              // ===== STEP 1: Score Polymarket opportunities by category =====
+              type ScoredMarket = { platform: string; question: string; keyword: string; marketId: string; yesPrice: number; spread: number; score: number; category: string };
               const scored: ScoredMarket[] = [];
+
+              // Scan by categories like the old agent
+              const CATEGORIES = ["sports", "crypto", "politics", "finance", "entertainment", "weather"];
 
               try {
                 const res = await fetch("https://clob.polymarket.com/sampling-markets");
                 const data = await res.json();
                 const markets = (data.data ?? []).filter((m: Record<string, unknown>) => m.active && !m.closed && m.accepting_orders);
-                for (const m of markets.slice(0, 50)) {
+
+                for (const m of markets) {
                   const tokens = m.tokens ?? [];
                   const yes = tokens.find((t: Record<string, unknown>) => t.outcome === "Yes");
                   const no = tokens.find((t: Record<string, unknown>) => t.outcome === "No");
@@ -493,9 +500,19 @@ async function main() {
                   const midScore = 1 - Math.abs((yesPrice + noPrice) / 2 - 0.5) * 2;
                   const spreadScore = Math.max(0, 1 - spread / 0.15);
                   const score = spreadScore * 0.6 + midScore * 0.4;
-                  const question = String(m.question ?? "");
-                  const words = question.split(/\s+/).filter((w: string) => w.length > 4);
-                  scored.push({ platform: "POLYMARKET", question, keyword: words[0] ?? "market", marketId: "", yesPrice, spread, score });
+                  const question = String(m.question ?? "").toLowerCase();
+
+                  // Categorize
+                  let category = "other";
+                  if (/nba|nfl|nhl|epl|f1|soccer|football|baseball|champion|playoff|win.*game|beat/i.test(question)) category = "sports";
+                  else if (/bitcoin|btc|eth|crypto|solana|token|defi|nft/i.test(question)) category = "crypto";
+                  else if (/president|elect|senate|congress|democrat|republican|trump|biden|vote|governor/i.test(question)) category = "politics";
+                  else if (/fed|rate|gdp|inflation|stock|market|s&p|nasdaq|economy|recession/i.test(question)) category = "finance";
+                  else if (/elon|musk|tweet|movie|oscar|grammy|spotify/i.test(question)) category = "entertainment";
+                  else if (/weather|temperature|rain|snow|hurricane/i.test(question)) category = "weather";
+
+                  const words = String(m.question ?? "").split(/\s+/).filter((w: string) => w.length > 4);
+                  scored.push({ platform: "POLYMARKET", question: String(m.question ?? ""), keyword: words[0] ?? "market", marketId: "", yesPrice, spread, score, category });
                 }
               } catch {}
 
@@ -590,9 +607,16 @@ async function main() {
                 return true;
               });
 
-              log(`[AUTONOMY] ${newOpportunities.length} NEW markets (${scored.length - newOpportunities.length} already owned)`);
+              // Count categories for logging
+              const catCounts: Record<string, number> = {};
+              for (const m of scored) catCounts[m.category] = (catCounts[m.category] ?? 0) + 1;
+              const catSummary = Object.entries(catCounts).map(([k, v]) => `${k}:${v}`).join(" ");
+              log(`[AUTONOMY] ${newOpportunities.length} NEW markets (${scored.length - newOpportunities.length} owned) | ${catSummary}`);
 
-              if (newOpportunities.length > 0) {
+              // Check if we're at max positions
+              if (ownedTitles.size >= MAX_POSITIONS) {
+                log(`[AUTONOMY] ${ownedTitles.size}/${MAX_POSITIONS} positions — portfolio full, sell first`);
+              } else if (newOpportunities.length > 0) {
                 const topN = newOpportunities.slice(0, Math.min(5, newOpportunities.length));
                 const pick = topN[Math.floor(Math.random() * topN.length)]!;
 
@@ -614,18 +638,18 @@ async function main() {
                         }
                       } catch {}
                     }
-                    await sendPrompt(`bet $2 YES on jupiter market ${pick.marketId}`);
+                    await sendPrompt(`bet $3 YES on jupiter market ${pick.marketId}`);
                   } else {
                     // Polymarket trades on Polygon — no x402 needed
-                    await sendPrompt(`buy $2 YES on "${pick.question}" on polymarket`);
+                    await sendPrompt(`buy $3 YES on "${pick.question}" on polymarket`);
                   }
                 } else {
                   log(`[AUTONOMY] Best score ${pick.score.toFixed(2)} < 0.4 — no good opportunities`);
                 }
-              } else if (scored.length > 0) {
-                log("[AUTONOMY] All top markets already owned — holding cash for new opportunities");
+              } else if (scored.length > 0 && newOpportunities.length === 0) {
+                log("[AUTONOMY] All top markets already owned — holding cash");
               } else {
-                log("[AUTONOMY] No markets found");
+                log("[AUTONOMY] No tradeable markets found");
               }
 
               // x402 payments only happen with Jupiter/Solana trades (moved to STEP 5)

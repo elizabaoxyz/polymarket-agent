@@ -89,12 +89,12 @@ export function Header({ isConnected, isAutonomyActive, onToggleAutonomy, x402St
         </div>
 
         {/* Right section */}
-        <div className="hidden sm:flex items-center gap-2">
+        <div className="flex items-center gap-0.5 sm:gap-2">
           <a
             href="https://x.com/elizabao_ai"
             target="_blank"
             rel="noopener noreferrer"
-            className="w-8 h-8 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-card)] transition-colors"
+            className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-card)] transition-colors"
             title="Twitter"
           >
             <XIcon size={15} />
@@ -103,14 +103,14 @@ export function Header({ isConnected, isAutonomyActive, onToggleAutonomy, x402St
             href="https://github.com/elizabaoxyz/polymarket-agent"
             target="_blank"
             rel="noopener noreferrer"
-            className="w-8 h-8 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-card)] transition-colors"
+            className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-card)] transition-colors"
             title="GitHub"
           >
             <GitHubIcon size={15} />
           </a>
           <a
             href="/docs"
-            className="w-8 h-8 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-card)] transition-colors"
+            className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-card)] transition-colors"
             title="Docs"
           >
             <FileText size={15} />

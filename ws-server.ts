@@ -404,6 +404,17 @@ async function main() {
           console.log("ws-server: autonomy started");
           ws.send(JSON.stringify({ type: "autonomy_status", active: true }));
 
+          // Ensure x402 payment protocol is active for Jupiter/Solana API calls
+          try {
+            const x402Svc = (await runtime.getServiceLoadPromise(X402_SERVICE_TYPE)) as X402SolanaService | null;
+            if (x402Svc && x402Svc.isActive()) {
+              globalThis.fetch = x402Svc.getWrappedFetch();
+              ws.send(JSON.stringify({ type: "action_result", text: `[AUTONOMY] x402 payments active — cap: $${x402Svc.getMaxPaymentUsd().toFixed(2)}/request | Jupiter + Solana APIs covered` }));
+            } else {
+              ws.send(JSON.stringify({ type: "action_result", text: "[AUTONOMY] x402 payments disabled — set SOLANA_PRIVATE_KEY + X402_ENABLED=true to enable" }));
+            }
+          } catch {}
+
           // Start heartbeat — keeps GTC limit orders alive while autonomous
           try {
             const extSvc = (await runtime.getServiceLoadPromise(POLYMARKET_EXT_SERVICE_TYPE)) as PolymarketExtService;
@@ -493,10 +504,11 @@ async function main() {
                 }
               } catch {}
 
-              // Scan Jupiter
+              // Scan Jupiter (via x402-wrapped fetch if active)
               try {
                 const jupApiKey = process.env.JUPITER_API_KEY?.trim();
                 if (jupApiKey) {
+                  // globalThis.fetch is x402-wrapped — any 402 responses auto-paid
                   const res = await fetch("https://api.jup.ag/prediction/v1/events?status=live", {
                     headers: { "x-api-key": jupApiKey },
                   });
@@ -544,6 +556,7 @@ async function main() {
                 if (best.platform === "POLYMARKET") {
                   await sendPrompt(`buy $2 YES on "${best.keyword}" on polymarket`);
                 } else {
+                  log("[AUTONOMY:JUPITER+x402] Placing bet via Solana — x402 handles any payment-gated API calls");
                   await sendPrompt(`bet $2 YES on jupiter market ${best.marketId}`);
                 }
               } else {
@@ -584,7 +597,7 @@ async function main() {
                 }
               } catch {}
 
-              // Check Jupiter positions
+              // Check Jupiter positions (via x402-wrapped fetch)
               try {
                 const jupApiKey = process.env.JUPITER_API_KEY?.trim();
                 const solKey = process.env.SOLANA_PRIVATE_KEY?.trim();
@@ -592,16 +605,24 @@ async function main() {
                   const { Keypair } = await import("@solana/web3.js");
                   const bs58 = await import("bs58");
                   const kp = Keypair.fromSecretKey(bs58.default.decode(solKey));
+                  // x402: globalThis.fetch handles 402 payment challenges automatically
                   const posRes = await fetch(
                     `https://api.jup.ag/prediction/v1/positions?ownerPubkey=${kp.publicKey.toBase58()}`,
                     { headers: { "x-api-key": jupApiKey } },
                   );
                   if (posRes.ok) {
                     const posData = await posRes.json();
-                    for (const pos of (posData.data ?? [])) {
+                    const jupPositions = posData.data ?? [];
+                    if (jupPositions.length > 0) {
+                      log(`[AUTONOMY:JUPITER+x402] Checking ${jupPositions.length} Jupiter positions...`);
+                    }
+                    for (const pos of jupPositions) {
                       const pnlPct = pos.pnlUsdPercent ?? 0;
+                      const title = pos.marketMetadata?.title ?? pos.marketId;
                       if (pnlPct < -20) {
-                        log(`[AUTONOMY:SELL] Jupiter "${pos.marketMetadata?.title ?? pos.marketId}" is down ${pnlPct}% — flagged for review`);
+                        log(`[AUTONOMY:SELL] Jupiter "${title}" is down ${pnlPct}% — flagged for review`);
+                      } else if (pnlPct > 50) {
+                        log(`[AUTONOMY:JUPITER] "${title}" is up ${pnlPct}% — consider taking profit`);
                       }
                     }
                   }

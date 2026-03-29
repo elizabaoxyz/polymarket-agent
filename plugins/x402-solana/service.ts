@@ -10,6 +10,7 @@ import {
 } from "./types";
 
 const SOLANA_MAINNET = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+const SOLANA_DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
 
 export class X402SolanaService {
   static serviceType = X402_SERVICE_TYPE;
@@ -68,12 +69,14 @@ export class X402SolanaService {
       const secretKey = bs58.decode(solanaPrivateKey);
       const signer = await createKeyPairSignerFromBytes(secretKey);
 
-      const svmScheme = new ExactSvmScheme(signer, rpcUrl ? { rpcUrl } : undefined);
+      const svmSchemeMainnet = new ExactSvmScheme(signer, rpcUrl ? { rpcUrl } : undefined);
+      const svmSchemeDevnet = new ExactSvmScheme(signer, { rpcUrl: "https://api.devnet.solana.com" });
 
       const svc = new X402SolanaService(globalThis.fetch, config);
 
       const client = new x402Client()
-        .register(SOLANA_MAINNET, svmScheme)
+        .register(SOLANA_MAINNET, svmSchemeMainnet)
+        .register(SOLANA_DEVNET, svmSchemeDevnet)
         .onBeforePaymentCreation(async (_version, requirements) => {
           const amount = requirements.maxAmountRequired;
           if (typeof amount === "string" || typeof amount === "number") {
@@ -92,7 +95,7 @@ export class X402SolanaService {
 
       const wrappedFetch = wrapFetchWithPayment(globalThis.fetch, client);
       svc.wrappedFetch = wrappedFetch;
-      console.log(`x402: active | cap: $${maxPaymentUsd.toFixed(2)}/request | network: solana mainnet`);
+      console.log(`x402: active | cap: $${maxPaymentUsd.toFixed(2)}/request | networks: solana mainnet + devnet`);
       return svc;
     } catch (error) {
       if (error instanceof X402PaymentCapExceeded) throw error;

@@ -648,17 +648,22 @@ async function main() {
                   const sideMatch = /SIDE:\s*(YES|NO)/i.exec(analysisText);
                   const reasonMatch = /REASON:\s*(.+?)(?:\.|$)/i.exec(analysisText);
 
-                  const pickIdx = pickMatch ? Math.min(parseInt(pickMatch[1]!) - 1, candidates.length - 1) : 0;
-                  const pick = candidates[Math.max(0, pickIdx)]!;
-                  const side = sideMatch ? sideMatch[1]!.toUpperCase() : (pick.yesPrice < 0.50 ? "YES" : "NO");
-                  const reason = reasonMatch ? reasonMatch[1]!.trim() : (analysisText.slice(0, 100) || "price-based fallback");
+                  // If LLM didn't return a clear SIDE, skip — don't bet blindly
+                  if (!sideMatch) {
+                    log(`[ANALYSIS] LLM didn't pick a clear side — skipping bet. Response: ${analysisText.slice(0, 150)}`);
+                  } else {
+                    const pickIdx = pickMatch ? Math.min(parseInt(pickMatch[1]!) - 1, candidates.length - 1) : 0;
+                    const pick = candidates[Math.max(0, pickIdx)]!;
+                    const side = sideMatch[1]!.toUpperCase();
+                    const reason = reasonMatch ? reasonMatch[1]!.trim() : analysisText.slice(0, 100);
 
-                  const betSize = calcBetSize(pick.score, polyBalance);
-                  log(`[ANALYSIS] ${reason}`);
-                  log(`[BUY:POLYMARKET] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, ${pick.daysLeft.toFixed(0)}d left)`);
-                  await sendPrompt(`buy $${betSize.toFixed(0)} ${side} on "${pick.question}" on polymarket`);
-                  tradeHistory.push({ question: pick.question, platform: "POLYMARKET", time: Date.now(), price: pick.yesPrice });
-                  while (tradeHistory.length > 100) tradeHistory.shift();
+                    const betSize = calcBetSize(pick.score, polyBalance);
+                    log(`[ANALYSIS] ${reason}`);
+                    log(`[BUY:POLYMARKET] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, ${pick.daysLeft.toFixed(0)}d left)`);
+                    await sendPrompt(`buy $${betSize.toFixed(0)} ${side} on "${pick.question}" on polymarket`);
+                    tradeHistory.push({ question: pick.question, platform: "POLYMARKET", time: Date.now(), price: pick.yesPrice });
+                    while (tradeHistory.length > 100) tradeHistory.shift();
+                  }
                 } else {
                   log("[AUTONOMY:POLYMARKET] No new markets to buy");
                 }
@@ -771,28 +776,30 @@ async function main() {
                   const jupSideMatch = /SIDE:\s*(YES|NO)/i.exec(jupText);
                   const jupReasonMatch = /REASON:\s*(.+?)(?:\.|$)/i.exec(jupText);
 
-                  const jupPickIdx = jupPickMatch ? Math.min(parseInt(jupPickMatch[1]!) - 1, jupCandidates.length - 1) : 0;
-                  const pick = jupCandidates[Math.max(0, jupPickIdx)]!;
-                  const side = jupSideMatch ? jupSideMatch[1]!.toUpperCase() : (pick.yesPrice < 0.50 ? "YES" : "NO");
-                  const reason = jupReasonMatch ? jupReasonMatch[1]!.trim() : (jupText.slice(0, 100) || "price-based fallback");
+                  if (!jupSideMatch) {
+                    log(`[ANALYSIS] LLM didn't pick a clear side — skipping bet. Response: ${jupText.slice(0, 150)}`);
+                  } else {
+                    const jupPickIdx = jupPickMatch ? Math.min(parseInt(jupPickMatch[1]!) - 1, jupCandidates.length - 1) : 0;
+                    const pick = jupCandidates[Math.max(0, jupPickIdx)]!;
+                    const side = jupSideMatch[1]!.toUpperCase();
+                    const reason = jupReasonMatch ? jupReasonMatch[1]!.trim() : jupText.slice(0, 100);
 
-                  // Try placing the bet — if it fails (no liquidity), try next candidate
-                  const betSize = calcBetSize(pick.score, solBalance);
-                  log(`[ANALYSIS] ${reason}`);
-                  log(`[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${pick.volume.toFixed(0)})`);
-                  const betResults = await sendPrompt(`bet $${betSize.toFixed(0)} ${side} on jupiter market ${pick.marketId}`);
-                  const betFailed = betResults.some(r => /failed|error|no shares/i.test(r));
-                  if (betFailed && jupCandidates.length > 1) {
-                    // Try next candidate with opposite approach
-                    const fallback = jupCandidates.find(c => c.marketId !== pick.marketId);
-                    if (fallback) {
-                      const fbSide = fallback.yesPrice < 0.50 ? "YES" : "NO";
-                      log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${fbSide}:$${fallback.yesPrice.toFixed(2)})`);
-                      await sendPrompt(`bet $${betSize.toFixed(0)} ${fbSide} on jupiter market ${fallback.marketId}`);
+                    // Try placing the bet — if it fails (no liquidity), try next candidate
+                    const betSize = calcBetSize(pick.score, solBalance);
+                    log(`[ANALYSIS] ${reason}`);
+                    log(`[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${pick.volume.toFixed(0)})`);
+                    const betResults = await sendPrompt(`bet $${betSize.toFixed(0)} ${side} on jupiter market ${pick.marketId}`);
+                    const betFailed = betResults.some(r => /failed|error|no shares/i.test(r));
+                    if (betFailed && jupCandidates.length > 1) {
+                      const fallback = jupCandidates.find(c => c.marketId !== pick.marketId);
+                      if (fallback) {
+                        log(`[BUY:JUPITER] Retrying: "${fallback.question}"`);
+                        await sendPrompt(`bet $${betSize.toFixed(0)} ${side} on jupiter market ${fallback.marketId}`);
+                      }
                     }
+                    tradeHistory.push({ question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice });
+                    while (tradeHistory.length > 100) tradeHistory.shift();
                   }
-                  tradeHistory.push({ question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice });
-                  while (tradeHistory.length > 100) tradeHistory.shift();
                 } else {
                   log("[AUTONOMY:JUPITER] No new markets to buy");
                 }

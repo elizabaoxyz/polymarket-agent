@@ -564,6 +564,17 @@ async function main() {
                       const pnlPct = pos.percentPnl ?? 0;
                       const size = pos.size ?? 0;
                       const tokenId = pos.asset ?? "";
+                      const curPrice = pos.curPrice ?? 0;
+                      const redeemable = pos.redeemable ?? false;
+
+                      // Skip expired/settled markets (curPrice=0, no order book)
+                      if (curPrice === 0 || redeemable) {
+                        if (size > 0) {
+                          log(`[AUTONOMY:SKIP] "${pos.title}" — market expired/settled (price=$0), cannot sell`);
+                        }
+                        continue;
+                      }
+
                       if (pnlPct < -20 && size > 0 && tokenId) {
                         log(`[AUTONOMY:SELL] "${pos.title}" is down ${pnlPct.toFixed(0)}% — selling ${size} shares`);
                         await sendPrompt(`sell ${size} shares of token ${tokenId}`);

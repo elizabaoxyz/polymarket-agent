@@ -537,9 +537,11 @@ async function main() {
                     const positions = await posRes.json();
                     for (const pos of positions) {
                       const pnlPct = pos.percentPnl ?? 0;
-                      if (pnlPct < -20) {
-                        log(`[AUTONOMY:SELL] "${pos.title}" is down ${pnlPct.toFixed(0)}% — selling via agent`);
-                        await sendPrompt(`sell my position on "${pos.title}" on polymarket`);
+                      const size = pos.size ?? 0;
+                      const tokenId = pos.asset ?? "";
+                      if (pnlPct < -20 && size > 0 && tokenId) {
+                        log(`[AUTONOMY:SELL] "${pos.title}" is down ${pnlPct.toFixed(0)}% — selling ${size} shares`);
+                        await sendPrompt(`sell ${size} shares of token ${tokenId}`);
                       }
                     }
                   }

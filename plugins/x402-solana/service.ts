@@ -78,16 +78,43 @@ export class X402SolanaService {
         .register(SOLANA_MAINNET, svmSchemeMainnet)
         .register(SOLANA_DEVNET, svmSchemeDevnet)
         .onBeforePaymentCreation(async (...args: unknown[]) => {
-          // x402 v2 passes different arg structures depending on version
-          // Try to extract the amount from whatever we get
+          // Extract amount by deep-searching args for any number that looks like a payment amount
           let usdAmount = 0;
           try {
-            const req = args[1] ?? args[0];
-            const reqObj = req as Record<string, unknown> | undefined;
-            const amount = reqObj?.maxAmountRequired ?? reqObj?.amount ?? reqObj?.maxAmount;
-            if (typeof amount === "string" || typeof amount === "number") {
-              const amountNum = typeof amount === "string" ? parseFloat(amount) : amount;
-              usdAmount = amountNum / 1_000_000;
+            // Log full args structure for debugging
+            console.log("x402: onBeforePaymentCreation args:", JSON.stringify(args).slice(0, 500));
+
+            // Deep search: recursively find "amount" field in any arg
+            const findAmount = (obj: unknown, depth = 0): number | null => {
+              if (depth > 5 || !obj) return null;
+              if (typeof obj === "string" || typeof obj === "number") {
+                const n = typeof obj === "string" ? parseFloat(obj) : obj;
+                if (n > 0 && n < 1_000_000_000) return n;
+              }
+              if (typeof obj === "object" && obj !== null) {
+                const o = obj as Record<string, unknown>;
+                // Check common amount field names
+                for (const key of ["amount", "maxAmountRequired", "maxAmount", "price", "value"]) {
+                  if (o[key] !== undefined) {
+                    const n = typeof o[key] === "string" ? parseFloat(o[key] as string) : Number(o[key]);
+                    if (n > 0) return n;
+                  }
+                }
+                // Recurse into nested objects
+                for (const val of Object.values(o)) {
+                  const found = findAmount(val, depth + 1);
+                  if (found !== null) return found;
+                }
+              }
+              return null;
+            };
+
+            for (const arg of args) {
+              const found = findAmount(arg);
+              if (found !== null) {
+                usdAmount = found > 1000 ? found / 1_000_000 : found; // Handle both micro-USD and USD
+                break;
+              }
             }
           } catch {}
 

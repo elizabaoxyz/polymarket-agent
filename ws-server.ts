@@ -708,11 +708,11 @@ async function main() {
                       for (const m of (event.markets ?? []).filter((x: Record<string, unknown>) => x.status === "open")) {
                         const yp = Number(m.pricing?.buyYesPriceUsd ?? 0) / 1_000_000;
                         const np = Number(m.pricing?.buyNoPriceUsd ?? 0) / 1_000_000;
-                        // Both sides must have reasonable prices (liquidity check)
                         if (yp < 0.05 || yp > 0.95) continue;
-                        if (np < 0.05 || np > 0.95) continue;
-                        const spread = Math.abs(np - yp);
-                        const mid = (yp + (np || (1 - yp))) / 2;
+                        // If NO price is missing/zero, estimate from YES price
+                        const effectiveNp = np > 0 ? np : (1 - yp);
+                        const spread = Math.abs(effectiveNp - yp);
+                        const mid = (yp + effectiveNp) / 2;
                         const spreadScore = Math.max(0, 1 - spread / 0.15);
                         const midScore = 1 - Math.abs(mid - 0.5) * 2;
                         const volume = Number(m.pricing?.volume ?? 0) / 1_000_000;
@@ -772,13 +772,17 @@ async function main() {
                 }
               }
 
-              // x402 status
-              let x402Payments = 0;
-              try {
-                const x402Svc = (await runtime.getServiceLoadPromise(X402_SERVICE_TYPE)) as X402SolanaService | null;
-                if (x402Svc?.isActive()) x402Payments = x402Svc.getPaymentStats().count;
-              } catch {}
-              log(`[AUTONOMY] x402: ${x402Payments} payments | positions: ${ownedTitles.size}/${MAX_POSITIONS}`);
+              // x402 status — only show on Jupiter cycles (Polymarket doesn't use x402)
+              if (!isPolymarketCycle) {
+                let x402Payments = 0;
+                try {
+                  const x402Svc = (await runtime.getServiceLoadPromise(X402_SERVICE_TYPE)) as X402SolanaService | null;
+                  if (x402Svc?.isActive()) x402Payments = x402Svc.getPaymentStats().count;
+                } catch {}
+                log(`[AUTONOMY] x402: ${x402Payments} payments | positions: ${ownedTitles.size}/${MAX_POSITIONS}`);
+              } else {
+                log(`[AUTONOMY] positions: ${ownedTitles.size}/${MAX_POSITIONS}`);
+              }
 
               log("[AUTONOMY] Cycle complete.");
 

@@ -584,7 +584,44 @@ async function main() {
               ].join("\n");
 
               log(`[AUTONOMY] ${polyMarkets.length} Polymarket + ${jupMarkets.length} Jupiter markets | ${posLines.length} positions | ${x402Status}`);
-              await sendPrompt(briefing);
+              const llmResponse = await sendPrompt(briefing);
+              const decision = llmResponse.join(" ").toLowerCase();
+
+              // ===== Parse LLM decision and EXECUTE directly =====
+              if (decision.includes("buy") && !decision.includes("hold")) {
+                // Extract what to buy from LLM response
+                // Try to find a market name from the response
+                const quotedMatch = /[""]([^""]+)[""]/.exec(llmResponse.join(" "));
+                const keyword = quotedMatch?.[1]
+                  ?? llmResponse.join(" ").match(/buy[:\s—-]+(.{5,?}?)(?:\s*[-—(at@$]|\.|$)/i)?.[1]?.trim()
+                  ?? "";
+
+                if (keyword && keyword.length > 3) {
+                  log(`[AUTONOMY:EXECUTE] LLM chose BUY — executing: buy $2 YES on "${keyword}"`);
+                  await sendPrompt(`buy $2 YES on "${keyword}" on polymarket`);
+                } else {
+                  // Check if it mentioned a Jupiter market ID
+                  const jupIdMatch = /POLY-\d+/i.exec(llmResponse.join(" "));
+                  if (jupIdMatch) {
+                    log(`[AUTONOMY:EXECUTE] LLM chose BUY Jupiter — executing: bet $2 YES on jupiter market ${jupIdMatch[0]}`);
+                    await sendPrompt(`bet $2 YES on jupiter market ${jupIdMatch[0]}`);
+                  } else {
+                    log("[AUTONOMY] LLM said BUY but couldn't extract market — skipping");
+                  }
+                }
+              } else if (decision.includes("sell") && !decision.includes("hold")) {
+                // Extract token ID from LLM response
+                const tokenMatch = /token[:\s]+(\d{10,})/i.exec(llmResponse.join(" "));
+                const sharesMatch = /(\d+(?:\.\d+)?)\s*shares/i.exec(llmResponse.join(" "));
+                if (tokenMatch && sharesMatch) {
+                  log(`[AUTONOMY:EXECUTE] LLM chose SELL — executing: sell ${sharesMatch[1]} shares of token ${tokenMatch[1]}`);
+                  await sendPrompt(`sell ${sharesMatch[1]} shares of token ${tokenMatch[1]}`);
+                } else {
+                  log("[AUTONOMY] LLM said SELL but couldn't extract token/shares — skipping");
+                }
+              } else {
+                log("[AUTONOMY] LLM chose HOLD — no action this cycle");
+              }
 
               // ===== x402 payment — call 402-gated API =====
               const x402ApiUrl = process.env.X402_API_URL;

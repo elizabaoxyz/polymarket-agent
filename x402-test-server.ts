@@ -25,7 +25,7 @@ const USDC_MAINNET = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 let paymentCount = 0;
 
 // Create x402 resource server
-const server = x402HTTPResourceServer({
+const server = new x402HTTPResourceServer({
   port: PORT,
   payTo: PAY_TO,
   network: SOLANA_MAINNET,

@@ -707,14 +707,16 @@ async function main() {
                     for (const event of (evData.data ?? []).slice(0, 30)) {
                       for (const m of (event.markets ?? []).filter((x: Record<string, unknown>) => x.status === "open")) {
                         const yp = Number(m.pricing?.buyYesPriceUsd ?? 0) / 1_000_000;
-                        if (yp < 0.05 || yp > 0.95) continue;
                         const np = Number(m.pricing?.buyNoPriceUsd ?? 0) / 1_000_000;
+                        // Both sides must have reasonable prices (liquidity check)
+                        if (yp < 0.05 || yp > 0.95) continue;
+                        if (np < 0.05 || np > 0.95) continue;
                         const spread = Math.abs(np - yp);
                         const mid = (yp + (np || (1 - yp))) / 2;
                         const spreadScore = Math.max(0, 1 - spread / 0.15);
                         const midScore = 1 - Math.abs(mid - 0.5) * 2;
                         const volume = Number(m.pricing?.volume ?? 0) / 1_000_000;
-                        if (volume < 10) continue; // Skip illiquid markets — "No shares available"
+                        if (volume < 0.5) continue; // Skip completely dead markets
                         const volumeScore = Math.min(1, volume / 10000);
                         const score = spreadScore * 0.35 + midScore * 0.30 + volumeScore * 0.35;
                         const q = `${event.metadata?.title} — ${m.metadata?.title}`;

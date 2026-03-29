@@ -516,7 +516,8 @@ async function main() {
                     const positions = await posRes.json();
                     for (const pos of positions) {
                       const curPrice = pos.curPrice ?? 0;
-                      if (curPrice === 0 || pos.redeemable) continue;
+                      // Skip dead/illiquid markets — price below $0.02 means no real order book
+                      if (curPrice < 0.02 || pos.redeemable) continue;
                       posLines.push(`[POLYMARKET] "${pos.title}" ${pos.outcome} ${pos.size} shares avg:$${(pos.avgPrice ?? 0).toFixed(2)} now:$${curPrice.toFixed(2)} pnl:${(pos.percentPnl ?? 0).toFixed(0)}% token:${pos.asset}`);
                     }
                   }
@@ -554,24 +555,30 @@ async function main() {
               const portfolioStatus = await getPortfolioStatus(runtime);
 
               const briefing = [
-                "You are an autonomous trading agent. Analyze the data below and decide what to do.",
-                "You can: BUY a new position, SELL an existing position, or HOLD (do nothing).",
-                "Be smart — don't always buy. Sell losers. Take profit on winners. Wait if nothing looks good.",
+                "You are an autonomous trading agent. Analyze the data below and make ONE decision.",
                 "",
-                `POLYMARKET BALANCE: $${portfolioStatus.balance.toFixed(2)}`,
-                `SOLANA BALANCE: $${portfolioStatus.solanaBalance.toFixed(2)}`,
+                "RULES:",
+                "- Pick the BEST single action: BUY, SELL, or HOLD",
+                "- Only sell positions shown below — do NOT try to sell positions not listed",
+                "- Only sell if a position has a real price (shown below) — illiquid positions are already filtered out",
+                "- Look for markets near 50/50 with tight spreads — those are the best buys",
+                "- If you have cash and see a good market, BUY it",
+                "- If a position is down >30%, sell it. If up >50%, take profit",
+                "- If nothing looks good, just say HOLD",
+                "",
+                `BALANCES: Polymarket $${portfolioStatus.balance.toFixed(2)} | Solana $${portfolioStatus.solanaBalance.toFixed(2)}`,
                 `${x402Status}`,
                 "",
-                "TOP POLYMARKET MARKETS:",
+                "TOP POLYMARKET MARKETS (pick one to buy):",
                 ...polyMarkets.map((m, i) => `  ${i + 1}. ${m}`),
                 "",
-                "TOP JUPITER MARKETS (via x402):",
-                ...(jupMarkets.length > 0 ? jupMarkets.map((m, i) => `  ${i + 1}. ${m}`) : ["  (none available)"]),
+                "TOP JUPITER MARKETS (pick one to buy):",
+                ...(jupMarkets.length > 0 ? jupMarkets.map((m, i) => `  ${i + 1}. ${m}`) : ["  (none)"]),
                 "",
-                "YOUR CURRENT POSITIONS:",
-                ...(posLines.length > 0 ? posLines : ["  (no positions)"]),
+                posLines.length > 0 ? "YOUR SELLABLE POSITIONS (only these can be sold):" : "NO SELLABLE POSITIONS",
+                ...posLines,
                 "",
-                "DECIDE: What is the best action right now? If buying, specify the market. If selling, specify the token ID or market ID. If holding, explain why.",
+                "DECIDE: BUY (specify market name), SELL (specify token ID from above), or HOLD. One action only.",
               ].join("\n");
 
               log(`[AUTONOMY] ${polyMarkets.length} Polymarket + ${jupMarkets.length} Jupiter markets | ${posLines.length} positions | ${x402Status}`);

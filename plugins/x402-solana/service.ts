@@ -85,23 +85,20 @@ export class X402SolanaService {
             console.log("x402: onBeforePaymentCreation args:", JSON.stringify(args).slice(0, 500));
 
             // Deep search: recursively find "amount" field in any arg
+            const AMOUNT_KEYS = ["amount", "maxAmountRequired", "maxAmount"];
             const findAmount = (obj: unknown, depth = 0): number | null => {
-              if (depth > 5 || !obj) return null;
-              if (typeof obj === "string" || typeof obj === "number") {
-                const n = typeof obj === "string" ? parseFloat(obj) : obj;
-                if (n > 0 && n < 1_000_000_000) return n;
-              }
-              if (typeof obj === "object" && obj !== null) {
-                const o = obj as Record<string, unknown>;
-                // Check common amount field names
-                for (const key of ["amount", "maxAmountRequired", "maxAmount", "price", "value"]) {
-                  if (o[key] !== undefined) {
-                    const n = typeof o[key] === "string" ? parseFloat(o[key] as string) : Number(o[key]);
-                    if (n > 0) return n;
-                  }
+              if (depth > 5 || !obj || typeof obj !== "object") return null;
+              const o = obj as Record<string, unknown>;
+              // Check amount field names directly
+              for (const key of AMOUNT_KEYS) {
+                if (o[key] !== undefined) {
+                  const n = typeof o[key] === "string" ? parseFloat(o[key] as string) : Number(o[key]);
+                  if (n > 0) return n;
                 }
-                // Recurse into nested objects
-                for (const val of Object.values(o)) {
+              }
+              // Recurse into nested objects/arrays only
+              for (const val of Object.values(o)) {
+                if (typeof val === "object" && val !== null) {
                   const found = findAmount(val, depth + 1);
                   if (found !== null) return found;
                 }

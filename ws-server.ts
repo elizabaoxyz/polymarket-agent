@@ -506,7 +506,7 @@ async function main() {
                       const pnl = pos.percentPnl ?? 0;
                       const price = pos.curPrice ?? 0;
                       if (price < 0.02 || pos.redeemable) continue;
-                      if (pnl < -30 || pnl > 50) {
+                      if (pnl < -15 || pnl > 25) {
                         polySellTargets.push({ token: pos.asset, shares: pos.size, title: pos.title, pnl });
                       }
                     }
@@ -527,7 +527,7 @@ async function main() {
                       const title = pos.eventMetadata?.title ?? pos.marketId ?? "";
                       if (title) ownedTitles.add(title.toLowerCase());
                       const pnl = pos.pnlUsdPercent ?? 0;
-                      if ((pnl < -30 || pnl > 50) && pos.pubkey) {
+                      if ((pnl < -15 || pnl > 25) && pos.pubkey) {
                         jupSellTargets.push({ marketId: pos.marketId, pubkey: pos.pubkey, title: pos.marketMetadata?.title ?? pos.marketId, pnl });
                       }
                     }
@@ -544,7 +544,7 @@ async function main() {
                 // ========== POLYMARKET CYCLE ==========
                 // SMART SELL — dynamic thresholds based on how long we've held
                 for (const sell of polySellTargets) {
-                  const action = sell.pnl < -30 ? "cutting loss" : "taking profit";
+                  const action = sell.pnl < -15 ? "cutting loss" : "taking profit";
                   log(`[SELL:POLYMARKET] "${sell.title}" ${sell.pnl.toFixed(0)}% — ${action}`);
                   await sendPrompt(`sell ${sell.shares} shares of token ${sell.token}`);
                 }
@@ -597,17 +597,37 @@ async function main() {
 
                 if (ownedTitles.size >= MAX_POSITIONS) {
                   log(`[AUTONOMY] ${ownedTitles.size}/${MAX_POSITIONS} positions — full, selling only`);
-                } else if (polyBalance < 1) {
+                } else if (polyBalance < 3) {
                   log("[AUTONOMY:POLYMARKET] Balance too low ($" + polyBalance.toFixed(2) + ") — waiting for sells");
                 } else if (scored.length > 0) {
-                  const pick = scored[Math.floor(Math.random() * Math.min(5, scored.length))]!;
+                  // Pick top 5 candidates for LLM analysis
+                  const candidates = scored.slice(0, 5);
+                  const candidateList = candidates.map((c, i) =>
+                    `${i + 1}. "${c.question}" — YES: $${c.yesPrice.toFixed(2)}, NO: $${(1 - c.yesPrice).toFixed(2)}, score: ${c.score.toFixed(2)}, ${c.daysLeft.toFixed(0)} days left`
+                  ).join("\n");
+
+                  // Ask LLM to analyze and pick the best market + side
+                  log(`[ANALYSIS] Analyzing top ${candidates.length} markets...`);
+                  const analysisResults = await sendPrompt(
+                    `You are an autonomous prediction market trader. Analyze these markets and pick the BEST one to bet on. Consider current events, probability, and value.\n\n${candidateList}\n\nRespond in this EXACT format (one line each):\nPICK: <number 1-${candidates.length}>\nSIDE: <YES or NO>\nREASON: <one sentence why this side will win>`
+                  );
+
+                  // Parse LLM response
+                  const analysisText = analysisResults.join(" ");
+                  const pickMatch = /PICK:\s*(\d+)/i.exec(analysisText);
+                  const sideMatch = /SIDE:\s*(YES|NO)/i.exec(analysisText);
+                  const reasonMatch = /REASON:\s*(.+?)(?:\n|$)/i.exec(analysisText);
+
+                  const pickIdx = pickMatch ? Math.min(parseInt(pickMatch[1]!) - 1, candidates.length - 1) : 0;
+                  const pick = candidates[Math.max(0, pickIdx)]!;
+                  const side = sideMatch ? sideMatch[1]!.toUpperCase() : (pick.yesPrice < 0.50 ? "YES" : "NO");
+                  const reason = reasonMatch ? reasonMatch[1]!.trim() : "price-based fallback";
+
                   const betSize = calcBetSize(pick.score, polyBalance);
-                  // Smart side: buy YES if price < 0.50 (undervalued), NO if price > 0.50 (overvalued)
-                  const side = pick.yesPrice < 0.50 ? "YES" : "NO";
+                  log(`[ANALYSIS] ${reason}`);
                   log(`[BUY:POLYMARKET] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, ${pick.daysLeft.toFixed(0)}d left)`);
                   await sendPrompt(`buy $${betSize.toFixed(0)} ${side} on "${pick.question}" on polymarket`);
                   tradeHistory.push({ question: pick.question, platform: "POLYMARKET", time: Date.now(), price: pick.yesPrice });
-                  // Keep history trimmed
                   while (tradeHistory.length > 100) tradeHistory.shift();
                 } else {
                   log("[AUTONOMY:POLYMARKET] No new markets to buy");
@@ -637,7 +657,7 @@ async function main() {
                     jupSvc = (await runtime.getServiceLoadPromise(JUPITER_SERVICE_TYPE)) as JupiterPredictionService | null;
                   } catch {}
                   for (const sell of jupSellTargets) {
-                    const action = sell.pnl < -30 ? "cutting loss" : "taking profit";
+                    const action = sell.pnl < -15 ? "cutting loss" : "taking profit";
                     log(`[SELL:JUPITER] "${sell.title}" ${sell.pnl.toFixed(0)}% — ${action}`);
                     if (jupSvc) {
                       try {
@@ -683,12 +703,32 @@ async function main() {
                 jupScored.sort((a, b) => b.score - a.score);
                 log(`[AUTONOMY:JUPITER] ${jupScored.length} new markets | SOL balance: $${solBalance.toFixed(2)}`);
 
-                if (solBalance < 1) {
+                if (solBalance < 3) {
                   log("[AUTONOMY:JUPITER] Solana balance too low ($" + solBalance.toFixed(2) + ") — skipping buy");
                 } else if (jupScored.length > 0) {
-                  const pick = jupScored[Math.floor(Math.random() * Math.min(5, jupScored.length))]!;
+                  // Pick top candidates for LLM analysis
+                  const jupCandidates = jupScored.slice(0, 5);
+                  const jupCandidateList = jupCandidates.map((c, i) =>
+                    `${i + 1}. "${c.question}" — YES: $${c.yesPrice.toFixed(2)}, NO: $${(1 - c.yesPrice).toFixed(2)}, vol: $${c.volume.toFixed(0)}`
+                  ).join("\n");
+
+                  log(`[ANALYSIS] Analyzing top ${jupCandidates.length} Jupiter markets...`);
+                  const jupAnalysis = await sendPrompt(
+                    `You are an autonomous prediction market trader on Solana. Analyze these Jupiter markets and pick the BEST one to bet on. Consider current events, probability, and value.\n\n${jupCandidateList}\n\nRespond in this EXACT format (one line each):\nPICK: <number 1-${jupCandidates.length}>\nSIDE: <YES or NO>\nREASON: <one sentence why this side will win>`
+                  );
+
+                  const jupText = jupAnalysis.join(" ");
+                  const jupPickMatch = /PICK:\s*(\d+)/i.exec(jupText);
+                  const jupSideMatch = /SIDE:\s*(YES|NO)/i.exec(jupText);
+                  const jupReasonMatch = /REASON:\s*(.+?)(?:\n|$)/i.exec(jupText);
+
+                  const jupPickIdx = jupPickMatch ? Math.min(parseInt(jupPickMatch[1]!) - 1, jupCandidates.length - 1) : 0;
+                  const pick = jupCandidates[Math.max(0, jupPickIdx)]!;
+                  const side = jupSideMatch ? jupSideMatch[1]!.toUpperCase() : (pick.yesPrice < 0.50 ? "YES" : "NO");
+                  const reason = jupReasonMatch ? jupReasonMatch[1]!.trim() : "price-based fallback";
+
                   const betSize = calcBetSize(pick.score, solBalance);
-                  const side = pick.yesPrice < 0.50 ? "YES" : "NO";
+                  log(`[ANALYSIS] ${reason}`);
                   log(`[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${pick.volume.toFixed(0)})`);
                   await sendPrompt(`bet $${betSize.toFixed(0)} ${side} on jupiter market ${pick.marketId}`);
                   tradeHistory.push({ question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice });

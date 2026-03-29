@@ -31,8 +31,8 @@ export function Header({ isConnected, isAutonomyActive, onToggleAutonomy }: Head
             disabled={!isConnected}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold mono transition-all ${
               isAutonomyActive
-                ? "bg-[var(--green)] text-[#0a0a0a] animate-pulse"
-                : "bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--green)] hover:text-[var(--green)]"
+                ? "bg-[var(--green)] text-[#0a0a0a] autonomy-active"
+                : "bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--green)] hover:text-[var(--green)] hover-glow"
             } disabled:opacity-40`}
           >
             <Bot size={12} />

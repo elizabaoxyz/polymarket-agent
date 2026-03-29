@@ -30,7 +30,7 @@ const mono: React.CSSProperties = {
 
 export default function Dashboard({ stats, onWhaleClick }: DashboardProps) {
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 shimmer-border">
       {/* Section title */}
       <div className="flex items-center gap-2">
         <div className="w-3 h-3 rounded-sm bg-[var(--green)]" />

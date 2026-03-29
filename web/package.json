@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "framer-motion": "^12.38.0",
     "lucide-react": "^1.7.0",
     "next": "^15.3.3",
     "react": "^19.1.0",

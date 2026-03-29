@@ -25,11 +25,13 @@ body {
   font-family: var(--font-mono), 'Kode Mono', monospace;
 }
 
+/* Scrollbar */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #333; }
 
+/* Thinking dots */
 @keyframes dot-pulse {
   0%, 80%, 100% { opacity: 0.3; }
   40% { opacity: 1; }
@@ -39,3 +41,100 @@ body {
 }
 .thinking-dot:nth-child(2) { animation-delay: 0.2s; }
 .thinking-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* ===== BACKGROUND EFFECTS ===== */
+
+/* Dot grid background */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background-image: radial-gradient(circle, rgba(0, 212, 170, 0.08) 1px, transparent 1px);
+  background-size: 24px 24px;
+  pointer-events: none;
+}
+
+/* Ambient green glow orb */
+body::after {
+  content: "";
+  position: fixed;
+  top: 30%;
+  left: 50%;
+  width: 600px;
+  height: 600px;
+  z-index: -1;
+  background: radial-gradient(circle, rgba(0, 212, 170, 0.04) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: float-glow 20s ease-in-out infinite;
+}
+
+@keyframes float-glow {
+  0%, 100% { transform: translate(-50%, 0); }
+  33% { transform: translate(-40%, -30px); }
+  66% { transform: translate(-60%, 20px); }
+}
+
+/* CRT scanline */
+.scanline {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  overflow: hidden;
+}
+.scanline::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(0, 212, 170, 0.06), transparent);
+  animation: scanline-sweep 10s linear infinite;
+}
+@keyframes scanline-sweep {
+  0% { top: -2px; }
+  100% { top: 100%; }
+}
+
+/* Border shimmer effect */
+@keyframes border-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer-border {
+  position: relative;
+}
+.shimmer-border::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: border-shimmer 4s linear infinite;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.3;
+}
+
+/* Green glow on hover for interactive elements */
+.hover-glow {
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+.hover-glow:hover {
+  box-shadow: 0 0 12px rgba(0, 212, 170, 0.15), 0 0 4px rgba(0, 212, 170, 0.1);
+  border-color: var(--accent) !important;
+}
+
+/* Pulse animation for autonomy button */
+@keyframes autonomy-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 212, 170, 0.4); }
+  50% { box-shadow: 0 0 12px 4px rgba(0, 212, 170, 0.2); }
+}
+.autonomy-active {
+  animation: autonomy-pulse 2s ease-in-out infinite;
+}

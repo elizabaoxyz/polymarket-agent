@@ -1,5 +1,8 @@
+"use client";
+
 import { Clock, Bot, User } from "lucide-react";
 import type { ChatMessage } from "@/lib/types";
+import { MessageAnimation } from "./animated";
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString("en-US", {
@@ -21,6 +24,7 @@ function Timestamp({ ts }: { ts: number }) {
 export function Message({ msg }: { msg: ChatMessage }) {
   if (msg.role === "user") {
     return (
+      <MessageAnimation>
       <div className="flex justify-end gap-2 mb-4">
         <div className="flex flex-col items-end">
           <div className="bg-[var(--accent)] rounded-xl rounded-br-sm px-4 py-2.5">
@@ -34,11 +38,13 @@ export function Message({ msg }: { msg: ChatMessage }) {
           <User size={14} className="text-[#0a0a0a]" />
         </div>
       </div>
+      </MessageAnimation>
     );
   }
 
   if (msg.role === "action") {
     return (
+      <MessageAnimation>
       <div className="flex gap-2 mb-4">
         <div className="w-8 h-8 rounded-full bg-[var(--bg-card)] border border-[var(--green)] flex items-center justify-center shrink-0 mt-0.5">
           <Bot size={14} className="text-[var(--green)]" />
@@ -52,11 +58,13 @@ export function Message({ msg }: { msg: ChatMessage }) {
           <Timestamp ts={msg.timestamp} />
         </div>
       </div>
+      </MessageAnimation>
     );
   }
 
   // agent — full width like ElizaBao
   return (
+    <MessageAnimation>
     <div className="flex gap-2 mb-4">
       <div className="w-8 h-8 rounded-full bg-[var(--bg-card)] border border-[var(--green)] flex items-center justify-center shrink-0 mt-0.5">
         <Bot size={14} className="text-[var(--green)]" />
@@ -70,6 +78,7 @@ export function Message({ msg }: { msg: ChatMessage }) {
         <Timestamp ts={msg.timestamp} />
       </div>
     </div>
+    </MessageAnimation>
   );
 }
 

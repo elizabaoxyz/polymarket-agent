@@ -104,7 +104,7 @@ export function RightSidebar({ onQuickAction, onPluginClick }: RightSidebarProps
                   <button
                     key={action.label}
                     onClick={() => onQuickAction(action.prompt)}
-                    className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-[var(--green)]/30 hover:border-[var(--green)] hover:bg-[var(--bg-agent)] text-[var(--text)] transition-colors text-left"
+                    className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-[var(--green)]/30 hover:border-[var(--green)] hover:bg-[var(--bg-agent)] hover-glow text-[var(--text)] transition-colors text-left"
                   >
                     <action.icon size={13} className="text-[var(--green)] shrink-0" />
                     <span className="text-[11px] font-medium leading-tight">{action.label}</span>

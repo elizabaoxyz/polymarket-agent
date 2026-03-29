@@ -14,6 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className="dark">
       <body className={`${kodeMono.variable} antialiased bg-[var(--bg)] text-[var(--text)]`}>
         {children}
+        <div className="scanline" />
       </body>
     </html>
   );

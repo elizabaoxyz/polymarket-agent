@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, Bot, User } from "lucide-react";
+import { Clock, User } from "lucide-react";
 import type { ChatMessage } from "@/lib/types";
 import { MessageAnimation } from "./animated";
 
@@ -46,9 +46,7 @@ export function Message({ msg }: { msg: ChatMessage }) {
     return (
       <MessageAnimation>
       <div className="flex gap-2 mb-4">
-        <div className="w-8 h-8 rounded-full bg-[var(--bg-card)] border border-[var(--green)] flex items-center justify-center shrink-0 mt-0.5">
-          <Bot size={14} className="text-[var(--green)]" />
-        </div>
+        <img src="/elizabaobao.png" alt="ElizaBAO" className="w-8 h-8 rounded-full object-cover border border-[var(--green)] shrink-0 mt-0.5" />
         <div className="flex-1">
           <div className="bg-[var(--bg-panel)] border-l-2 border-[var(--accent)] px-4 py-2.5">
             <p className="mono text-[13px] text-[var(--green)] whitespace-pre-wrap leading-relaxed">
@@ -66,9 +64,7 @@ export function Message({ msg }: { msg: ChatMessage }) {
   return (
     <MessageAnimation>
     <div className="flex gap-2 mb-4">
-      <div className="w-8 h-8 rounded-full bg-[var(--bg-card)] border border-[var(--green)] flex items-center justify-center shrink-0 mt-0.5">
-        <Bot size={14} className="text-[var(--green)]" />
-      </div>
+      <img src="/elizabaobao.png" alt="ElizaBAO" className="w-8 h-8 rounded-full object-cover border border-[var(--green)] shrink-0 mt-0.5" />
       <div className="flex-1">
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl rounded-bl-sm px-4 py-2.5">
           <p className="text-[14px] text-[var(--text)] whitespace-pre-wrap leading-relaxed">
@@ -85,9 +81,7 @@ export function Message({ msg }: { msg: ChatMessage }) {
 export function ThinkingIndicator() {
   return (
     <div className="flex gap-2 mb-4">
-      <div className="w-8 h-8 rounded-full bg-[var(--bg-card)] border border-[var(--green)] flex items-center justify-center shrink-0">
-        <Bot size={14} className="text-[var(--green)]" />
-      </div>
+      <img src="/elizabaobao.png" alt="ElizaBAO" className="w-8 h-8 rounded-full object-cover border border-[var(--green)] shrink-0" />
       <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl rounded-bl-sm px-4 py-3 flex gap-1.5">
         <div className="w-2 h-2 bg-[var(--green)] rounded-full thinking-dot" />
         <div className="w-2 h-2 bg-[var(--green)] rounded-full thinking-dot" />

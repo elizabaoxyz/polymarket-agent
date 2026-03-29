@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Bot, Heart, RefreshCw, Wallet, TrendingUp, TrendingDown } from "lucide-react";
+import { Heart, RefreshCw, Wallet, TrendingUp, TrendingDown } from "lucide-react";
 import type { Position, Trade, JupiterPosition } from "@/lib/types";
 
 type FeedItem = {
@@ -90,9 +90,7 @@ export function LeftSidebar({
             <div className="p-4 border-b border-[var(--border)]">
               <SectionTitle label="AGENT DEPLOY" />
               <div className="flex flex-col items-center mb-3">
-                <div className="w-[60px] h-[60px] rounded-full border-2 border-[var(--green)] bg-[var(--bg-card)] flex items-center justify-center mb-2">
-                  <Bot size={28} className="text-[var(--green)]" />
-                </div>
+                <img src="/elizabaobao.png" alt="ElizaBAO" className="w-[60px] h-[60px] rounded-full border-2 border-[var(--green)] object-cover mb-2" />
               </div>
               <div className="space-y-1.5 text-[11px]">
                 <div className="flex items-center justify-between">

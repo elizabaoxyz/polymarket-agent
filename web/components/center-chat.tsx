@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bot, Smile, Mic, ArrowUp } from "lucide-react";
+import { Smile, Mic, ArrowUp } from "lucide-react";
 import type { ChatMessage } from "@/lib/types";
 import { Message, ThinkingIndicator } from "./message";
 
@@ -36,9 +36,7 @@ export function CenterChat({ messages, isThinking, isConnected, onSend }: Center
     <div className="flex flex-col h-full bg-[var(--bg)]">
       {/* Chat Header */}
       <div className="flex items-center gap-3 px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-panel)]">
-        <div className="w-8 h-8 rounded-full bg-[var(--green)] flex items-center justify-center">
-          <Bot size={16} className="text-black" />
-        </div>
+        <img src="/elizabaobao.png" alt="ElizaBAO" className="w-8 h-8 rounded-full object-cover" />
         <div className="flex flex-col">
           <span className="mono text-sm font-bold text-[var(--text)] tracking-wider leading-tight">
             ELIZABAO
@@ -54,9 +52,7 @@ export function CenterChat({ messages, isThinking, isConnected, onSend }: Center
         <div className="max-w-full mx-auto px-4">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center py-24 text-center">
-              <div className="w-14 h-14 rounded-full bg-[var(--bg-agent)] border border-[var(--green)]/20 flex items-center justify-center mb-4">
-                <Bot size={24} className="text-[var(--green)]" />
-              </div>
+              <img src="/elizabaobao.png" alt="ElizaBAO" className="w-14 h-14 rounded-full border border-[var(--green)]/20 object-cover mb-4" />
               <h2 className="text-lg font-semibold text-[var(--text)] mb-2">
                 ElizaBAO
               </h2>

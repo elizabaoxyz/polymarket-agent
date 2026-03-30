@@ -495,6 +495,17 @@ async function main() {
             try {
               log(`[AUTONOMY:${platform}] Cycle #${cycleCount} — ${isPolymarketCycle ? "Polygon" : "Solana + x402"}`);
 
+              // Get balance first — determines sell aggressiveness
+              const portfolioStatus = await getPortfolioStatus(runtime);
+              const polyBalance = portfolioStatus.balance;
+              const solBalance = portfolioStatus.solanaBalance;
+              const lowPolyBalance = polyBalance < 3;
+              const lowSolBalance = solBalance < 3;
+
+              // Dynamic sell thresholds — more aggressive when balance is low
+              const sellLossThreshold = (lowPolyBalance || lowSolBalance) ? -5 : -15;   // Cut at -5% when low, -15% normal
+              const sellProfitThreshold = (lowPolyBalance || lowSolBalance) ? 5 : 25;    // Take at +5% when low, +25% normal
+
               // ===== Collect owned positions =====
               const ownedTitles = new Set<string>();
               const polySellTargets: Array<{ token: string; shares: number; title: string; pnl: number }> = [];
@@ -523,7 +534,7 @@ async function main() {
                       // Skip if sell failed recently (retry after 30 min)
                       const failTime = failedSells.get(pos.asset);
                       if (failTime && Date.now() - failTime < 1_800_000) continue;
-                      if (pnl < -15 || pnl > 25) {
+                      if (pnl < sellLossThreshold || pnl > sellProfitThreshold) {
                         polySellTargets.push({ token: pos.asset, shares: pos.size, title: pos.title, pnl });
                       }
                     }
@@ -555,7 +566,7 @@ async function main() {
                         h => h.question.toLowerCase().includes((title).toLowerCase()) && Date.now() - h.time < 600_000
                       );
                       if (recentJup) continue;
-                      if ((pnl < -15 || pnl > 25) && pos.pubkey) {
+                      if ((pnl < sellLossThreshold || pnl > sellProfitThreshold) && pos.pubkey) {
                         // Skip dead positions — no buyers at -95% or worse
                         if (pnl <= -95) continue;
                         // Skip if already sold (API lag) or failed recently (retry after 30 min)
@@ -569,21 +580,17 @@ async function main() {
                 }
               } catch {}
 
-              // Get balance for smart sizing
-              const portfolioStatus = await getPortfolioStatus(runtime);
-              const polyBalance = portfolioStatus.balance;
-              const solBalance = portfolioStatus.solanaBalance;
-
-              if (isPolymarketCycle) {
-                // ========== POLYMARKET CYCLE ==========
-                // SMART SELL — LLM analyzes positions before selling
+              // ===== SELL PHASE — runs every cycle when balance is low =====
+              if (isPolymarketCycle || lowPolyBalance) {
+                // POLYMARKET SELL
                 if (polySellTargets.length > 0) {
                   const sellList = polySellTargets.map((s, i) =>
                     `${i + 1}. "${s.title}" — PnL: ${s.pnl.toFixed(0)}%, shares: ${s.shares}`
                   ).join("\n");
+                  if (lowPolyBalance) log(`[SELL MODE] Balance low ($${polyBalance.toFixed(2)}) — aggressive sell thresholds: -${Math.abs(sellLossThreshold)}% / +${sellProfitThreshold}%`);
                   log(`[SELL ANALYSIS] Analyzing ${polySellTargets.length} positions...`);
                   const sellAnalysis = await sendPrompt(
-                    `DO NOT place any orders. You are reviewing your Polymarket positions. Today is ${new Date().toISOString().split("T")[0]}. These positions hit sell thresholds. For each one, decide SELL or HOLD.\n\n${sellList}\n\nRules: Cut losses below -15%. Take profits above +25%. Consider if the market outcome is likely to change.\n\nRespond with one line per position:\n<number>: SELL or HOLD — <reason>`
+                    `DO NOT place any orders. You are reviewing your Polymarket positions. Today is ${new Date().toISOString().split("T")[0]}.${lowPolyBalance ? " IMPORTANT: Balance is critically low ($" + polyBalance.toFixed(2) + "). Prioritize selling to free up capital. Be aggressive — sell anything profitable." : ""} These positions hit sell thresholds. For each one, decide SELL or HOLD.\n\n${sellList}\n\nRespond with one line per position:\n<number>: SELL or HOLD — <reason>`
                   );
                   const sellText = sellAnalysis.join(" ");
 
@@ -707,8 +714,10 @@ async function main() {
                   log("[AUTONOMY:POLYMARKET] No new markets to buy");
                 }
 
-              } else {
-                // ========== JUPITER CYCLE + x402 ==========
+              }
+
+              if (!isPolymarketCycle || lowSolBalance) {
+                // ========== JUPITER SELL/CLAIM (runs on Jupiter cycle, or every cycle when SOL balance low) ==========
                 // CLAIM settled Jupiter positions first
                 if (jupClaimable.length > 0) {
                   let jupSvc: JupiterPredictionService | null = null;
@@ -735,9 +744,10 @@ async function main() {
                   const jupSellList = jupSellTargets.map((s, i) =>
                     `${i + 1}. "${s.title}" — PnL: ${s.pnl.toFixed(0)}%`
                   ).join("\n");
+                  if (lowSolBalance) log(`[SELL MODE] SOL balance low ($${solBalance.toFixed(2)}) — aggressive sell thresholds: -${Math.abs(sellLossThreshold)}% / +${sellProfitThreshold}%`);
                   log(`[SELL ANALYSIS] Analyzing ${jupSellTargets.length} Jupiter positions...`);
                   const jupSellAnalysis = await sendPrompt(
-                    `DO NOT place any orders. You are reviewing your Jupiter/Solana positions. Today is ${new Date().toISOString().split("T")[0]}. These positions hit sell thresholds. For each one, decide SELL or HOLD.\n\n${jupSellList}\n\nRules: Cut losses below -15%. Take profits above +25%. Consider if the market outcome is likely to change.\n\nRespond with one line per position:\n<number>: SELL or HOLD — <reason>`
+                    `DO NOT place any orders. You are reviewing your Jupiter/Solana positions. Today is ${new Date().toISOString().split("T")[0]}.${lowSolBalance ? " IMPORTANT: Balance is critically low ($" + solBalance.toFixed(2) + "). Prioritize selling to free up capital. Be aggressive — sell anything profitable." : ""} These positions hit sell thresholds. For each one, decide SELL or HOLD.\n\n${jupSellList}\n\nRespond with one line per position:\n<number>: SELL or HOLD — <reason>`
                   );
                   const jupSellText = jupSellAnalysis.join(" ");
 
@@ -769,7 +779,8 @@ async function main() {
                   }
                 }
 
-                // SMART SCAN + BUY Jupiter
+                // SMART SCAN + BUY Jupiter (only on Jupiter cycles)
+                if (!isPolymarketCycle) {
                 type JupMarket = { question: string; marketId: string; yesPrice: number; score: number; volume: number };
                 const jupScored: JupMarket[] = [];
                 try {
@@ -882,6 +893,7 @@ async function main() {
                 } else {
                   log("[AUTONOMY:JUPITER] No new markets to buy");
                 }
+                } // end Jupiter buy-only block
               }
 
               // x402 status — only show on Jupiter cycles (Polymarket doesn't use x402)

@@ -602,7 +602,7 @@ async function main() {
                       log(`[HOLD:POLYMARKET] "${sell.title}" ${sell.pnl.toFixed(0)}% — LLM says hold`);
                       continue;
                     }
-                    const action = sell.pnl < -15 ? "cutting loss" : "taking profit";
+                    const action = sell.pnl < 0 ? "cutting loss" : "taking profit";
                     log(`[SELL:POLYMARKET] "${sell.title}" ${sell.pnl.toFixed(0)}% — ${action}`);
                     await sendPrompt(`sell ${sell.shares} shares of token ${sell.token}`);
                   }
@@ -757,12 +757,14 @@ async function main() {
                   } catch {}
                   for (let i = 0; i < jupSellTargets.length; i++) {
                     const sell = jupSellTargets[i]!;
+                    // Skip if already sold or failed this session
+                    if (recentlySold.has(sell.pubkey) || failedSells.has(sell.pubkey)) continue;
                     const holdPattern = new RegExp(`${i + 1}[:\\s]*HOLD`, "i");
                     if (holdPattern.test(jupSellText)) {
                       log(`[HOLD:JUPITER] "${sell.title}" ${sell.pnl.toFixed(0)}% — LLM says hold`);
                       continue;
                     }
-                    const action = sell.pnl < -15 ? "cutting loss" : "taking profit";
+                    const action = sell.pnl < 0 ? "cutting loss" : "taking profit";
                     log(`[SELL:JUPITER] "${sell.title}" ${sell.pnl.toFixed(0)}% — ${action}`);
                     if (jupSvc) {
                       try {

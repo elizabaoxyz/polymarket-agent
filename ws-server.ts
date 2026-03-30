@@ -511,6 +511,7 @@ async function main() {
               const solBalance = portfolioStatus.solanaBalance;
               const lowPolyBalance = polyBalance < 3;
               const lowSolBalance = solBalance < 3;
+              log(`[BALANCE] Polygon: $${polyBalance.toFixed(2)} | Solana: $${solBalance.toFixed(2)} (USDC+JupUSD)`);
 
               // Dynamic sell thresholds — more aggressive when balance is low
               const sellLossThreshold = (lowPolyBalance || lowSolBalance) ? -5 : -15;   // Cut at -5% when low, -15% normal

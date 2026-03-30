@@ -203,12 +203,22 @@ async function getCachedSolanaBalance(): Promise<number> {
     const kp = Keypair.fromSecretKey(bs58.default.decode(solKey));
     const conn = new Connection(process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com", "confirmed");
     const USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
-    const accounts = await conn.getTokenAccountsByOwner(kp.publicKey, { mint: USDC_MINT });
-    if (accounts.value.length > 0) {
-      const info = await conn.getTokenAccountBalance(accounts.value[0].pubkey);
-      _solanaBalanceCache = { value: Number(info.value.uiAmount ?? 0), fetchedAt: Date.now() };
-      return _solanaBalanceCache.value;
+    const JUPUSD_MINT = new PublicKey("JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD");
+    let total = 0;
+    // Check USDC balance
+    const usdcAccounts = await conn.getTokenAccountsByOwner(kp.publicKey, { mint: USDC_MINT });
+    if (usdcAccounts.value.length > 0) {
+      const info = await conn.getTokenAccountBalance(usdcAccounts.value[0].pubkey);
+      total += Number(info.value.uiAmount ?? 0);
     }
+    // Check JupUSD balance (Jupiter's stablecoin — returned when selling positions)
+    const jupAccounts = await conn.getTokenAccountsByOwner(kp.publicKey, { mint: JUPUSD_MINT });
+    if (jupAccounts.value.length > 0) {
+      const info = await conn.getTokenAccountBalance(jupAccounts.value[0].pubkey);
+      total += Number(info.value.uiAmount ?? 0);
+    }
+    _solanaBalanceCache = { value: total, fetchedAt: Date.now() };
+    return _solanaBalanceCache.value;
   } catch {}
   return _solanaBalanceCache.value;
 }

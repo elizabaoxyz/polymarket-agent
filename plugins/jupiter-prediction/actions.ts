@@ -1,7 +1,7 @@
 import type { Action, ActionExample } from "@elizaos/core";
 import { JupiterPredictionService, JUPITER_SERVICE_TYPE } from "./service";
 import { scanAndScore, formatOpportunitySummary } from "./scanner";
-import { microUsdToDollars, dollarsToMicroUsd, USDC_MINT, type Market } from "./types";
+import { microUsdToDollars, dollarsToMicroUsd, USDC_MINT, JUPUSD_MINT, type Market } from "./types";
 
 const SERVICE_KEY = JUPITER_SERVICE_TYPE;
 
@@ -118,6 +118,24 @@ export const placeJupiterBet: Action = {
     // Jupiter minimum is $1, ensure we're above it
     const depositAmount = dollarsToMicroUsd(Math.max(dollars, 1.1));
 
+    // Check JupUSD balance — prefer JupUSD over USDC (returned from closed positions)
+    let mint = USDC_MINT;
+    try {
+      const { Connection, PublicKey } = await import("@solana/web3.js");
+      const conn = new Connection(process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com", "confirmed");
+      const jupAccounts = await conn.getTokenAccountsByOwner(
+        new PublicKey(svc.ownerPubkey),
+        { mint: new PublicKey(JUPUSD_MINT) }
+      );
+      if (jupAccounts.value.length > 0) {
+        const info = await conn.getTokenAccountBalance(jupAccounts.value[0].pubkey);
+        const jupBalance = Number(info.value.uiAmount ?? 0);
+        if (jupBalance >= dollars) {
+          mint = JUPUSD_MINT;
+        }
+      }
+    } catch {}
+
     try {
       const { orderId, signature } = await svc.placeOrderAndSign({
         ownerPubkey: svc.ownerPubkey,
@@ -125,7 +143,7 @@ export const placeJupiterBet: Action = {
         isYes,
         isBuy: true,
         depositAmount,
-        depositMint: USDC_MINT,
+        depositMint: mint,
       });
       if (callback) callback({ text: `Jupiter order placed! Order: ${orderId} | Signature: ${signature}` });
       return true;

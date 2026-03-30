@@ -66,25 +66,26 @@ export default function X402Modal({ status, onClose }: X402ModalProps) {
               <div className="space-y-2 text-[13px] text-[var(--text-secondary)]">
                 <div className="flex gap-2">
                   <span className="mono text-[var(--accent)] shrink-0">1.</span>
-                  <span>Agent calls an API (Jupiter, prediction data, etc.)</span>
+                  <span>Autonomy finds a Jupiter market to buy</span>
                 </div>
                 <div className="flex gap-2">
                   <span className="mono text-[var(--accent)] shrink-0">2.</span>
-                  <span>API returns <span className="mono text-[var(--accent)]">HTTP 402 Payment Required</span></span>
+                  <span>Agent pays for market analysis via <span className="mono text-[var(--accent)]">x402 API</span></span>
                 </div>
                 <div className="flex gap-2">
                   <span className="mono text-[var(--accent)] shrink-0">3.</span>
-                  <span>x402 auto-creates a Solana USDC payment transaction</span>
+                  <span>API returns <span className="mono text-[var(--accent)]">HTTP 402 Payment Required</span></span>
                 </div>
                 <div className="flex gap-2">
                   <span className="mono text-[var(--accent)] shrink-0">4.</span>
-                  <span>Signs with your wallet, submits on-chain</span>
+                  <span>x402 auto-signs a Solana USDC payment, submits on-chain</span>
                 </div>
                 <div className="flex gap-2">
                   <span className="mono text-[var(--accent)] shrink-0">5.</span>
-                  <span>Retries API call with payment proof → access granted</span>
+                  <span>Retries with payment proof → analysis received → agent places bet</span>
                 </div>
               </div>
+              <p className="mono text-[10px] text-[var(--text-muted)] mt-2">Only triggers on Jupiter buy cycles when markets are available. No wasted payments.</p>
             </div>
 
             {/* Integration */}

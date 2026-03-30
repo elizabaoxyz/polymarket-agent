@@ -4,6 +4,7 @@ An **AI-powered autonomous trading agent** that scans, analyzes, buys, and sells
 
 Built on [elizaOS](https://github.com/elizaos/eliza) with a custom web dashboard.
 
+**Twitter**: [elizabao_ai](https://x.com/elizabao_ai)
 **Live Demo**: [elizabao.ai](https://elizabao.ai)
 
 ---

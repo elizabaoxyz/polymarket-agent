@@ -596,7 +596,8 @@ async function main() {
 
                   for (let i = 0; i < polySellTargets.length; i++) {
                     const sell = polySellTargets[i]!;
-                    // Check if LLM said HOLD for this position
+                    // Skip if already tried and failed
+                    if (failedSells.has(sell.token) || recentlySold.has(sell.token)) continue;
                     const holdPattern = new RegExp(`${i + 1}[:\\s]*HOLD`, "i");
                     if (holdPattern.test(sellText)) {
                       log(`[HOLD:POLYMARKET] "${sell.title}" ${sell.pnl.toFixed(0)}% — LLM says hold`);
@@ -604,7 +605,17 @@ async function main() {
                     }
                     const action = sell.pnl < 0 ? "cutting loss" : "taking profit";
                     log(`[SELL:POLYMARKET] "${sell.title}" ${sell.pnl.toFixed(0)}% — ${action}`);
-                    await sendPrompt(`sell ${sell.shares} shares of token ${sell.token}`);
+                    const sellResults = await sendPrompt(`sell ${sell.shares} shares of token ${sell.token}`);
+                    const sellResultText = sellResults.join(" ");
+                    if (/@ \$0\.0[01]/i.test(sellResultText)) {
+                      // Sold at garbage price ($0.00-$0.01) — don't retry
+                      log(`[SELL:POLYMARKET] Sold at near-zero price — skipping future retries`);
+                      failedSells.set(sell.token, Date.now());
+                    } else if (/failed|error/i.test(sellResultText)) {
+                      failedSells.set(sell.token, Date.now());
+                    } else {
+                      recentlySold.add(sell.token);
+                    }
                   }
                 }
 

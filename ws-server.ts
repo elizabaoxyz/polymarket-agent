@@ -509,6 +509,7 @@ async function main() {
               // ===== Collect owned positions =====
               const ownedTitles = new Set<string>();
               const polySellTargets: Array<{ token: string; shares: number; title: string; pnl: number }> = [];
+              const polyAllSellable: Array<{ token: string; shares: number; title: string; pnl: number }> = []; // All positions that CAN be sold
               const jupSellTargets: Array<{ marketId: string; pubkey: string; title: string; pnl: number }> = [];
               const jupClaimable: Array<{ pubkey: string; title: string; payout: number }> = [];
 
@@ -534,6 +535,8 @@ async function main() {
                       // Skip if sell failed recently (retry after 30 min)
                       const failTime = failedSells.get(pos.asset);
                       if (failTime && Date.now() - failTime < 1_800_000) continue;
+                      // Track all sellable positions for force-sell when stuck
+                      polyAllSellable.push({ token: pos.asset, shares: pos.size, title: pos.title, pnl });
                       if (pnl < sellLossThreshold || pnl > sellProfitThreshold) {
                         polySellTargets.push({ token: pos.asset, shares: pos.size, title: pos.title, pnl });
                       }
@@ -668,7 +671,36 @@ async function main() {
                 if (ownedTitles.size >= MAX_POSITIONS) {
                   log(`[AUTONOMY] ${ownedTitles.size}/${MAX_POSITIONS} positions — full, selling only`);
                 } else if (polyBalance < 3) {
-                  log("[AUTONOMY:POLYMARKET] Balance too low ($" + polyBalance.toFixed(2) + ") — waiting for sells");
+                  // Balance too low — if no threshold sells triggered, ask LLM to pick positions to sell
+                  if (polySellTargets.length === 0 && polyAllSellable.length > 0) {
+                    const positionList = polyAllSellable
+                      .sort((a, b) => a.pnl - b.pnl) // worst first
+                      .slice(0, 10)
+                      .map((p, i) => `${i + 1}. "${p.title}" — PnL: ${p.pnl.toFixed(0)}%, shares: ${p.shares}`)
+                      .join("\n");
+                    log(`[RECOVERY MODE] Balance $${polyBalance.toFixed(2)} — asking LLM which positions to sell...`);
+                    const recoveryAnalysis = await sendPrompt(
+                      `DO NOT place any orders. Our Polymarket balance is critically low ($${polyBalance.toFixed(2)}). We need to sell some positions to free up capital. Today is ${new Date().toISOString().split("T")[0]}.\n\nHere are our positions (worst-performing first):\n${positionList}\n\nWhich positions should we sell? Consider: which markets are least likely to recover? Which are dead money? Pick 1-3 positions to sell.\n\nRespond with the numbers to SELL, one per line:\n<number>: SELL — <reason>`
+                    );
+                    const recoveryText = recoveryAnalysis.join(" ");
+                    for (let i = 0; i < Math.min(10, polyAllSellable.length); i++) {
+                      const sellPattern = new RegExp(`${i + 1}[:\\s]*SELL`, "i");
+                      if (sellPattern.test(recoveryText)) {
+                        const pos = polyAllSellable.sort((a, b) => a.pnl - b.pnl)[i]!;
+                        if (failedSells.has(pos.token) || recentlySold.has(pos.token)) continue;
+                        log(`[RECOVERY SELL] "${pos.title}" ${pos.pnl.toFixed(0)}% — LLM recommended`);
+                        const sellResults = await sendPrompt(`sell ${pos.shares} shares of token ${pos.token}`);
+                        const sellResultText = sellResults.join(" ");
+                        if (/@ \$0\.0[01]/i.test(sellResultText) || /failed|error/i.test(sellResultText)) {
+                          failedSells.set(pos.token, Date.now());
+                        } else {
+                          recentlySold.add(pos.token);
+                        }
+                      }
+                    }
+                  } else {
+                    log("[AUTONOMY:POLYMARKET] Balance too low ($" + polyBalance.toFixed(2) + ") — waiting for sells");
+                  }
                 } else if (scored.length > 0) {
                   // Pick top 5 candidates for LLM analysis
                   const candidates = scored.slice(0, 5);

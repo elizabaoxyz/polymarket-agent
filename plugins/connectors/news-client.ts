@@ -127,7 +127,7 @@ export class NewsApiClient {
 
     // Sort by publication date (newest first)
     allArticles.sort((a, b) =>
-      new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+      new Date(b.publishedAt ?? 0).getTime() - new Date(a.publishedAt ?? 0).getTime()
     );
 
     return allArticles.slice(0, maxArticles);

@@ -75,22 +75,18 @@ export class ChromaClient {
       metadatas: documents.map((d) => d.metadata),
     };
 
-    // Try add first, fall back to update if doc already exists
-    const addRes = await fetch(
-      `${this.baseUrl}/tenants/default_tenant/databases/default_database/collections/${collection.id}/add`,
+    // Use ChromaDB's native upsert endpoint (handles both add + update)
+    const upsertRes = await fetch(
+      `${this.baseUrl}/tenants/default_tenant/databases/default_database/collections/${collection.id}/upsert`,
       { method: "POST", headers: this.headers, body: JSON.stringify(body) },
     );
 
-    if (!addRes.ok) {
-      const updateRes = await fetch(
-        `${this.baseUrl}/tenants/default_tenant/databases/default_database/collections/${collection.id}/update`,
-        { method: "POST", headers: this.headers, body: JSON.stringify(body) },
-      );
-      if (!updateRes.ok) {
-        const text = await updateRes.text().catch(() => "");
-        throw new Error(`ChromaDB upsert failed: ${updateRes.status} ${text}`);
-      }
+    if (!upsertRes.ok) {
+      const text = await upsertRes.text().catch(() => "");
+      console.warn(`chroma: upsert failed for collection "${collectionName}" (id=${collection.id}): ${upsertRes.status} ${text.slice(0, 200)}`);
+      throw new Error(`ChromaDB upsert failed: ${upsertRes.status} ${text}`);
     }
+    console.log(`chroma: upserted ${documents.length} docs into "${collectionName}" (id=${collection.id})`);
   }
 
   async deleteCollection(name: string): Promise<void> {
@@ -138,10 +134,10 @@ export class ChromaClient {
 
     if (!parsed.success || !parsed.data.ids[0]) return [];
 
-    const ids = parsed.data.ids[0];
-    const docs = parsed.data.documents[0];
-    const dists = parsed.data.distances[0];
-    const metas = parsed.data.metadatas[0];
+    const ids = parsed.data.ids[0]!;
+    const docs = parsed.data.documents[0] ?? [];
+    const dists = parsed.data.distances[0] ?? [];
+    const metas = parsed.data.metadatas[0] ?? [];
 
     const results: SimilarityResult[] = [];
     for (let i = 0; i < ids.length; i++) {

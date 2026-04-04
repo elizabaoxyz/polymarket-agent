@@ -87,7 +87,7 @@ export type EmbeddingResponse = z.infer<typeof EmbeddingResponseSchema>;
 export const ChromaCollectionSchema = z.object({
   id: z.string(),
   name: z.string(),
-  metadata: z.record(z.unknown()).nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 }).passthrough();
 export type ChromaCollection = z.infer<typeof ChromaCollectionSchema>;
 
@@ -95,7 +95,7 @@ export const ChromaQueryResponseSchema = z.object({
   ids: z.array(z.array(z.string())),
   documents: z.array(z.array(z.string())),
   distances: z.array(z.array(z.number())),
-  metadatas: z.array(z.array(z.record(z.unknown()).nullable())),
+  metadatas: z.array(z.array(z.record(z.string(), z.unknown()).nullable())),
 }).passthrough();
 export type ChromaQueryResponse = z.infer<typeof ChromaQueryResponseSchema>;
 
@@ -113,5 +113,5 @@ export const DEFAULT_RAG_CONFIG: Omit<RAGConfig, "openaiApiKey"> = {
   chromaUrl: "http://localhost:8000",
   embeddingModel: "text-embedding-3-small",
   maxResults: 10,
-  similarityThreshold: 0.7,
+  similarityThreshold: 0.5,
 };

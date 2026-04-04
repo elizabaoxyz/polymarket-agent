@@ -1068,6 +1068,7 @@ async function main() {
                     let jupRagBlock = "";
                     if (ragActive || connectorsActive) {
                       try {
+                        log(`[RAG:JUP-ENRICH] Fetching context for: "${pick.question.slice(0, 60)}"`);
                         const jupCtxPromises = await Promise.allSettled([
                           connectorsActive ? connectorsSvc!.getSearchContext(pick.question) : Promise.resolve(null),
                           ragActive ? ragSvc!.enrichContext(pick.question) : Promise.resolve(null),
@@ -1077,15 +1078,24 @@ async function main() {
                         const jupParts: string[] = [];
                         if (jupConnCtx && jupConnCtx.contextSummary) {
                           jupParts.push(`NEWS & WEB SEARCH:\n${jupConnCtx.contextSummary}`);
+                          log(`[RAG:JUP-ENRICH] Got news+search context (${jupConnCtx.contextSummary.length} chars)`);
                         }
                         if (jupRagCtx && jupRagCtx.similarMarkets.length > 0) {
                           const simLines = jupRagCtx.similarMarkets.slice(0, 3).map(s =>
                             `  - "${(s.metadata as Record<string, unknown>).question ?? s.id}" (similarity: ${(s.score * 100).toFixed(0)}%)`
                           );
                           jupParts.push(`SIMILAR MARKETS (from ChromaDB):\n${simLines.join("\n")}`);
+                          log(`[RAG:JUP-ENRICH] Found ${jupRagCtx.similarMarkets.length} similar markets`);
+                        }
+                        if (jupRagCtx && jupRagCtx.relevantNews.length > 0) {
+                          log(`[RAG:JUP-ENRICH] Found ${jupRagCtx.relevantNews.length} relevant news articles`);
                         }
                         jupRagBlock = jupParts.length > 0 ? `\n\nADDITIONAL CONTEXT:\n${jupParts.join("\n\n")}` : "";
-                      } catch {}
+                        log(`[RAG:JUP-ENRICH] Context block: ${jupRagBlock.length} chars`);
+                      } catch (err) {
+                        const eMsg = err instanceof Error ? err.message : String(err);
+                        log(`[RAG:JUP-ENRICH] Failed: ${eMsg}`);
+                      }
                     }
 
                     log(`[ANALYSIS] Analyzing top ${jupCandidates.length} Jupiter markets...`);

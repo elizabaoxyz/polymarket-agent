@@ -59,7 +59,7 @@ export class RAGService {
       // Return a stub service that's not initialized
       const stub = Object.create(RAGService.prototype) as RAGService;
       (stub as { config: RAGConfig }).config = { ...DEFAULT_RAG_CONFIG, chromaUrl, openaiApiKey: "" };
-      (stub as { _initialized: boolean })._initialized = false;
+      (stub as unknown as { _initialized: boolean })._initialized = false;
       (stub as { chroma: ChromaClient }).chroma = new ChromaClient({ chromaUrl });
       (stub as { embedding: EmbeddingClient }).embedding = new EmbeddingClient({ apiKey: "" });
       return stub;
@@ -102,12 +102,17 @@ export class RAGService {
    * Index Polymarket markets into ChromaDB for similarity search.
    */
   async indexPolymarketMarkets(markets: readonly MarketDocument[]): Promise<number> {
-    if (!this._initialized || markets.length === 0) return 0;
+    if (!this._initialized || markets.length === 0) {
+      console.log(`rag: indexPolymarketMarkets skipped (init=${this._initialized}, markets=${markets.length})`);
+      return 0;
+    }
     try {
       const texts = markets.map((m) =>
         `${m.question}. ${m.description}. Outcomes: ${m.outcomes}. Prices: ${m.outcomePrices}. Volume: ${m.volume}.`
       );
+      console.log(`rag: embedding ${texts.length} Polymarket market texts...`);
       const embeddings = await this.embedding.embedBatch(texts);
+      console.log(`rag: got ${embeddings.length} embeddings (first dim count: ${embeddings[0]?.length ?? 0})`);
       const docs = markets.map((m, i) => ({
         id: m.id,
         content: texts[i]!,
@@ -134,11 +139,15 @@ export class RAGService {
    * Index Jupiter markets into ChromaDB for similarity search.
    */
   async indexJupiterMarkets(markets: readonly MarketDocument[]): Promise<number> {
-    if (!this._initialized || markets.length === 0) return 0;
+    if (!this._initialized || markets.length === 0) {
+      console.log(`rag: indexJupiterMarkets skipped (init=${this._initialized}, markets=${markets.length})`);
+      return 0;
+    }
     try {
       const texts = markets.map((m) =>
         `${m.question}. ${m.description}. Outcomes: ${m.outcomes}. Prices: ${m.outcomePrices}. Volume: ${m.volume}.`
       );
+      console.log(`rag: embedding ${texts.length} Jupiter market texts...`);
       const embeddings = await this.embedding.embedBatch(texts);
       const docs = markets.map((m, i) => ({
         id: m.id,
@@ -343,8 +352,11 @@ export class RAGService {
       if (similar.length === 0) return 0;
       // Average similarity of top results
       const avgScore = similar.reduce((sum, r) => sum + r.score, 0) / similar.length;
+      console.log(`rag: similarity score for "${marketQuestion.slice(0, 40)}": ${avgScore.toFixed(3)} (from ${similar.length} matches)`);
       return avgScore;
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`rag: computeSimilarityScore failed: ${msg}`);
       return 0;
     }
   }

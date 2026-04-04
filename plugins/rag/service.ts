@@ -102,72 +102,50 @@ export class RAGService {
    * Index Polymarket markets into ChromaDB for similarity search.
    */
   async indexPolymarketMarkets(markets: readonly MarketDocument[]): Promise<number> {
-    if (!this._initialized || markets.length === 0) {
-      console.log(`rag: indexPolymarketMarkets skipped (init=${this._initialized}, markets=${markets.length})`);
-      return 0;
-    }
-    try {
-      const texts = markets.map((m) =>
-        `${m.question}. ${m.description}. Outcomes: ${m.outcomes}. Prices: ${m.outcomePrices}. Volume: ${m.volume}.`
-      );
-      console.log(`rag: embedding ${texts.length} Polymarket market texts...`);
-      const embeddings = await this.embedding.embedBatch(texts);
-      console.log(`rag: got ${embeddings.length} embeddings (first dim count: ${embeddings[0]?.length ?? 0})`);
-      const docs = markets.map((m, i) => ({
-        id: m.id,
-        content: texts[i]!,
-        embedding: embeddings[i]!,
-        metadata: {
-          platform: m.platform,
-          question: m.question,
-          volume: m.volume,
-          outcomes: m.outcomes,
-          ...m.metadata,
-        },
-      }));
-      await this.chroma.upsertDocuments(COLLECTIONS.POLYMARKET_MARKETS, docs);
-      console.log(`rag: indexed ${docs.length} Polymarket markets`);
-      return docs.length;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`rag: failed to index Polymarket markets: ${msg}`);
-      return 0;
-    }
+    if (!this._initialized || markets.length === 0) return 0;
+    // Let errors bubble up — caller handles graceful degradation
+    const texts = markets.map((m) =>
+      `${m.question}. ${m.description}. Outcomes: ${m.outcomes}. Prices: ${m.outcomePrices}. Volume: ${m.volume}.`
+    );
+    const embeddings = await this.embedding.embedBatch(texts);
+    const docs = markets.map((m, i) => ({
+      id: m.id,
+      content: texts[i]!,
+      embedding: embeddings[i]!,
+      metadata: {
+        platform: m.platform,
+        question: m.question,
+        volume: m.volume,
+        outcomes: m.outcomes,
+        ...m.metadata,
+      },
+    }));
+    await this.chroma.upsertDocuments(COLLECTIONS.POLYMARKET_MARKETS, docs);
+    return docs.length;
   }
 
   /**
    * Index Jupiter markets into ChromaDB for similarity search.
    */
   async indexJupiterMarkets(markets: readonly MarketDocument[]): Promise<number> {
-    if (!this._initialized || markets.length === 0) {
-      console.log(`rag: indexJupiterMarkets skipped (init=${this._initialized}, markets=${markets.length})`);
-      return 0;
-    }
-    try {
-      const texts = markets.map((m) =>
-        `${m.question}. ${m.description}. Outcomes: ${m.outcomes}. Prices: ${m.outcomePrices}. Volume: ${m.volume}.`
-      );
-      console.log(`rag: embedding ${texts.length} Jupiter market texts...`);
-      const embeddings = await this.embedding.embedBatch(texts);
-      const docs = markets.map((m, i) => ({
-        id: m.id,
-        content: texts[i]!,
-        embedding: embeddings[i]!,
-        metadata: {
-          platform: m.platform,
-          question: m.question,
-          volume: m.volume,
-          ...m.metadata,
-        },
-      }));
-      await this.chroma.upsertDocuments(COLLECTIONS.JUPITER_MARKETS, docs);
-      console.log(`rag: indexed ${docs.length} Jupiter markets`);
-      return docs.length;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`rag: failed to index Jupiter markets: ${msg}`);
-      return 0;
-    }
+    if (!this._initialized || markets.length === 0) return 0;
+    const texts = markets.map((m) =>
+      `${m.question}. ${m.description}. Outcomes: ${m.outcomes}. Prices: ${m.outcomePrices}. Volume: ${m.volume}.`
+    );
+    const embeddings = await this.embedding.embedBatch(texts);
+    const docs = markets.map((m, i) => ({
+      id: m.id,
+      content: texts[i]!,
+      embedding: embeddings[i]!,
+      metadata: {
+        platform: m.platform,
+        question: m.question,
+        volume: m.volume,
+        ...m.metadata,
+      },
+    }));
+    await this.chroma.upsertDocuments(COLLECTIONS.JUPITER_MARKETS, docs);
+    return docs.length;
   }
 
   /**
@@ -175,28 +153,21 @@ export class RAGService {
    */
   async indexNewsArticles(articles: readonly NewsDocument[]): Promise<number> {
     if (!this._initialized || articles.length === 0) return 0;
-    try {
-      const texts = articles.map((a) => `${a.title}. ${a.content}`);
-      const embeddings = await this.embedding.embedBatch(texts);
-      const docs = articles.map((a, i) => ({
-        id: a.id,
-        content: texts[i]!,
-        embedding: embeddings[i]!,
-        metadata: {
-          source: a.source,
-          url: a.url,
-          publishedAt: a.publishedAt,
-          keywords: a.keywords,
-        },
-      }));
-      await this.chroma.upsertDocuments(COLLECTIONS.NEWS_ARTICLES, docs);
-      console.log(`rag: indexed ${docs.length} news articles`);
-      return docs.length;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`rag: failed to index news articles: ${msg}`);
-      return 0;
-    }
+    const texts = articles.map((a) => `${a.title}. ${a.content}`);
+    const embeddings = await this.embedding.embedBatch(texts);
+    const docs = articles.map((a, i) => ({
+      id: a.id,
+      content: texts[i]!,
+      embedding: embeddings[i]!,
+      metadata: {
+        source: a.source,
+        url: a.url,
+        publishedAt: a.publishedAt,
+        keywords: a.keywords,
+      },
+    }));
+    await this.chroma.upsertDocuments(COLLECTIONS.NEWS_ARTICLES, docs);
+    return docs.length;
   }
 
   /**
@@ -347,18 +318,10 @@ export class RAGService {
    */
   async computeSimilarityScore(marketQuestion: string): Promise<number> {
     if (!this._initialized) return 0;
-    try {
-      const similar = await this.findSimilarMarkets(marketQuestion, "all", 5);
-      if (similar.length === 0) return 0;
-      // Average similarity of top results
-      const avgScore = similar.reduce((sum, r) => sum + r.score, 0) / similar.length;
-      console.log(`rag: similarity score for "${marketQuestion.slice(0, 40)}": ${avgScore.toFixed(3)} (from ${similar.length} matches)`);
-      return avgScore;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`rag: computeSimilarityScore failed: ${msg}`);
-      return 0;
-    }
+    const similar = await this.findSimilarMarkets(marketQuestion, "all", 5);
+    if (similar.length === 0) return 0;
+    const avgScore = similar.reduce((sum, r) => sum + r.score, 0) / similar.length;
+    return avgScore;
   }
 
   // ========== Stats ==========

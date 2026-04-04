@@ -746,7 +746,10 @@ async function main() {
                         m.score = oldScore * (1 - SIMILARITY_WEIGHT) + simScore * SIMILARITY_WEIGHT;
                         log(`[RAG:SIMILARITY] "${m.question.slice(0, 50)}" score: ${oldScore.toFixed(2)} → ${m.score.toFixed(2)} (sim: ${simScore.toFixed(2)})`);
                       }
-                    } catch {}
+                    } catch (simErr) {
+                      const simMsg = simErr instanceof Error ? simErr.message : String(simErr);
+                      log(`[RAG:SIM-ERR] "${m.question.slice(0, 30)}": ${simMsg}`);
+                    }
                   }
                   // Re-sort after similarity adjustment
                   scored.sort((a, b) => b.score - a.score);
@@ -1030,7 +1033,10 @@ async function main() {
                       if (simScore > 0) {
                         m.score = m.score * 0.9 + simScore * 0.1;
                       }
-                    } catch {}
+                    } catch (simErr) {
+                      const simMsg = simErr instanceof Error ? simErr.message : String(simErr);
+                      log(`[RAG:SIM-JUP-ERR] ${simMsg}`);
+                    }
                   }
                   jupScored.sort((a, b) => b.score - a.score);
                 }

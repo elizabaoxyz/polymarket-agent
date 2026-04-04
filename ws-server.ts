@@ -42,6 +42,13 @@ import { JupiterPredictionService, JUPITER_SERVICE_TYPE } from "./plugins/jupite
 import { x402SolanaPlugin } from "./plugins/x402-solana/index";
 import { X402SolanaService } from "./plugins/x402-solana/service";
 import { X402_SERVICE_TYPE } from "./plugins/x402-solana/types";
+import { ragPlugin } from "./plugins/rag/index";
+import { RAGService } from "./plugins/rag/service";
+import { RAG_SERVICE_TYPE } from "./plugins/rag/types";
+import { connectorsPlugin } from "./plugins/connectors/index";
+import { ConnectorsService } from "./plugins/connectors/service";
+import { CONNECTORS_SERVICE_TYPE } from "./plugins/connectors/types";
+import type { MarketDocument, NewsDocument, SearchDocument } from "./plugins/rag/types";
 
 const WS_PORT = Number(process.env.PORT ?? process.env.WS_PORT ?? 3001);
 const DEFAULT_ROOM_ID = stringToUuid("web-chat-room");
@@ -143,6 +150,8 @@ async function createRuntime() {
       polymarketExtPlugin,
       jupiterPredictionPlugin,
       x402SolanaPlugin,
+      ragPlugin,
+      connectorsPlugin,
       ...llmPlugins,
     ],
     settings: {
@@ -173,6 +182,23 @@ async function createRuntime() {
     }
   } catch {}
 
+  // Initialize RAG + Connectors services
+  let ragSvc: RAGService | null = null;
+  try {
+    ragSvc = (await runtime.getServiceLoadPromise(RAG_SERVICE_TYPE)) as unknown as RAGService | null;
+    if (ragSvc?.isActive()) {
+      console.log(`ws-server: RAG active — ChromaDB connected`);
+    }
+  } catch {}
+
+  let connectorsSvc: ConnectorsService | null = null;
+  try {
+    connectorsSvc = (await runtime.getServiceLoadPromise(CONNECTORS_SERVICE_TYPE)) as unknown as ConnectorsService | null;
+    if (connectorsSvc?.isActive()) {
+      console.log(`ws-server: Connectors active — news + search available`);
+    }
+  } catch {}
+
   await runtime.ensureConnection({
     entityId: DEFAULT_USER_ID,
     roomId: DEFAULT_ROOM_ID,
@@ -184,7 +210,7 @@ async function createRuntime() {
     type: ChannelType.DM,
   } as Parameters<typeof runtime.ensureConnection>[0]);
 
-  return runtime;
+  return { runtime, ragSvc, connectorsSvc };
 }
 
 // Cache Solana balance to avoid RPC 429s
@@ -317,7 +343,7 @@ async function getPortfolioStatus(runtime: AgentRuntime) {
 
 async function main() {
   console.log("ws-server: initializing runtime...");
-  const runtime = await createRuntime();
+  const { runtime, ragSvc, connectorsSvc } = await createRuntime();
   const messageService = runtime.messageService;
   if (!messageService) {
     throw new Error("Message service not initialized");
@@ -496,6 +522,12 @@ async function main() {
             return Math.max(minBet, size);
           };
 
+          // ---- RAG + Connectors helpers (available to autonomy loop) ----
+          const ragActive = ragSvc?.isActive() === true;
+          const connectorsActive = connectorsSvc?.isActive() === true;
+          if (ragActive) log(`[RAG] ChromaDB connected — similarity search active`);
+          if (connectorsActive) log(`[CONNECTORS] News + Search active`);
+
           const runAutonomyCycle = async () => {
             cycleCount++;
             try { ws.send(JSON.stringify({ type: "thinking", active: true })); } catch {}
@@ -504,6 +536,8 @@ async function main() {
 
             try {
               log(`[AUTONOMY:${platform}] Cycle #${cycleCount} — ${isPolymarketCycle ? "Polygon" : "Solana + x402"}`);
+              if (ragActive) log(`[RAG] ChromaDB online`);
+              if (connectorsActive) log(`[CONNECTORS] News + Search online`);
 
               // Get balance first — determines sell aggressiveness
               const portfolioStatus = await getPortfolioStatus(runtime);
@@ -677,6 +711,47 @@ async function main() {
                   }
                 } catch {}
                 scored.sort((a, b) => b.score - a.score);
+
+                // ===== RAG: Index scanned markets into ChromaDB =====
+                if (ragActive && scored.length > 0) {
+                  try {
+                    const topMarkets = scored.slice(0, 20);
+                    const docs: MarketDocument[] = topMarkets.map(m => ({
+                      id: `poly_${m.question.slice(0, 50).replace(/[^a-zA-Z0-9]/g, "_")}`,
+                      question: m.question,
+                      description: m.question,
+                      outcomes: `YES: $${m.yesPrice.toFixed(2)}, NO: $${(1 - m.yesPrice).toFixed(2)}`,
+                      outcomePrices: `YES:${m.yesPrice.toFixed(2)},NO:${(1 - m.yesPrice).toFixed(2)}`,
+                      volume: m.volume,
+                      platform: "polymarket" as const,
+                      metadata: { score: m.score, daysLeft: m.daysLeft },
+                    }));
+                    const indexed = await ragSvc!.indexPolymarketMarkets(docs);
+                    log(`[RAG:POLYMARKET] Indexed ${indexed} markets into ChromaDB`);
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    log(`[RAG:POLYMARKET] Indexing failed: ${msg}`);
+                  }
+                }
+
+                // ===== RAG: Add ChromaDB similarity score to market scoring =====
+                if (ragActive && scored.length > 0) {
+                  log(`[RAG:SIMILARITY] Computing similarity scores for ${Math.min(scored.length, 10)} markets...`);
+                  const SIMILARITY_WEIGHT = 0.10; // 10% weight
+                  for (const m of scored.slice(0, 10)) {
+                    try {
+                      const simScore = await ragSvc!.computeSimilarityScore(m.question);
+                      if (simScore > 0) {
+                        const oldScore = m.score;
+                        m.score = oldScore * (1 - SIMILARITY_WEIGHT) + simScore * SIMILARITY_WEIGHT;
+                        log(`[RAG:SIMILARITY] "${m.question.slice(0, 50)}" score: ${oldScore.toFixed(2)} → ${m.score.toFixed(2)} (sim: ${simScore.toFixed(2)})`);
+                      }
+                    } catch {}
+                  }
+                  // Re-sort after similarity adjustment
+                  scored.sort((a, b) => b.score - a.score);
+                }
+
                 log(`[AUTONOMY:POLYMARKET] ${scored.length} new markets | balance: $${polyBalance.toFixed(2)}`);
 
                 if (ownedTitles.size >= MAX_POSITIONS) {
@@ -719,10 +794,64 @@ async function main() {
                     `${i + 1}. "${c.question}" — YES: $${c.yesPrice.toFixed(2)}, NO: $${(1 - c.yesPrice).toFixed(2)}, score: ${c.score.toFixed(2)}, ${c.daysLeft.toFixed(0)} days left`
                   ).join("\n");
 
+                  // ===== RAG: Fetch news + search context for enrichment =====
+                  let ragContextBlock = "";
+                  if (ragActive || connectorsActive) {
+                    try {
+                      const topQuestion = candidates[0]!.question;
+                      log(`[RAG:ENRICH] Fetching context for: "${topQuestion.slice(0, 60)}"`);
+                      const ragPromises = await Promise.allSettled([
+                        connectorsActive ? connectorsSvc!.getSearchContext(topQuestion) : Promise.resolve(null),
+                        ragActive ? ragSvc!.enrichContext(topQuestion) : Promise.resolve(null),
+                      ]);
+                      const connectorCtx = ragPromises[0]!.status === "fulfilled" ? ragPromises[0]!.value : null;
+                      const ragCtx = ragPromises[1]!.status === "fulfilled" ? ragPromises[1]!.value : null;
+
+                      const contextParts: string[] = [];
+                      if (connectorCtx && connectorCtx.contextSummary) {
+                        contextParts.push(`NEWS & WEB SEARCH:\n${connectorCtx.contextSummary}`);
+                        log(`[RAG:ENRICH] Got news+search context (${connectorCtx.contextSummary.length} chars)`);
+                        // Index news articles into ChromaDB for future similarity retrieval
+                        if (ragActive && connectorCtx.articles.length > 0) {
+                          const newsDocs: NewsDocument[] = connectorCtx.articles.map((a, i) => ({
+                            id: `news_${a.title.slice(0, 30).replace(/[^a-zA-Z0-9]/g, "_")}_${i}`,
+                            title: a.title,
+                            content: `${a.title}. ${a.description}`,
+                            source: String(a.source),
+                            url: String(a.url ?? ""),
+                            publishedAt: String(a.publishedAt ?? ""),
+                            keywords: topQuestion,
+                          }));
+                          const indexed = await ragSvc!.indexNewsArticles(newsDocs);
+                          log(`[RAG:INDEX] Indexed ${indexed} news articles into ChromaDB`);
+                        }
+                      }
+                      if (ragCtx && ragCtx.similarMarkets.length > 0) {
+                        const similarLines = ragCtx.similarMarkets.slice(0, 3).map(s =>
+                          `  - "${(s.metadata as Record<string, unknown>).question ?? s.id}" (similarity: ${(s.score * 100).toFixed(0)}%)`
+                        );
+                        contextParts.push(`SIMILAR MARKETS (from ChromaDB):\n${similarLines.join("\n")}`);
+                        log(`[RAG:ENRICH] Found ${ragCtx.similarMarkets.length} similar markets in ChromaDB`);
+                      }
+                      if (ragCtx && ragCtx.relevantNews.length > 0) {
+                        const newsLines = ragCtx.relevantNews.slice(0, 3).map(n =>
+                          `  - ${n.content.slice(0, 100)}`
+                        );
+                        contextParts.push(`RELATED NEWS (from ChromaDB):\n${newsLines.join("\n")}`);
+                      }
+                      ragContextBlock = contextParts.length > 0
+                        ? `\n\nADDITIONAL CONTEXT FOR YOUR ANALYSIS:\n${contextParts.join("\n\n")}\n\nUse this context to improve your prediction accuracy.`
+                        : "";
+                    } catch (err) {
+                      const ragErr = err instanceof Error ? err.message : String(err);
+                      log(`[RAG:ENRICH] Context fetch failed: ${ragErr}`);
+                    }
+                  }
+
                   // Ask LLM to analyze markets via sendPrompt (collects response text)
                   log(`[ANALYSIS] Analyzing top ${candidates.length} markets...`);
                   const analysisResults = await sendPrompt(
-                    `DO NOT place any orders or execute any actions. Just analyze these prediction markets and tell me which one is the best bet and why. Today is ${new Date().toISOString().split("T")[0]}.\n\n${candidateList}\n\nRespond in this EXACT format:\nPICK: <number 1-${candidates.length}>\nSIDE: <YES or NO>\nREASON: <one sentence why>`
+                    `DO NOT place any orders or execute any actions. Just analyze these prediction markets and tell me which one is the best bet and why. Today is ${new Date().toISOString().split("T")[0]}.\n\n${candidateList}${ragContextBlock}\n\nRespond in this EXACT format:\nPICK: <number 1-${candidates.length}>\nSIDE: <YES or NO>\nREASON: <one sentence why>`
                   );
                   const analysisText = analysisResults.join(" ");
 
@@ -871,6 +1000,41 @@ async function main() {
                   }
                 } catch {}
                 jupScored.sort((a, b) => b.score - a.score);
+
+                // ===== RAG: Index Jupiter markets into ChromaDB =====
+                if (ragActive && jupScored.length > 0) {
+                  try {
+                    const topJup = jupScored.slice(0, 15);
+                    const jupDocs: MarketDocument[] = topJup.map(m => ({
+                      id: `jup_${m.marketId}`,
+                      question: m.question,
+                      description: m.question,
+                      outcomes: "YES,NO",
+                      outcomePrices: `YES:$${m.yesPrice.toFixed(2)},NO:$${(1 - m.yesPrice).toFixed(2)}`,
+                      volume: m.volume,
+                      platform: "jupiter" as const,
+                      metadata: { score: m.score, marketId: m.marketId },
+                    }));
+                    await ragSvc!.indexJupiterMarkets(jupDocs);
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    log(`[RAG:JUPITER] Indexing failed: ${msg}`);
+                  }
+                }
+
+                // ===== RAG: Add similarity score to Jupiter market scoring =====
+                if (ragActive && jupScored.length > 0) {
+                  for (const m of jupScored.slice(0, 10)) {
+                    try {
+                      const simScore = await ragSvc!.computeSimilarityScore(m.question);
+                      if (simScore > 0) {
+                        m.score = m.score * 0.9 + simScore * 0.1;
+                      }
+                    } catch {}
+                  }
+                  jupScored.sort((a, b) => b.score - a.score);
+                }
+
                 log(`[AUTONOMY:JUPITER] ${jupScored.length} new markets | SOL balance: $${solBalance.toFixed(2)}`);
 
                 // x402 payment — only when we have markets to buy
@@ -899,9 +1063,34 @@ async function main() {
                     const jupCandidateList = jupCandidates.map((c, i) =>
                       `${i + 1}. "${c.question}" — YES: $${c.yesPrice.toFixed(2)}, NO: $${(1 - c.yesPrice).toFixed(2)}, vol: $${c.volume.toFixed(0)}`
                     ).join("\n");
+
+                    // ===== RAG: Fetch news + search for Jupiter market analysis =====
+                    let jupRagBlock = "";
+                    if (ragActive || connectorsActive) {
+                      try {
+                        const jupCtxPromises = await Promise.allSettled([
+                          connectorsActive ? connectorsSvc!.getSearchContext(pick.question) : Promise.resolve(null),
+                          ragActive ? ragSvc!.enrichContext(pick.question) : Promise.resolve(null),
+                        ]);
+                        const jupConnCtx = jupCtxPromises[0]!.status === "fulfilled" ? jupCtxPromises[0]!.value : null;
+                        const jupRagCtx = jupCtxPromises[1]!.status === "fulfilled" ? jupCtxPromises[1]!.value : null;
+                        const jupParts: string[] = [];
+                        if (jupConnCtx && jupConnCtx.contextSummary) {
+                          jupParts.push(`NEWS & WEB SEARCH:\n${jupConnCtx.contextSummary}`);
+                        }
+                        if (jupRagCtx && jupRagCtx.similarMarkets.length > 0) {
+                          const simLines = jupRagCtx.similarMarkets.slice(0, 3).map(s =>
+                            `  - "${(s.metadata as Record<string, unknown>).question ?? s.id}" (similarity: ${(s.score * 100).toFixed(0)}%)`
+                          );
+                          jupParts.push(`SIMILAR MARKETS (from ChromaDB):\n${simLines.join("\n")}`);
+                        }
+                        jupRagBlock = jupParts.length > 0 ? `\n\nADDITIONAL CONTEXT:\n${jupParts.join("\n\n")}` : "";
+                      } catch {}
+                    }
+
                     log(`[ANALYSIS] Analyzing top ${jupCandidates.length} Jupiter markets...`);
                     const jupAnalysis = await sendPrompt(
-                      `DO NOT place any orders. Just analyze these Jupiter prediction markets. Today is ${new Date().toISOString().split("T")[0]}.\n\n${jupCandidateList}\n\nPICK: <number 1-${jupCandidates.length}>\nSIDE: YES or NO\nREASON: one sentence`
+                      `DO NOT place any orders. Just analyze these Jupiter prediction markets. Today is ${new Date().toISOString().split("T")[0]}.\n\n${jupCandidateList}${jupRagBlock}\n\nPICK: <number 1-${jupCandidates.length}>\nSIDE: YES or NO\nREASON: one sentence`
                     );
                     const jupText = jupAnalysis.join(" ");
                     const jupPickMatch = /PICK:\s*(\d+)/i.exec(jupText);

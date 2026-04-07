@@ -406,6 +406,7 @@ async function directPolymarketBuy(
   question: string,
   side: string,
   betSize: number,
+  availableBalance?: number,
 ): Promise<boolean> {
   try {
     const extSvc = (await deps.runtime.getServiceLoadPromise(
@@ -447,9 +448,10 @@ async function directPolymarketBuy(
     }
 
     const size = Math.max(5, Math.floor(betSize / price)); // Polymarket minimum is 5 shares
-    if (size * price > betSize * 2) {
-      // Minimum 5 shares would cost more than 2× the intended bet
-      callbacks.log(`[BUY:POLYMARKET] ❌ $${betSize} can't buy minimum 5 shares at $${price.toFixed(2)} ($${(5 * price).toFixed(2)} needed)`);
+    const totalCost = size * price;
+    const balance = availableBalance ?? betSize * 2; // if no balance passed, use generous estimate
+    if (totalCost > balance) {
+      callbacks.log(`[BUY:POLYMARKET] ❌ Not enough balance: $${balance.toFixed(2)} < $${totalCost.toFixed(2)} (${size} shares @ $${price.toFixed(2)})`);
       return false;
     }
 
@@ -1206,7 +1208,7 @@ async function runAutonomyCycle(
                 `[BUY:POLYMARKET] "${analysis.pick.question}" (${analysis.side}:$${analysis.pick.yesPrice.toFixed(2)}, score:${analysis.pick.score.toFixed(2)}, $${betSize.toFixed(2)}, ${(analysis.pick as ScoredMarket).daysLeft?.toFixed(0) ?? "?"}d left)`,
               );
               // Direct CLOB API buy — bypasses LLM for reliability
-              const bought = await directPolymarketBuy(deps, callbacks, state, analysis.pick.question, analysis.side, betSize);
+              const bought = await directPolymarketBuy(deps, callbacks, state, analysis.pick.question, analysis.side, betSize, polyBalance);
               if (bought) {
                 recordTrade(state, { question: analysis.pick.question, platform: "POLYMARKET", time: Date.now(), price: analysis.pick.yesPrice, amount: betSize });
               } else {
@@ -1273,8 +1275,15 @@ async function runAutonomyCycle(
             const betResults = await sendPrompt(deps, callbacks,
               `bet $${betSize.toFixed(0)} ${side} on jupiter market ${(pick as JupMarket).marketId}`,
             );
+            const betResultText = betResults.join(" ");
+            if (betResultText.length > 0) {
+              callbacks.log(`[BUY:JUPITER] Result: ${betResultText.slice(0, 150)}`);
+            } else {
+              callbacks.log(`[BUY:JUPITER] Order submitted (no confirmation text returned)`);
+            }
             const betFailed = betResults.some((r) => /failed|error|no shares|no buyers/i.test(r));
             if (betFailed) {
+              callbacks.log(`[BUY:JUPITER] ❌ Trade failed`);
               state.failedBuys.set((pick as JupMarket).marketId, Date.now());
               if (candidates.length > 1) {
                 const fallback = (candidates as JupMarket[]).find(
@@ -1291,6 +1300,7 @@ async function runAutonomyCycle(
                 }
               }
             } else {
+              callbacks.log(`[BUY:JUPITER] ✅ Order placed`);
               recordSpend(state, betSize);
             }
             recordTrade(state, { question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice, amount: betSize });

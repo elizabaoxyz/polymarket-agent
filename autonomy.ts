@@ -146,6 +146,7 @@ async function directPolymarketSell(
   token: string,
   shares: number,
   title: string,
+  positionCurPrice?: number,
 ): Promise<boolean> {
   try {
     const extSvc = (await deps.runtime.getServiceLoadPromise(
@@ -166,19 +167,29 @@ async function directPolymarketSell(
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      callbacks.log(`[SELL:POLYMARKET] ❌ Order book fetch failed for "${title}": ${msg}`);
-      state.failedSells.set(token, Date.now());
-      return false;
+      callbacks.log(`[SELL:POLYMARKET] Order book fetch failed for "${title}": ${msg}`);
+      // Don't give up — try position curPrice as fallback
+    }
+
+    // If order book bid is garbage, use position's curPrice with a 5% discount
+    // The Data API curPrice is the mid-market price and often more reliable than
+    // a thin order book with only a $0.01 resting bid.
+    if (price < 0.03 && positionCurPrice && positionCurPrice >= 0.05) {
+      const fallbackPrice = Math.round(positionCurPrice * 0.95 * 100) / 100; // 5% discount, round to cents
+      callbacks.log(
+        `[SELL:POLYMARKET] Order book bid $${price.toFixed(4)} too low, using position price $${positionCurPrice.toFixed(2)} → sell at $${fallbackPrice.toFixed(2)}`,
+      );
+      price = fallbackPrice;
     }
 
     if (price < 0.01 || price > 0.99) {
-      callbacks.log(`[SELL:POLYMARKET] ❌ "${title}" — best bid $${price.toFixed(4)}, market closed/illiquid`);
+      callbacks.log(`[SELL:POLYMARKET] ❌ "${title}" — price $${price.toFixed(4)} out of range, market closed/illiquid`);
       state.failedSells.set(token, Date.now());
       return false;
     }
 
-    if (price < 0.02) {
-      callbacks.log(`[SELL:POLYMARKET] ❌ "${title}" — best bid $${price.toFixed(4)}, near-zero price, skipping`);
+    if (price < 0.03) {
+      callbacks.log(`[SELL:POLYMARKET] ❌ "${title}" — price $${price.toFixed(4)}, near-zero, skipping`);
       state.failedSells.set(token, Date.now());
       return false;
     }
@@ -208,8 +219,8 @@ async function polymarketSellPhase(
   deps: AutonomyDeps,
   callbacks: AutonomyCallbacks,
   state: AutonomyState,
-  sellTargets: Array<{ token: string; shares: number; title: string; pnl: number }>,
-  allSellable: Array<{ token: string; shares: number; title: string; pnl: number }>,
+  sellTargets: PolySellTarget[],
+  allSellable: PolySellTarget[],
   polyBalance: number,
   lowBalance: boolean,
   sellLossThreshold: number,
@@ -241,7 +252,7 @@ async function polymarketSellPhase(
       }
       const action = sell.pnl < 0 ? "cutting loss" : "taking profit";
       callbacks.log(`[SELL:POLYMARKET] "${sell.title}" ${sell.pnl.toFixed(0)}% — ${action}`);
-      await directPolymarketSell(deps, callbacks, state, sell.token, sell.shares, sell.title);
+      await directPolymarketSell(deps, callbacks, state, sell.token, sell.shares, sell.title, sell.curPrice);
     }
   }
 
@@ -266,7 +277,7 @@ async function polymarketSellPhase(
         const pos = sorted[i]!;
         if (state.failedSells.has(pos.token) || state.recentlySold.has(pos.token)) continue;
         callbacks.log(`[RECOVERY SELL] "${pos.title}" ${pos.pnl.toFixed(0)}% — LLM recommended`);
-        await directPolymarketSell(deps, callbacks, state, pos.token, pos.shares, pos.title);
+        await directPolymarketSell(deps, callbacks, state, pos.token, pos.shares, pos.title, pos.curPrice);
       }
     }
   }
@@ -544,7 +555,7 @@ async function analyzeCandidates(
 
   // Fallback: simple YES/NO on top pick
   const pick = candidates[0]!;
-  callbacks.log("[ANALYSIS] Structured response failed, asking simpler question...");
+  callbacks.log(`[ANALYSIS] Structured response failed (got: "${text.slice(0, 80)}"), asking simpler question...`);
   const fallback = await sendPrompt(
     deps,
     callbacks,
@@ -553,8 +564,14 @@ async function analyzeCandidates(
   const fbText = fallback.join(" ");
   const yesNo = /\b(YES|NO)\b/i.exec(fbText);
   if (!yesNo) {
-    callbacks.log(`[ANALYSIS] LLM can't decide — skipping. Response: ${fbText.slice(0, 100)}`);
-    return null;
+    // Last resort: use price-based heuristic instead of skipping entirely
+    const heuristicSide = pick.yesPrice < 0.5 ? "YES" : "NO";
+    callbacks.log(`[ANALYSIS] LLM can't decide ("${fbText.slice(0, 60)}") — using price heuristic: ${heuristicSide}`);
+    return {
+      pick,
+      side: heuristicSide,
+      reason: `price heuristic (YES=$${pick.yesPrice.toFixed(2)})`,
+    };
   }
   return {
     pick,
@@ -565,7 +582,7 @@ async function analyzeCandidates(
 
 // --- Collect owned positions ---
 
-type PolySellTarget = { token: string; shares: number; title: string; pnl: number };
+type PolySellTarget = { token: string; shares: number; title: string; pnl: number; curPrice: number };
 type JupSellTarget = { marketId: string; pubkey: string; title: string; pnl: number };
 type JupClaimTarget = { pubkey: string; title: string; payout: number };
 
@@ -604,9 +621,9 @@ async function collectPositions(
           if (pnl <= -95) continue;
           if (price < 0.05) continue;
           if (!isFailCooledDown(state.failedSells, pos.asset, FAILED_SELL_COOLDOWN_MS)) continue;
-          polyAllSellable.push({ token: pos.asset, shares: pos.size, title: pos.title, pnl });
+          polyAllSellable.push({ token: pos.asset, shares: pos.size, title: pos.title, pnl, curPrice: price });
           if (pnl < sellLossThreshold || pnl > sellProfitThreshold) {
-            polySellTargets.push({ token: pos.asset, shares: pos.size, title: pos.title, pnl });
+            polySellTargets.push({ token: pos.asset, shares: pos.size, title: pos.title, pnl, curPrice: price });
           }
         }
       }

@@ -502,30 +502,35 @@ async function scanJupiterMarkets(
     { label: "jupiter-scan" },
   );
   const evData = await res.json();
+  let _jupDbgTotal = 0, _jupDbgPrice = 0, _jupDbgVol = 0, _jupDbgOwned = 0;
   for (const event of (evData.data ?? []).slice(0, 30)) {
     for (const m of (event.markets ?? []).filter(
       (x: Record<string, unknown>) => x.status === "open",
     )) {
+      _jupDbgTotal++;
       const yp = Number(m.pricing?.buyYesPriceUsd ?? 0) / 1_000_000;
       const np = Number(m.pricing?.buyNoPriceUsd ?? 0) / 1_000_000;
-      if (yp < 0.05 || yp > 0.95) continue;
+      if (yp < 0.05 || yp > 0.95) { _jupDbgPrice++; continue; }
       const effectiveNp = np > 0 ? np : 1 - yp;
       const spread = Math.abs(effectiveNp - yp);
       const mid = (yp + effectiveNp) / 2;
       const spreadScore = Math.max(0, 1 - spread / 0.15);
       const midScore = 1 - Math.abs(mid - 0.5) * 2;
       const volume = Number(m.pricing?.volume ?? 0) / 1_000_000;
-      if (volume < 0.5) continue;
+      if (volume < 0.5) { _jupDbgVol++; continue; }
       const volumeScore = Math.min(1, volume / 10000);
       const score = spreadScore * 0.35 + midScore * 0.3 + volumeScore * 0.35;
       const q = `${event.metadata?.title} — ${m.metadata?.title}`;
-      if (ownedTitles.has((event.metadata?.title ?? "").toLowerCase())) continue;
+      if (ownedTitles.has((event.metadata?.title ?? "").toLowerCase())) { _jupDbgOwned++; continue; }
       if (isRecentlyTraded(state, q)) continue;
       if (!isFailCooledDown(state.failedBuys, m.marketId, FAILED_BUY_COOLDOWN_MS)) continue;
       jupScored.push({ question: q, marketId: m.marketId, yesPrice: yp, score, volume });
     }
   }
   jupScored.sort((a, b) => b.score - a.score);
+  if (jupScored.length === 0 && _jupDbgTotal > 0) {
+    console.log(`[JUPITER:DEBUG] ${_jupDbgTotal} markets scanned, filtered: price=${_jupDbgPrice}, volume=${_jupDbgVol}, owned=${_jupDbgOwned}`);
+  }
   return jupScored;
 }
 
@@ -678,51 +683,65 @@ async function analyzeCandidates(
     .join("\n");
 
   callbacks.log(`[ANALYSIS] Analyzing top ${candidates.length} markets...`);
-  const results = await sendPrompt(
-    deps,
-    callbacks,
-    `DO NOT place any orders or execute any actions. Just analyze these prediction markets and tell me which one is the best bet and why. Today is ${new Date().toISOString().split("T")[0]}.\n\n${candidateList}${ragContext}\n\nRespond in this EXACT format:\nPICK: <number 1-${candidates.length}>\nSIDE: <YES or NO>\nREASON: <one sentence why>`,
-  );
-  const text = results.join(" ");
-  const pickMatch = /PICK:\s*(\d+)/i.exec(text);
-  const sideMatch = /SIDE:\s*(YES|NO)/i.exec(text);
-  const reasonMatch = /REASON:\s*(.+?)(?:\.|$)/i.exec(text);
 
-  if (sideMatch) {
-    const pickIdx = pickMatch
-      ? Math.min(Number.parseInt(pickMatch[1]!) - 1, candidates.length - 1)
-      : 0;
-    return {
-      pick: candidates[Math.max(0, pickIdx)]!,
-      side: sideMatch[1]!.toUpperCase(),
-      reason: reasonMatch ? reasonMatch[1]!.trim() : text.slice(0, 100),
-    };
+  // Try structured analysis first — single prompt that asks for PICK/SIDE/REASON.
+  // We make TWO attempts: first the multi-market structured prompt, then a simpler
+  // YES/NO on just the top pick. Both go through sendPrompt which routes through
+  // the LLM. If the LLM returns empty (triggers an action instead of replying),
+  // we fall back to price heuristic.
+  const attempts: Array<{ prompt: string; parser: (text: string) => { pick: (typeof candidates)[0]; side: string; reason: string } | null }> = [
+    {
+      prompt: `You are a prediction market analyst. DO NOT place any orders or trigger any actions — only analyze and respond with text.
+
+Today is ${new Date().toISOString().split("T")[0]}. Analyze these markets:\n\n${candidateList}${ragContext}\n\nYou MUST respond in EXACTLY this format (3 lines, nothing else):\nPICK: <number 1-${candidates.length}>\nSIDE: YES or NO\nREASON: <one sentence>`,
+      parser: (text) => {
+        const pickMatch = /PICK:\s*(\d+)/i.exec(text);
+        const sideMatch = /SIDE:\s*(YES|NO)/i.exec(text);
+        const reasonMatch = /REASON:\s*(.+?)(?:\.|$)/i.exec(text);
+        if (!sideMatch) return null;
+        const pickIdx = pickMatch ? Math.min(Number.parseInt(pickMatch[1]!) - 1, candidates.length - 1) : 0;
+        return {
+          pick: candidates[Math.max(0, pickIdx)]!,
+          side: sideMatch[1]!.toUpperCase(),
+          reason: reasonMatch ? reasonMatch[1]!.trim() : text.slice(0, 100),
+        };
+      },
+    },
+    {
+      prompt: `Answer ONLY with YES or NO followed by a short reason. Do not trigger any actions.\n\nToday is ${new Date().toISOString().split("T")[0]}. Should I bet YES or NO on: "${candidates[0]!.question}"? Current YES price: $${candidates[0]!.yesPrice.toFixed(2)}.`,
+      parser: (text) => {
+        const yesNo = /\b(YES|NO)\b/i.exec(text);
+        if (!yesNo) return null;
+        return {
+          pick: candidates[0]!,
+          side: yesNo[1]!.toUpperCase(),
+          reason: text.slice(0, 100) || "fallback analysis",
+        };
+      },
+    },
+  ];
+
+  for (let i = 0; i < attempts.length; i++) {
+    const attempt = attempts[i]!;
+    const results = await sendPrompt(deps, callbacks, attempt.prompt);
+    const text = results.join(" ");
+    if (text.length > 0) {
+      const parsed = attempt.parser(text);
+      if (parsed) return parsed;
+      callbacks.log(`[ANALYSIS] Attempt ${i + 1} parse failed (got: "${text.slice(0, 60)}"), ${i + 1 < attempts.length ? "trying simpler prompt..." : "using heuristic"}`);
+    } else {
+      callbacks.log(`[ANALYSIS] Attempt ${i + 1} returned empty${i + 1 < attempts.length ? ", trying simpler prompt..." : ""}`);
+    }
   }
 
-  // Fallback: simple YES/NO on top pick
+  // Last resort: price-based heuristic
   const pick = candidates[0]!;
-  callbacks.log(`[ANALYSIS] Structured response failed (got: "${text.slice(0, 80)}"), asking simpler question...`);
-  const fallback = await sendPrompt(
-    deps,
-    callbacks,
-    `DO NOT place any orders. Answer only YES or NO. Today is ${new Date().toISOString().split("T")[0]}. Should I bet YES or NO on: "${pick.question}"? Current YES price: $${pick.yesPrice.toFixed(2)}. Reply with just YES or NO and why.`,
-  );
-  const fbText = fallback.join(" ");
-  const yesNo = /\b(YES|NO)\b/i.exec(fbText);
-  if (!yesNo) {
-    // Last resort: use price-based heuristic instead of skipping entirely
-    const heuristicSide = pick.yesPrice < 0.5 ? "YES" : "NO";
-    callbacks.log(`[ANALYSIS] LLM can't decide ("${fbText.slice(0, 60)}") — using price heuristic: ${heuristicSide}`);
-    return {
-      pick,
-      side: heuristicSide,
-      reason: `price heuristic (YES=$${pick.yesPrice.toFixed(2)})`,
-    };
-  }
+  const heuristicSide = pick.yesPrice < 0.5 ? "YES" : "NO";
+  callbacks.log(`[ANALYSIS] All LLM attempts failed — using price heuristic: ${heuristicSide} (YES=$${pick.yesPrice.toFixed(2)})`);
   return {
     pick,
-    side: yesNo[1]!.toUpperCase(),
-    reason: fbText.slice(0, 100) || "fallback analysis",
+    side: heuristicSide,
+    reason: `price heuristic (YES=$${pick.yesPrice.toFixed(2)})`,
   };
 }
 

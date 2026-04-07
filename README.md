@@ -16,9 +16,9 @@ ElizaBAO is a fully autonomous prediction market trader that:
 1. **Scans** 500+ markets across Polymarket and Jupiter every 60 seconds
 2. **Scores** each market by spread tightness, midpoint proximity, volume, and time to expiry
 3. **Buys** the best opportunities with smart position sizing ($3-$6 based on conviction)
-4. **Sells** losers (down >30%) and takes profit on winners (up >50%)
+4. **Sells** losers (down >15%) and takes profit on winners (up >25%)
 5. **Pays** for premium market data via x402 protocol on Solana
-6. **Alternates** between Polymarket (Polygon) and Jupiter (Solana) each cycle
+6. **Trades both platforms every cycle** — Polymarket + Jupiter simultaneously
 7. **Protects** open orders with Polymarket heartbeat (auto-cancels if agent crashes)
 8. **Never repeats** — tracks owned positions and diversifies into new markets
 9. **Runs 24/7** — autonomy persists even when browser disconnects
@@ -135,20 +135,24 @@ ElizaBAO is a fully autonomous prediction market trader that:
 
 ### How It Works
 
-The autonomy engine (`ws-server.ts`) runs an infinite loop with a **60-second interval**, alternating between Polymarket (Polygon) and Jupiter (Solana) every cycle. The user toggles it ON/OFF from the web dashboard header — once started, it **persists even when the browser disconnects** (the WebSocket close handler does not stop the timer). Only an explicit "AUTONOMY OFF" click stops it.
+The autonomy engine (`autonomy.ts`) runs an infinite loop with a **60-second interval**, running **both Polymarket and Jupiter every cycle**. Each platform follows the same logic: if balance is sufficient → sell + buy; if balance is low → sell only. The user toggles it ON/OFF from the web dashboard header — once started, it **persists even when the browser disconnects**. Only an explicit "AUTONOMY OFF" click stops it.
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│                   AUTONOMY LOOP                       │
+│              AUTONOMY LOOP (every 60s)                │
 │                                                      │
-│  ┌─────────┐     ┌─────────────┐     ┌────────────┐ │
-│  │ Toggle   │────▶│  Cycle #1   │────▶│  Cycle #2  │ │
-│  │ ON       │     │ POLYMARKET  │     │  JUPITER   │ │
-│  │ (user)   │     │ (Polygon)   │     │ (Solana)   │ │
-│  └─────────┘     └──────┬──────┘     └──────┬─────┘ │
-│                         │  60s               │  60s   │
-│                         └────────────────────┘        │
-│                         repeats forever               │
+│  ┌─────────┐     ┌─────────────────────────────┐ │
+│  │ Toggle   │────▶│  POLYMARKET (Polygon)          │ │
+│  │ ON       │     │  Balance OK? → sell + buy     │ │
+│  │ (user)   │     │  Low?       → sell only      │ │
+│  └─────────┘     └─────────────────────────────┘ │
+│               then                                    │
+│              ┌─────────────────────────────┐ │
+│              │  JUPITER (Solana + x402)       │ │
+│              │  Balance OK? → sell + buy     │ │
+│              │  Low?       → sell only      │ │
+│              └─────────────────────────────┘ │
+│              repeats every 60s                        │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -271,7 +275,7 @@ The balance cap prevents blowing up on a single trade. Minimum bet is $3 on both
 
 | Feature | How It Works |
 |---------|-------------|
-| **Alternating platforms** | Odd cycles = Polymarket (Polygon), even cycles = Jupiter (Solana) |
+| **Both platforms every cycle** | Polymarket + Jupiter run simultaneously; buy only if balance allows |
 | **Sell before buy** | Always evaluates exits first — frees up capital for new bets |
 | **Aggressive sell thresholds** | Cut loss at -15%, take profit at +25% — locks in gains and exits losers fast |
 | **LLM market analysis** | Top 5 candidates analyzed by LLM — picks market AND side with reasoning |

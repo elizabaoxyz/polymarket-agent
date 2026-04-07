@@ -781,15 +781,11 @@ async function runAutonomyCycle(
     callbacks.send({ type: "thinking", active: true });
   } catch {}
 
-  const isPolymarketCycle = state.cycleCount % 2 === 1;
-  const platform = isPolymarketCycle ? "POLYMARKET" : "JUPITER";
   const ragActive = deps.ragSvc?.isActive() === true;
   const connectorsActive = deps.connectorsSvc?.isActive() === true;
 
   try {
-    callbacks.log(
-      `[AUTONOMY:${platform}] Cycle #${state.cycleCount} — ${isPolymarketCycle ? "Polygon" : "Solana + x402"}`,
-    );
+    callbacks.log(`[AUTONOMY] Cycle #${state.cycleCount} — Polygon + Solana`);
     if (ragActive) callbacks.log("[RAG] ChromaDB online");
     if (connectorsActive) callbacks.log("[CONNECTORS] News + Search online");
 
@@ -803,199 +799,185 @@ async function runAutonomyCycle(
       `[BALANCE] Polygon: $${polyBalance.toFixed(2)} | Solana: $${solBalance.toFixed(2)} (USDC+JupUSD)`,
     );
 
-    // Dynamic sell thresholds
-    const sellLossThreshold = lowPolyBalance || lowSolBalance
-      ? SELL_LOSS_THRESHOLD_AGGRESSIVE
-      : SELL_LOSS_THRESHOLD_NORMAL;
-    const sellProfitThreshold = lowPolyBalance || lowSolBalance
-      ? SELL_PROFIT_THRESHOLD_AGGRESSIVE
-      : SELL_PROFIT_THRESHOLD_NORMAL;
+    // Dynamic sell thresholds — per-platform
+    const polySellLoss = lowPolyBalance ? SELL_LOSS_THRESHOLD_AGGRESSIVE : SELL_LOSS_THRESHOLD_NORMAL;
+    const polySellProfit = lowPolyBalance ? SELL_PROFIT_THRESHOLD_AGGRESSIVE : SELL_PROFIT_THRESHOLD_NORMAL;
+    const jupSellLoss = lowSolBalance ? SELL_LOSS_THRESHOLD_AGGRESSIVE : SELL_LOSS_THRESHOLD_NORMAL;
+    const jupSellProfit = lowSolBalance ? SELL_PROFIT_THRESHOLD_AGGRESSIVE : SELL_PROFIT_THRESHOLD_NORMAL;
 
-    // Collect positions
+    // Collect positions (use the more aggressive threshold of the two)
+    const sellLossThreshold = Math.max(polySellLoss, jupSellLoss);
+    const sellProfitThreshold = Math.min(polySellProfit, jupSellProfit);
     const { ownedTitles, polySellTargets, polyAllSellable, jupSellTargets, jupClaimable } =
       await collectPositions(state, sellLossThreshold, sellProfitThreshold);
 
-    // ========== POLYMARKET CYCLE ==========
-    if (isPolymarketCycle || lowPolyBalance) {
-      await polymarketSellPhase(
-        deps,
-        callbacks,
-        state,
-        polySellTargets,
-        polyAllSellable,
-        polyBalance,
-        lowPolyBalance,
-        sellLossThreshold,
-      );
+    // ========== POLYMARKET: always sell, buy if balance allows ==========
+    callbacks.log(`[POLYMARKET] ${lowPolyBalance ? "SELL-ONLY (low balance)" : "SELL + BUY"}`);
+    await polymarketSellPhase(
+      deps,
+      callbacks,
+      state,
+      polySellTargets,
+      polyAllSellable,
+      polyBalance,
+      lowPolyBalance,
+      polySellLoss,
+    );
 
-      // Scan and buy
-      if (ownedTitles.size >= MAX_POSITIONS) {
-        callbacks.log(`[AUTONOMY] ${ownedTitles.size}/${MAX_POSITIONS} positions — full, selling only`);
-      } else if (polyBalance < LOW_BALANCE_THRESHOLD) {
-        if (polySellTargets.length === 0 && polyAllSellable.length === 0) {
-          callbacks.log(
-            `[AUTONOMY:POLYMARKET] Balance too low ($${polyBalance.toFixed(2)}) — waiting for sells`,
-          );
-        }
-      } else {
-        try {
-          const scored = await scanPolymarketMarkets(ownedTitles, state);
-          const ragContext = scored.length > 0
-            ? await indexAndEnrich(deps, callbacks, scored, "polymarket", scored[0]!.question)
-            : "";
-          callbacks.log(
-            `[AUTONOMY:POLYMARKET] ${scored.length} new markets | balance: $${polyBalance.toFixed(2)}`,
-          );
+    if (ownedTitles.size >= MAX_POSITIONS) {
+      callbacks.log(`[AUTONOMY] ${ownedTitles.size}/${MAX_POSITIONS} positions — full, selling only`);
+    } else if (!lowPolyBalance) {
+      // Buy on Polymarket
+      try {
+        const scored = await scanPolymarketMarkets(ownedTitles, state);
+        const ragContext = scored.length > 0
+          ? await indexAndEnrich(deps, callbacks, scored, "polymarket", scored[0]!.question)
+          : "";
+        callbacks.log(
+          `[POLYMARKET] ${scored.length} new markets | balance: $${polyBalance.toFixed(2)}`,
+        );
 
-          if (scored.length > 0) {
-            const candidates = scored.slice(0, 5);
-            const analysis = await analyzeCandidates(deps, callbacks, candidates, ragContext);
-            if (analysis) {
-              const betSize = calcBetSize(analysis.pick.score, polyBalance);
-              callbacks.log(`[ANALYSIS] ${analysis.reason}`);
-              callbacks.log(
-                `[BUY:POLYMARKET] "${analysis.pick.question}" (${analysis.side}:$${analysis.pick.yesPrice.toFixed(2)}, score:${analysis.pick.score.toFixed(2)}, $${betSize.toFixed(2)}, ${(analysis.pick as ScoredMarket).daysLeft?.toFixed(0) ?? "?"}d left)`,
-              );
-              await sendPrompt(
-                deps,
-                callbacks,
-                `buy $${betSize.toFixed(0)} ${analysis.side} on "${analysis.pick.question}" on polymarket`,
-              );
-              recordTrade(state, {
-                question: analysis.pick.question,
-                platform: "POLYMARKET",
-                time: Date.now(),
-                price: analysis.pick.yesPrice,
-              });
-            }
-          } else {
-            callbacks.log("[AUTONOMY:POLYMARKET] No new markets to buy");
+        if (scored.length > 0) {
+          const candidates = scored.slice(0, 5);
+          const analysis = await analyzeCandidates(deps, callbacks, candidates, ragContext);
+          if (analysis) {
+            const betSize = calcBetSize(analysis.pick.score, polyBalance);
+            callbacks.log(`[ANALYSIS:POLY] ${analysis.reason}`);
+            callbacks.log(
+              `[BUY:POLYMARKET] "${analysis.pick.question}" (${analysis.side}:$${analysis.pick.yesPrice.toFixed(2)}, score:${analysis.pick.score.toFixed(2)}, $${betSize.toFixed(2)}, ${(analysis.pick as ScoredMarket).daysLeft?.toFixed(0) ?? "?"}d left)`,
+            );
+            await sendPrompt(
+              deps,
+              callbacks,
+              `buy $${betSize.toFixed(0)} ${analysis.side} on "${analysis.pick.question}" on polymarket`,
+            );
+            recordTrade(state, {
+              question: analysis.pick.question,
+              platform: "POLYMARKET",
+              time: Date.now(),
+              price: analysis.pick.yesPrice,
+            });
           }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          callbacks.log(`[AUTONOMY:POLYMARKET] Scan failed: ${msg}`);
+        } else {
+          callbacks.log("[POLYMARKET] No new markets to buy");
         }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        callbacks.log(`[POLYMARKET] Scan failed: ${msg}`);
       }
+    } else {
+      callbacks.log(`[POLYMARKET] Balance $${polyBalance.toFixed(2)} — sell-only mode`);
     }
 
-    // ========== JUPITER CYCLE ==========
-    if (!isPolymarketCycle || lowSolBalance) {
-      await jupiterSellClaimPhase(
-        deps,
-        callbacks,
-        state,
-        jupSellTargets,
-        jupClaimable,
-        solBalance,
-        lowSolBalance,
-        sellLossThreshold,
-      );
+    // ========== JUPITER: always sell/claim, buy if balance allows ==========
+    callbacks.log(`[JUPITER] ${lowSolBalance ? "SELL-ONLY (low balance)" : "SELL + BUY"}`);
+    await jupiterSellClaimPhase(
+      deps,
+      callbacks,
+      state,
+      jupSellTargets,
+      jupClaimable,
+      solBalance,
+      lowSolBalance,
+      jupSellLoss,
+    );
 
-      // Jupiter buy (only on Jupiter cycles)
-      if (!isPolymarketCycle) {
-        if (solBalance < LOW_BALANCE_THRESHOLD) {
-          callbacks.log(
-            `[AUTONOMY:JUPITER] Solana balance too low ($${solBalance.toFixed(2)}) — skipping buy`,
-          );
-        } else {
-          try {
-            const jupScored = await scanJupiterMarkets(ownedTitles, state);
-            const ragContext =
-              jupScored.length > 0
-                ? await indexAndEnrich(
-                    deps,
-                    callbacks,
-                    jupScored,
-                    "jupiter",
-                    jupScored[0]!.question,
-                  )
-                : "";
-            callbacks.log(
-              `[AUTONOMY:JUPITER] ${jupScored.length} new markets | SOL balance: $${solBalance.toFixed(2)}`,
-            );
-
-            // x402 payment for analysis
-            const x402ApiUrl = process.env.X402_API_URL;
-            if (x402ApiUrl && jupScored.length > 0) {
-              try {
-                callbacks.log("[x402] Paying for market analysis on Solana...");
-                await fetch(`${x402ApiUrl}/prediction`);
-              } catch {}
-            }
-
-            if (jupScored.length > 0) {
-              const candidates = jupScored.slice(0, 5);
-              const analysis = await analyzeCandidates(deps, callbacks, candidates, ragContext);
-              const pick = analysis?.pick ?? candidates[0]!;
-              const side = analysis?.side ?? (pick.yesPrice < 0.5 ? "YES" : "NO");
-              const reason = analysis?.reason ?? "best scored market";
-
-              const betSize = calcBetSize(pick.score, solBalance);
-              callbacks.log(`[ANALYSIS] ${reason}`);
-              callbacks.log(
-                `[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${(pick as JupMarket).volume?.toFixed(0) ?? "0"})`,
-              );
-              const betResults = await sendPrompt(
+    if (!lowSolBalance && ownedTitles.size < MAX_POSITIONS) {
+      // Buy on Jupiter
+      try {
+        const jupScored = await scanJupiterMarkets(ownedTitles, state);
+        const ragContext =
+          jupScored.length > 0
+            ? await indexAndEnrich(
                 deps,
                 callbacks,
-                `bet $${betSize.toFixed(0)} ${side} on jupiter market ${(pick as JupMarket).marketId}`,
+                jupScored,
+                "jupiter",
+                jupScored[0]!.question,
+              )
+            : "";
+        callbacks.log(
+          `[JUPITER] ${jupScored.length} new markets | SOL balance: $${solBalance.toFixed(2)}`,
+        );
+
+        // x402 payment for analysis
+        const x402ApiUrl = process.env.X402_API_URL;
+        if (x402ApiUrl && jupScored.length > 0) {
+          try {
+            callbacks.log("[x402] Paying for market analysis on Solana...");
+            await fetch(`${x402ApiUrl}/prediction`);
+          } catch {}
+        }
+
+        if (jupScored.length > 0) {
+          const candidates = jupScored.slice(0, 5);
+          const analysis = await analyzeCandidates(deps, callbacks, candidates, ragContext);
+          const pick = analysis?.pick ?? candidates[0]!;
+          const side = analysis?.side ?? (pick.yesPrice < 0.5 ? "YES" : "NO");
+          const reason = analysis?.reason ?? "best scored market";
+
+          const betSize = calcBetSize(pick.score, solBalance);
+          callbacks.log(`[ANALYSIS:JUP] ${reason}`);
+          callbacks.log(
+            `[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${(pick as JupMarket).volume?.toFixed(0) ?? "0"})`,
+          );
+          const betResults = await sendPrompt(
+            deps,
+            callbacks,
+            `bet $${betSize.toFixed(0)} ${side} on jupiter market ${(pick as JupMarket).marketId}`,
+          );
+          const betFailed = betResults.some((r) =>
+            /failed|error|no shares|no buyers/i.test(r),
+          );
+          if (betFailed) {
+            state.failedBuys.set((pick as JupMarket).marketId, Date.now());
+            if (candidates.length > 1) {
+              const fallback = (candidates as JupMarket[]).find(
+                (c) =>
+                  c.marketId !== (pick as JupMarket).marketId &&
+                  !state.failedBuys.has(c.marketId),
               );
-              const betFailed = betResults.some((r) =>
-                /failed|error|no shares|no buyers/i.test(r),
-              );
-              if (betFailed) {
-                state.failedBuys.set((pick as JupMarket).marketId, Date.now());
-                if (candidates.length > 1) {
-                  const fallback = (candidates as JupMarket[]).find(
-                    (c) =>
-                      c.marketId !== (pick as JupMarket).marketId &&
-                      !state.failedBuys.has(c.marketId),
-                  );
-                  if (fallback) {
-                    callbacks.log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${side})`);
-                    const fbResults = await sendPrompt(
-                      deps,
-                      callbacks,
-                      `bet $${betSize.toFixed(0)} ${side} on jupiter market ${fallback.marketId}`,
-                    );
-                    if (fbResults.some((r) => /failed|error|no shares|no buyers/i.test(r))) {
-                      state.failedBuys.set(fallback.marketId, Date.now());
-                    }
-                  }
+              if (fallback) {
+                callbacks.log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${side})`);
+                const fbResults = await sendPrompt(
+                  deps,
+                  callbacks,
+                  `bet $${betSize.toFixed(0)} ${side} on jupiter market ${fallback.marketId}`,
+                );
+                if (fbResults.some((r) => /failed|error|no shares|no buyers/i.test(r))) {
+                  state.failedBuys.set(fallback.marketId, Date.now());
                 }
               }
-              recordTrade(state, {
-                question: pick.question,
-                platform: "JUPITER",
-                time: Date.now(),
-                price: pick.yesPrice,
-              });
-            } else {
-              callbacks.log("[AUTONOMY:JUPITER] No new markets to buy");
             }
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            callbacks.log(`[AUTONOMY:JUPITER] Scan failed: ${msg}`);
           }
+          recordTrade(state, {
+            question: pick.question,
+            platform: "JUPITER",
+            time: Date.now(),
+            price: pick.yesPrice,
+          });
+        } else {
+          callbacks.log("[JUPITER] No new markets to buy");
         }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        callbacks.log(`[JUPITER] Scan failed: ${msg}`);
       }
+    } else if (lowSolBalance) {
+      callbacks.log(`[JUPITER] Balance $${solBalance.toFixed(2)} — sell-only mode`);
     }
 
     // Status summary
-    if (!isPolymarketCycle) {
-      let x402Payments = 0;
-      try {
-        const x402Svc = (await deps.runtime.getServiceLoadPromise(
-          X402_SERVICE_TYPE,
-        )) as unknown as X402SolanaService | null;
-        if (x402Svc?.isActive()) x402Payments = x402Svc.getPaymentStats().count;
-      } catch {}
-      callbacks.log(
-        `[AUTONOMY] x402: ${x402Payments} payments | positions: ${ownedTitles.size}/${MAX_POSITIONS}`,
-      );
-    } else {
-      callbacks.log(`[AUTONOMY] positions: ${ownedTitles.size}/${MAX_POSITIONS}`);
-    }
+    let x402Payments = 0;
+    try {
+      const x402Svc = (await deps.runtime.getServiceLoadPromise(
+        X402_SERVICE_TYPE,
+      )) as unknown as X402SolanaService | null;
+      if (x402Svc?.isActive()) x402Payments = x402Svc.getPaymentStats().count;
+    } catch {}
+    callbacks.log(
+      `[AUTONOMY] x402: ${x402Payments} payments | positions: ${ownedTitles.size}/${MAX_POSITIONS} | poly: $${polyBalance.toFixed(2)} | sol: $${solBalance.toFixed(2)}`,
+    );
 
     callbacks.log("[AUTONOMY] Cycle complete.");
   } catch (err) {

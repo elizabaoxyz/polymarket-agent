@@ -17,6 +17,7 @@ import {
   type TradingStatus,
   type PlaceOrderParams,
 } from "./types";
+import { withRetry } from "../../retry";
 
 const BASE_URL = "https://api.jup.ag/prediction/v1";
 
@@ -34,46 +35,51 @@ export class JupiterPredictionClient {
     schema: z.ZodType<T>,
     options: { method?: string; body?: unknown; query?: Record<string, string> } = {}
   ): Promise<T> {
-    const url = new URL(`${this.baseUrl}${path}`);
-    if (options.query) {
-      for (const [key, value] of Object.entries(options.query)) {
-        url.searchParams.set(key, value);
-      }
-    }
+    return withRetry(
+      async () => {
+        const url = new URL(`${this.baseUrl}${path}`);
+        if (options.query) {
+          for (const [key, value] of Object.entries(options.query)) {
+            url.searchParams.set(key, value);
+          }
+        }
 
-    const headers: Record<string, string> = {
-      "x-api-key": this.apiKey,
-      "content-type": "application/json",
-    };
+        const headers: Record<string, string> = {
+          "x-api-key": this.apiKey,
+          "content-type": "application/json",
+        };
 
-    const response = await fetch(url.toString(), {
-      method: options.method ?? "GET",
-      headers,
-      ...(options.body ? { body: JSON.stringify(options.body) } : {}),
-    });
+        const response = await fetch(url.toString(), {
+          method: options.method ?? "GET",
+          headers,
+          ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+        });
 
-    if (response.status === 401 || response.status === 403) {
-      throw new Error(
-        `Jupiter API key error (${response.status}). Verify your JUPITER_API_KEY from portal.jup.ag.`
-      );
-    }
+        if (response.status === 401 || response.status === 403) {
+          throw new Error(
+            `Jupiter API key error (${response.status}). Verify your JUPITER_API_KEY from portal.jup.ag.`
+          );
+        }
 
-    const text = await response.text().catch(() => "");
-    let data: unknown;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      if (!response.ok) throw new Error(`Jupiter API error ${response.status}: ${text}`);
-      throw new Error(`Jupiter API: invalid JSON response`);
-    }
+        const text = await response.text().catch(() => "");
+        let data: unknown;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          if (!response.ok) throw new Error(`Jupiter API error ${response.status}: ${text}`);
+          throw new Error(`Jupiter API: invalid JSON response`);
+        }
 
-    // Check for error responses (both non-200 and 200 with error body)
-    if (!response.ok || (data && typeof data === "object" && "type" in data && String((data as Record<string, unknown>).type).includes("error"))) {
-      const msg = (data as Record<string, unknown>)?.message ?? text;
-      throw new Error(`Jupiter API error ${response.status}: ${msg}`);
-    }
+        // Check for error responses (both non-200 and 200 with error body)
+        if (!response.ok || (data && typeof data === "object" && "type" in data && String((data as Record<string, unknown>).type).includes("error"))) {
+          const msg = (data as Record<string, unknown>)?.message ?? text;
+          throw new Error(`Jupiter API error ${response.status}: ${msg}`);
+        }
 
-    return schema.parse(data);
+        return schema.parse(data);
+      },
+      { label: `jupiter:${options.method ?? "GET"}:${path}` },
+    );
   }
 
   async getTradingStatus(): Promise<TradingStatus> {

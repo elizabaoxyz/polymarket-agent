@@ -36,6 +36,7 @@ import { polymarketExtPlugin } from "./plugins/polymarket-ext/index";
 import { x402SolanaPlugin } from "./plugins/x402-solana/index";
 import { X402SolanaService } from "./plugins/x402-solana/service";
 import { X402_SERVICE_TYPE } from "./plugins/x402-solana/types";
+import { getSolanaPublicKey } from "./solana-wallet";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -659,16 +660,9 @@ async function startChat(session: RuntimeSession): Promise<void> {
   const startupInfo: string[] = [];
   startupInfo.push(`Chain: ${session.options.chain} | Execute: ${session.options.execute ? "enabled" : "disabled"}`);
   const jupiterApiKey = process.env.JUPITER_API_KEY?.trim();
-  const solanaKey = process.env.SOLANA_PRIVATE_KEY?.trim();
-  if (jupiterApiKey && solanaKey) {
-    try {
-      const { Keypair } = await import("@solana/web3.js");
-      const bs58 = await import("bs58");
-      const kp = Keypair.fromSecretKey(bs58.default.decode(solanaKey));
-      startupInfo.push(`Jupiter: active | Solana wallet: ${kp.publicKey.toBase58()}`);
-    } catch {
-      startupInfo.push("Jupiter: configured but wallet decode failed");
-    }
+  const solanaPubkey = getSolanaPublicKey();
+  if (jupiterApiKey && solanaPubkey) {
+    startupInfo.push(`Jupiter: active | Solana wallet: ${solanaPubkey}`);
   } else {
     startupInfo.push("Jupiter: not configured (set JUPITER_API_KEY + SOLANA_PRIVATE_KEY)");
   }

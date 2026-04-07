@@ -7,6 +7,7 @@ import {
   type Trade,
   type PnlSummary,
 } from "./types";
+import { withRetry } from "../../retry";
 
 export class DataApiClient {
   private readonly baseUrl: string;
@@ -16,20 +17,25 @@ export class DataApiClient {
   }
 
   private async request<T>(path: string, schema: z.ZodType<T>, query: Record<string, string>): Promise<T> {
-    const url = new URL(`${this.baseUrl}${path}`);
-    for (const [key, value] of Object.entries(query)) {
-      url.searchParams.set(key, value);
-    }
+    return withRetry(
+      async () => {
+        const url = new URL(`${this.baseUrl}${path}`);
+        for (const [key, value] of Object.entries(query)) {
+          url.searchParams.set(key, value);
+        }
 
-    const response = await fetch(url.toString());
+        const response = await fetch(url.toString());
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      throw new Error(`Data API error ${response.status} on ${path}: ${text}`);
-    }
+        if (!response.ok) {
+          const text = await response.text().catch(() => "");
+          throw new Error(`Data API error ${response.status} on ${path}: ${text}`);
+        }
 
-    const data = await response.json();
-    return schema.parse(data);
+        const data = await response.json();
+        return schema.parse(data);
+      },
+      { label: `data-api:${path}` },
+    );
   }
 
   async getPositions(address: string): Promise<Position[]> {

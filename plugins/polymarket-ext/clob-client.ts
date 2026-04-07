@@ -15,6 +15,7 @@ import {
   type ClobMarket,
 } from "./types";
 import { z } from "zod";
+import { withRetry } from "../../retry";
 
 export type ClobClientConfig = {
   readonly baseUrl: string;
@@ -55,39 +56,44 @@ export class ClobApiClient {
     path: string,
     options: { body?: unknown; query?: Record<string, string>; schema: z.ZodType<T> },
   ): Promise<T> {
-    const url = new URL(`${this.config.baseUrl}${path}`);
-    if (options.query) {
-      for (const [key, value] of Object.entries(options.query)) {
-        url.searchParams.set(key, value);
-      }
-    }
+    return withRetry(
+      async () => {
+        const url = new URL(`${this.config.baseUrl}${path}`);
+        if (options.query) {
+          for (const [key, value] of Object.entries(options.query)) {
+            url.searchParams.set(key, value);
+          }
+        }
 
-    const bodyStr = options.body ? JSON.stringify(options.body) : undefined;
-    const headers = this.buildHeaders(method, path, bodyStr);
+        const bodyStr = options.body ? JSON.stringify(options.body) : undefined;
+        const headers = this.buildHeaders(method, path, bodyStr);
 
-    const response = await fetch(url.toString(), {
-      method,
-      headers,
-      ...(bodyStr ? { body: bodyStr } : {}),
-    });
+        const response = await fetch(url.toString(), {
+          method,
+          headers,
+          ...(bodyStr ? { body: bodyStr } : {}),
+        });
 
-    if (response.status === 401 || response.status === 403) {
-      const text = await response.text().catch(() => "");
-      throw new PolymarketAuthError(response.status, text, path);
-    }
+        if (response.status === 401 || response.status === 403) {
+          const text = await response.text().catch(() => "");
+          throw new PolymarketAuthError(response.status, text, path);
+        }
 
-    if (response.status === 429) {
-      const text = await response.text().catch(() => "");
-      throw new PolymarketRateLimitError(response.status, text, path);
-    }
+        if (response.status === 429) {
+          const text = await response.text().catch(() => "");
+          throw new PolymarketRateLimitError(response.status, text, path);
+        }
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      throw new PolymarketApiError(response.status, text, path);
-    }
+        if (!response.ok) {
+          const text = await response.text().catch(() => "");
+          throw new PolymarketApiError(response.status, text, path);
+        }
 
-    const data = await response.json();
-    return options.schema.parse(data);
+        const data = await response.json();
+        return options.schema.parse(data);
+      },
+      { label: `clob:${method}:${path}` },
+    );
   }
 
   async cancelOrder(orderId: string): Promise<CancelResponse> {

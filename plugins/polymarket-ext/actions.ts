@@ -1,6 +1,7 @@
 import type { Action, ActionExample } from "@elizaos/core";
 import { PolymarketExtService } from "./service";
 import { POLYMARKET_EXT_SERVICE_TYPE, type OpenOrder, type ClobMarket, type ClobToken } from "./types";
+import { MAX_SHARES_PER_ORDER } from "../../config";
 
 function getService(runtime: { getService: (name: string) => unknown }): PolymarketExtService {
   const svc = runtime.getService(POLYMARKET_EXT_SERVICE_TYPE) as PolymarketExtService | undefined;
@@ -475,8 +476,8 @@ export const placePolymarketOrder: Action = {
       if (callback) callback({ text: `$${dollars} at $${price.toFixed(2)}/share = ${(dollars / price).toFixed(1)} shares — minimum is 1.` });
       return false;
     }
-    if (size > 500) {
-      if (callback) callback({ text: `Order too large (${size} shares at $${price.toFixed(4)}). Max 500 shares per order.` });
+    if (size > MAX_SHARES_PER_ORDER) {
+      if (callback) callback({ text: `Order too large (${size} shares at $${price.toFixed(4)}). Max ${MAX_SHARES_PER_ORDER} shares per order.` });
       return false;
     }
 

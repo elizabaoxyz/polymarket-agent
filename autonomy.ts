@@ -552,9 +552,9 @@ async function scanJupiterMarkets(
     }
   }
   jupScored.sort((a, b) => b.score - a.score);
-  if (jupScored.length === 0 && _jupDbgTotal > 0) {
-    console.log(`[JUPITER:DEBUG] ${_jupDbgTotal} markets scanned, filtered: price=${_jupDbgPrice}, volume=${_jupDbgVol}, owned=${_jupDbgOwned}`);
-  }
+  // Return debug info alongside results
+  (jupScored as unknown as { _debug?: string })._debug =
+    `${_jupDbgTotal} scanned, filtered: price=${_jupDbgPrice}, volume=${_jupDbgVol}, owned=${_jupDbgOwned}, passed=${jupScored.length}`;
   return jupScored;
 }
 
@@ -788,6 +788,7 @@ REASON: <one sentence explanation>`;
 type PolySellTarget = { token: string; shares: number; title: string; pnl: number; curPrice: number };
 type JupSellTarget = { marketId: string; pubkey: string; title: string; pnl: number };
 type JupClaimTarget = { pubkey: string; title: string; payout: number };
+type JupPositionInfo = { marketId: string; pubkey: string; title: string; pnl: number; isYes: boolean; contracts: string };
 
 async function collectPositions(
   state: AutonomyState,
@@ -798,12 +799,14 @@ async function collectPositions(
   polySellTargets: PolySellTarget[];
   polyAllSellable: PolySellTarget[];
   jupSellTargets: JupSellTarget[];
+  jupAllPositions: JupPositionInfo[];
   jupClaimable: JupClaimTarget[];
 }> {
   const ownedTitles = new Set<string>();
   const polySellTargets: PolySellTarget[] = [];
   const polyAllSellable: PolySellTarget[] = [];
   const jupSellTargets: JupSellTarget[] = [];
+  const jupAllPositions: JupPositionInfo[] = [];
   const jupClaimable: JupClaimTarget[] = [];
 
   // Polymarket positions
@@ -864,7 +867,18 @@ async function collectPositions(
             continue;
           }
           const pnl = pos.pnlUsdPercent ?? 0;
-          // Skip freshly bought positions
+          // Track all positions for review
+          if (pos.pubkey) {
+            jupAllPositions.push({
+              marketId: pos.marketId,
+              pubkey: pos.pubkey,
+              title: pos.marketMetadata?.title ?? pos.marketId,
+              pnl,
+              isYes: pos.isYes ?? true,
+              contracts: pos.contracts ?? "0",
+            });
+          }
+          // Skip freshly bought positions for sell targeting
           const isNewJup = state.tradeHistory.some(
             (h) => h.question.toLowerCase().includes(title.toLowerCase()) && Date.now() - h.time < POSITION_MIN_AGE_MS,
           );
@@ -888,7 +902,7 @@ async function collectPositions(
     }
   } catch {}
 
-  return { ownedTitles, polySellTargets, polyAllSellable, jupSellTargets, jupClaimable };
+  return { ownedTitles, polySellTargets, polyAllSellable, jupSellTargets, jupAllPositions, jupClaimable };
 }
 
 // --- Jupiter sell/claim phase ---
@@ -903,6 +917,10 @@ async function jupiterSellClaimPhase(
   lowSolBalance: boolean,
   sellLossThreshold: number,
 ): Promise<void> {
+  if (jupClaimable.length === 0 && jupSellTargets.length === 0) {
+    callbacks.log(`[JUPITER] No threshold sells or claims this cycle`);
+  }
+
   // Claim settled positions first
   if (jupClaimable.length > 0) {
     let jupSvc: JupiterPredictionService | null = null;
@@ -1038,7 +1056,7 @@ async function runAutonomyCycle(
     // Collect positions (use the more aggressive threshold of the two)
     const sellLossThreshold = Math.max(polySellLoss, jupSellLoss);
     const sellProfitThreshold = Math.min(polySellProfit, jupSellProfit);
-    const { ownedTitles, polySellTargets, polyAllSellable, jupSellTargets, jupClaimable } =
+    const { ownedTitles, polySellTargets, polyAllSellable, jupSellTargets, jupAllPositions, jupClaimable } =
       await collectPositions(state, sellLossThreshold, sellProfitThreshold);
 
     const positionsFull = ownedTitles.size >= MAX_POSITIONS;
@@ -1118,6 +1136,8 @@ async function runAutonomyCycle(
 
       try {
         const jupScored = await scanJupiterMarkets(ownedTitles, state);
+        const debugInfo = (jupScored as unknown as { _debug?: string })._debug;
+        if (debugInfo) callbacks.log(`[JUPITER:SCAN] ${debugInfo}`);
         const ragContext = jupScored.length > 0
           ? await indexAndEnrich(deps, callbacks, state, jupScored, "jupiter", jupScored[0]!.question)
           : "";
@@ -1173,7 +1193,47 @@ async function runAutonomyCycle(
             recordTrade(state, { question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice, amount: betSize });
           }
         } else {
-          callbacks.log("[JUPITER] No new markets to buy");
+          // No new markets — review existing positions with LLM
+          if (jupAllPositions.length > 0) {
+            const positionList = jupAllPositions
+              .sort((a, b) => a.pnl - b.pnl)
+              .map((p, i) => `${i + 1}. "${p.title}" — ${p.isYes ? "YES" : "NO"} ${p.contracts} contracts, PnL: ${p.pnl.toFixed(0)}%`)
+              .join("\n");
+            callbacks.log(`[JUPITER] No new markets. Reviewing ${jupAllPositions.length} existing positions...`);
+            const reviewText = await directLlmCall(
+              deps,
+              `You are a portfolio manager reviewing Jupiter/Solana prediction positions. Today is ${new Date().toISOString().split("T")[0]}.\n\nCurrent positions:\n${positionList}\n\nAre any of these worth selling now? Consider: dead money, unlikely outcomes, better to reallocate.\nFor each position, respond: <number>: SELL or HOLD — <reason>`,
+            );
+            if (reviewText.length > 0) {
+              callbacks.log(`[JUPITER:REVIEW] ${reviewText.slice(0, 200)}`);
+              let jupSvc: JupiterPredictionService | null = null;
+              try {
+                jupSvc = (await deps.runtime.getServiceLoadPromise(JUPITER_SERVICE_TYPE)) as unknown as JupiterPredictionService | null;
+              } catch {}
+              const sorted = [...jupAllPositions].sort((a: JupPositionInfo, b: JupPositionInfo) => a.pnl - b.pnl);
+              for (let i = 0; i < sorted.length; i++) {
+                const sellPattern = new RegExp(`${i + 1}[:\\s]*SELL`, "i");
+                if (!sellPattern.test(reviewText)) continue;
+                const pos = sorted[i]!;
+                if (state.recentlySold.has(pos.pubkey) || state.failedSells.has(pos.pubkey)) continue;
+                callbacks.log(`[SELL:JUPITER] "${pos.title}" ${pos.pnl.toFixed(0)}% — LLM recommended`);
+                if (jupSvc) {
+                  try {
+                    const { transaction } = await jupSvc.client.closePosition(pos.pubkey, jupSvc.ownerPubkey);
+                    const signature = await jupSvc.signAndSubmit(transaction);
+                    callbacks.log(`[SELL:JUPITER] ✅ Closed! Signature: ${signature}`);
+                    state.recentlySold.set(pos.pubkey, Date.now());
+                  } catch (err) {
+                    const errMsg = err instanceof Error ? err.message : String(err);
+                    callbacks.log(`[SELL:JUPITER] ❌ Failed: ${errMsg}`);
+                    state.failedSells.set(pos.pubkey, Date.now());
+                  }
+                }
+              }
+            }
+          } else {
+            callbacks.log("[JUPITER] No markets to buy and no existing positions");
+          }
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

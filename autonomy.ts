@@ -137,6 +137,71 @@ function recordTrade(state: AutonomyState, entry: TradeHistoryEntry): void {
   while (state.tradeHistory.length > MAX_TRADE_HISTORY) state.tradeHistory.shift();
 }
 
+// --- Direct sell via CLOB API (bypasses LLM) ---
+
+async function directPolymarketSell(
+  deps: AutonomyDeps,
+  callbacks: AutonomyCallbacks,
+  state: AutonomyState,
+  token: string,
+  shares: number,
+  title: string,
+): Promise<boolean> {
+  try {
+    const extSvc = (await deps.runtime.getServiceLoadPromise(
+      POLYMARKET_EXT_SERVICE_TYPE,
+    )) as unknown as PolymarketExtService;
+    if (!extSvc?.isFullyActive()) {
+      callbacks.log(`[SELL:POLYMARKET] ❌ CLOB not active — cannot sell`);
+      state.failedSells.set(token, Date.now());
+      return false;
+    }
+
+    // Get best bid price from order book
+    let price = 0;
+    try {
+      const book = await extSvc.clob!.getOrderBook(token);
+      if (book.bids.length > 0) {
+        price = parseFloat(book.bids[0]!.price);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      callbacks.log(`[SELL:POLYMARKET] ❌ Order book fetch failed for "${title}": ${msg}`);
+      state.failedSells.set(token, Date.now());
+      return false;
+    }
+
+    if (price < 0.01 || price > 0.99) {
+      callbacks.log(`[SELL:POLYMARKET] ❌ "${title}" — best bid $${price.toFixed(4)}, market closed/illiquid`);
+      state.failedSells.set(token, Date.now());
+      return false;
+    }
+
+    if (price < 0.02) {
+      callbacks.log(`[SELL:POLYMARKET] ❌ "${title}" — best bid $${price.toFixed(4)}, near-zero price, skipping`);
+      state.failedSells.set(token, Date.now());
+      return false;
+    }
+
+    const result = await extSvc.sellOrder({ tokenId: token, price, size: shares });
+    const total = (shares * price).toFixed(2);
+    const statusIcon = result.status === "matched" ? "FILLED" : String(result.status).toUpperCase();
+    const txInfo = result.transactionsHashes.length > 0
+      ? ` | tx: ${result.transactionsHashes[0]!.slice(0, 10)}...`
+      : "";
+    callbacks.log(
+      `[SELL:POLYMARKET] ✅ ${statusIcon}: "${title}" — ${shares} shares @ $${price.toFixed(2)} ($${total})${txInfo}`,
+    );
+    state.recentlySold.add(token);
+    return true;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    callbacks.log(`[SELL:POLYMARKET] ❌ "${title}" — failed: ${msg}`);
+    state.failedSells.set(token, Date.now());
+    return false;
+  }
+}
+
 // --- Polymarket sell phase ---
 
 async function polymarketSellPhase(
@@ -176,16 +241,7 @@ async function polymarketSellPhase(
       }
       const action = sell.pnl < 0 ? "cutting loss" : "taking profit";
       callbacks.log(`[SELL:POLYMARKET] "${sell.title}" ${sell.pnl.toFixed(0)}% — ${action}`);
-      const sellResults = await sendPrompt(deps, callbacks, `sell ${sell.shares} shares of token ${sell.token}`);
-      const sellResultText = sellResults.join(" ");
-      if (/@ \$0\.0[01]/i.test(sellResultText)) {
-        callbacks.log("[SELL:POLYMARKET] Sold at near-zero price — skipping future retries");
-        state.failedSells.set(sell.token, Date.now());
-      } else if (/failed|error/i.test(sellResultText)) {
-        state.failedSells.set(sell.token, Date.now());
-      } else {
-        state.recentlySold.add(sell.token);
-      }
+      await directPolymarketSell(deps, callbacks, state, sell.token, sell.shares, sell.title);
     }
   }
 
@@ -210,13 +266,7 @@ async function polymarketSellPhase(
         const pos = sorted[i]!;
         if (state.failedSells.has(pos.token) || state.recentlySold.has(pos.token)) continue;
         callbacks.log(`[RECOVERY SELL] "${pos.title}" ${pos.pnl.toFixed(0)}% — LLM recommended`);
-        const sellResults = await sendPrompt(deps, callbacks, `sell ${pos.shares} shares of token ${pos.token}`);
-        const sellResultText = sellResults.join(" ");
-        if (/@ \$0\.0[01]/i.test(sellResultText) || /failed|error/i.test(sellResultText)) {
-          state.failedSells.set(pos.token, Date.now());
-        } else {
-          state.recentlySold.add(pos.token);
-        }
+        await directPolymarketSell(deps, callbacks, state, pos.token, pos.shares, pos.title);
       }
     }
   }
@@ -687,13 +737,16 @@ async function jupiterSellClaimPhase(
         try {
           const { transaction } = await jupSvc.client.closePosition(sell.pubkey, jupSvc.ownerPubkey);
           const signature = await jupSvc.signAndSubmit(transaction);
-          callbacks.log(`[SELL:JUPITER] Closed! Signature: ${signature}`);
+          callbacks.log(`[SELL:JUPITER] ✅ Closed! Signature: ${signature}`);
           state.recentlySold.add(sell.pubkey);
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          callbacks.log(`[SELL:JUPITER] Failed to close: ${errMsg}`);
+          callbacks.log(`[SELL:JUPITER] ❌ Failed to close: ${errMsg}`);
           state.failedSells.set(sell.pubkey, Date.now());
         }
+      } else {
+        callbacks.log(`[SELL:JUPITER] ❌ Jupiter service not available`);
+        state.failedSells.set(sell.pubkey, Date.now());
       }
     }
   }

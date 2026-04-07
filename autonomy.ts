@@ -298,9 +298,29 @@ async function callLlmDirect(prompt: string, maxTokens: number): Promise<string>
 }
 
 function isRecentlyTraded(state: AutonomyState, question: string): boolean {
+  const q = question.toLowerCase();
   return state.tradeHistory.some(
-    (h) => h.question.toLowerCase() === question.toLowerCase() && Date.now() - h.time < SAME_MARKET_COOLDOWN_MS,
+    (h) => {
+      const hq = h.question.toLowerCase();
+      // Exact match OR significant substring overlap (handles title variations)
+      const match = hq === q || q.includes(hq) || hq.includes(q)
+        || (q.length > 20 && hq.length > 20 && q.slice(0, 20) === hq.slice(0, 20));
+      return match && Date.now() - h.time < SAME_MARKET_COOLDOWN_MS;
+    },
   );
+}
+
+/**
+ * Check if a market was EVER bought this session (no time limit).
+ * Prevents repeat buys on the same market even after cooldown expires.
+ */
+function wasAlreadyBoughtThisSession(state: AutonomyState, question: string): boolean {
+  const q = question.toLowerCase();
+  return state.tradeHistory.some((h) => {
+    const hq = h.question.toLowerCase();
+    return hq === q || q.includes(hq) || hq.includes(q)
+      || (q.length > 20 && hq.length > 20 && q.slice(0, 20) === hq.slice(0, 20));
+  });
 }
 
 function isFailCooledDown(failMap: Map<string, number>, key: string, cooldownMs: number): boolean {
@@ -408,6 +428,11 @@ async function directPolymarketBuy(
   betSize: number,
   availableBalance?: number,
 ): Promise<boolean> {
+  // Guard: prevent duplicate buys at execution time
+  if (wasAlreadyBoughtThisSession(state, question)) {
+    callbacks.log(`[BUY:POLYMARKET] ⚠️ Already bought "${question.slice(0, 50)}" this session — skipping`);
+    return false;
+  }
   try {
     const extSvc = (await deps.runtime.getServiceLoadPromise(
       POLYMARKET_EXT_SERVICE_TYPE,
@@ -482,7 +507,13 @@ async function directJupiterBuy(
   marketId: string,
   side: string,
   betSize: number,
+  question?: string,
 ): Promise<boolean> {
+  // Guard: prevent duplicate buys at execution time
+  if (question && wasAlreadyBoughtThisSession(state, question)) {
+    callbacks.log(`[BUY:JUPITER] ⚠️ Already bought "${question.slice(0, 50)}" this session — skipping`);
+    return false;
+  }
   try {
     const jupSvc = (await deps.runtime.getServiceLoadPromise(
       JUPITER_SERVICE_TYPE,
@@ -716,6 +747,7 @@ async function scanPolymarketMarkets(
     if (yp < 0.1 || yp > 0.9) continue;
     const q = String(m.question ?? "");
     if (ownedTitles.has(q.toLowerCase())) continue;
+    if (wasAlreadyBoughtThisSession(state, q)) continue;
     if (isRecentlyTraded(state, q)) continue;
 
     const spread = Math.abs(np - yp);
@@ -794,6 +826,7 @@ async function scanJupiterMarkets(
       const marketTitle = (m.metadata?.title ?? "").toLowerCase();
       const eventTitle = (event.metadata?.title ?? "").toLowerCase();
       if (ownedTitles.has(marketTitle) || ownedTitles.has(`${eventTitle} — ${marketTitle}`)) { _jupDbgOwned++; continue; }
+      if (wasAlreadyBoughtThisSession(state, q)) { _jupDbgOwned++; continue; }
       if (isRecentlyTraded(state, q)) continue;
       if (!isFailCooledDown(state.failedBuys, m.marketId, FAILED_BUY_COOLDOWN_MS)) continue;
       jupScored.push({ question: q, marketId: m.marketId, yesPrice: yp, score, volume });
@@ -1358,11 +1391,11 @@ async function runAutonomyCycle(
               callbacks.log(
                 `[BUY:POLYMARKET] "${analysis.pick.question}" (${analysis.side}:$${analysis.pick.yesPrice.toFixed(2)}, score:${analysis.pick.score.toFixed(2)}, $${betSize.toFixed(2)}, ${(analysis.pick as ScoredMarket).daysLeft?.toFixed(0) ?? "?"}d left)`,
               );
+              // Record trade BEFORE execution so parallel phase sees it immediately
+              recordTrade(state, { question: analysis.pick.question, platform: "POLYMARKET", time: Date.now(), price: analysis.pick.yesPrice, amount: betSize });
               // Direct CLOB API buy — bypasses LLM for reliability
               const bought = await directPolymarketBuy(deps, callbacks, state, analysis.pick.question, analysis.side, betSize, polyBalance);
-              if (bought) {
-                recordTrade(state, { question: analysis.pick.question, platform: "POLYMARKET", time: Date.now(), price: analysis.pick.yesPrice, amount: betSize });
-              } else {
+              if (!bought) {
                 state.failedBuys.set(analysis.pick.question, Date.now());
               }
             }
@@ -1430,18 +1463,20 @@ async function runAutonomyCycle(
             callbacks.log(
               `[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${(pick as JupMarket).volume?.toFixed(0) ?? "0"})`,
             );
+            // Record trade BEFORE execution so parallel phase sees it immediately
+            recordTrade(state, { question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice, amount: betSize });
             // Direct API buy — bypasses LLM action routing for reliable execution
-            const bought = await directJupiterBuy(deps, callbacks, state, (pick as JupMarket).marketId, side, betSize);
+            const bought = await directJupiterBuy(deps, callbacks, state, (pick as JupMarket).marketId, side, betSize, pick.question);
             if (!bought && candidates.length > 1) {
               const fallback = (candidates as JupMarket[]).find(
                 (c) => c.marketId !== (pick as JupMarket).marketId && !state.failedBuys.has(c.marketId),
               );
               if (fallback) {
                 callbacks.log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${side})`);
-                await directJupiterBuy(deps, callbacks, state, fallback.marketId, side, betSize);
+                recordTrade(state, { question: fallback.question, platform: "JUPITER", time: Date.now(), price: fallback.yesPrice, amount: betSize });
+                await directJupiterBuy(deps, callbacks, state, fallback.marketId, side, betSize, fallback.question);
               }
             }
-            recordTrade(state, { question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice, amount: betSize });
           }
         } else {
           callbacks.log(`[JUPITER] No new markets to buy (profit review already ran above)`);

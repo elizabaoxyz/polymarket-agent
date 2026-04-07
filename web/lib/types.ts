@@ -68,7 +68,7 @@ export type ServerMessage =
   | { type: "auth_ok" }
   | { type: "auth_error"; text: string }
   | { type: "error"; text: string }
-  | { type: "autonomy_status"; active: boolean };
+  | { type: "autonomy_status"; active: boolean; platform?: "both" | "polymarket" | "jupiter" | null };
 
 // Client -> Server messages
 export type ClientMessage =

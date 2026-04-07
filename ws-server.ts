@@ -49,7 +49,7 @@ import { CONNECTORS_SERVICE_TYPE } from "./plugins/connectors/types";
 import { WS_AUTH_TOKEN } from "./config";
 import { AsyncMutex } from "./mutex";
 import { getPortfolioStatus } from "./portfolio";
-import { startAutonomy, type AutonomyHandle } from "./autonomy";
+import { startAutonomy, type AutonomyHandle, type AutonomyPlatform } from "./autonomy";
 
 const WS_PORT = Number(process.env.PORT ?? process.env.WS_PORT ?? 3001);
 const DEFAULT_ROOM_ID = stringToUuid("web-chat-room");
@@ -346,14 +346,27 @@ async function main() {
           return;
         }
 
-        // --- Start autonomy ---
-        if (msg.type === "start_autonomy") {
+        // --- Start autonomy (supports platform-specific modes) ---
+        if (msg.type === "start_autonomy" || msg.type === "start_autonomy_polymarket" || msg.type === "start_autonomy_jupiter") {
+          const platform: AutonomyPlatform =
+            msg.type === "start_autonomy_polymarket" ? "polymarket" :
+            msg.type === "start_autonomy_jupiter" ? "jupiter" : "both";
+
           if (autonomyHandle?.isRunning) {
-            ws.send(JSON.stringify({ type: "autonomy_status", active: true }));
-            return;
+            // If same platform, just confirm. If different, stop and restart.
+            if (autonomyHandle.platform === platform) {
+              ws.send(JSON.stringify({ type: "autonomy_status", active: true, platform }));
+              return;
+            }
+            // Stop current autonomy to switch platform
+            autonomyHandle.stop();
+            autonomyHandle = null;
+            console.log(`ws-server: switching autonomy from ${autonomyHandle?.platform ?? "?"} to ${platform}`);
           }
-          console.log("ws-server: autonomy started");
-          ws.send(JSON.stringify({ type: "autonomy_status", active: true }));
+
+          const label = platform === "both" ? "both platforms" : platform === "polymarket" ? "Polymarket only" : "Jupiter + x402 only";
+          console.log(`ws-server: autonomy started (${label})`);
+          ws.send(JSON.stringify({ type: "autonomy_status", active: true, platform }));
 
           autonomyHandle = startAutonomy(
             {
@@ -382,6 +395,7 @@ async function main() {
                 console.log(text);
               },
             },
+            platform,
           );
           return;
         }
@@ -389,17 +403,16 @@ async function main() {
         // --- Stop autonomy ---
         if (msg.type === "stop_autonomy") {
           if (autonomyHandle) {
+            const wasPlatform = autonomyHandle.platform;
             autonomyHandle.stop();
             autonomyHandle = null;
-            ws.send(
-              JSON.stringify({
-                type: "action_result",
-                text: "[AUTONOMY] Stopped — heartbeat ended, GTC orders will auto-cancel",
-              }),
-            );
-            console.log("ws-server: autonomy + heartbeat stopped");
+            const stopMsg = wasPlatform === "jupiter"
+              ? "[AUTONOMY] Stopped (Jupiter)"
+              : "[AUTONOMY] Stopped — heartbeat ended, GTC orders will auto-cancel";
+            ws.send(JSON.stringify({ type: "action_result", text: stopMsg }));
+            console.log("ws-server: autonomy stopped");
           }
-          ws.send(JSON.stringify({ type: "autonomy_status", active: false }));
+          ws.send(JSON.stringify({ type: "autonomy_status", active: false, platform: null }));
           return;
         }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, CreditCard, FileText } from "lucide-react";
+import { Bot, CreditCard, FileText, Hexagon, Sun } from "lucide-react";
 
 function XIcon({ size = 15 }: { size?: number }) {
   return (
@@ -18,51 +18,111 @@ function GitHubIcon({ size = 15 }: { size?: number }) {
   );
 }
 
+type AutonomyPlatform = "both" | "polymarket" | "jupiter" | null;
+
 type HeaderProps = {
   isConnected: boolean;
   isAutonomyActive: boolean;
-  onToggleAutonomy: () => void;
+  autonomyPlatform: AutonomyPlatform;
+  onStartPlatform: (platform: "both" | "polymarket" | "jupiter") => void;
+  onStop: () => void;
   x402Status?: { active: boolean; payments: number; totalUsd: number };
   onX402Click?: () => void;
 };
 
-export function Header({ isConnected, isAutonomyActive, onToggleAutonomy, x402Status, onX402Click }: HeaderProps) {
+function AutonomyButton({
+  label,
+  shortLabel,
+  icon,
+  isActive,
+  isConnected,
+  onClick,
+}: {
+  label: string;
+  shortLabel: string;
+  icon: React.ReactNode;
+  isActive: boolean;
+  isConnected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={!isConnected}
+      className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold mono transition-all ${
+        isActive
+          ? "bg-[var(--green)] text-[#0a0a0a] autonomy-active"
+          : "bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--green)] hover:text-[var(--green)] hover-glow"
+      } disabled:opacity-40`}
+      title={isActive ? `${label} running — click to stop` : `Start ${label}`}
+    >
+      {icon}
+      <span className="hidden md:inline">{isActive ? `${label} ON` : label}</span>
+      <span className="md:hidden">{isActive ? `${shortLabel} ON` : shortLabel}</span>
+    </button>
+  );
+}
+
+export function Header({ isConnected, isAutonomyActive, autonomyPlatform, onStartPlatform, onStop, x402Status, onX402Click }: HeaderProps) {
+  const isBothActive = isAutonomyActive && autonomyPlatform === "both";
+  const isPolyActive = isAutonomyActive && autonomyPlatform === "polymarket";
+  const isJupActive = isAutonomyActive && autonomyPlatform === "jupiter";
+
+  const handleClick = (platform: "both" | "polymarket" | "jupiter") => {
+    if (isAutonomyActive && autonomyPlatform === platform) {
+      onStop();
+    } else {
+      onStartPlatform(platform);
+    }
+  };
+
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-[var(--bg)] border-b border-[var(--border)]">
       <div className="w-full px-4 h-12 flex items-center justify-between">
         {/* Left section */}
-        <div className="flex items-center gap-2 md:gap-3 min-w-0">
+        <div className="flex items-center gap-1.5 md:gap-2 min-w-0">
           <span className="mono text-[var(--accent)] font-bold text-xs md:text-sm tracking-wider shrink-0">
             ELIZABAO
           </span>
 
           <div
-            className={`w-2 h-2 rounded-full ${
+            className={`w-2 h-2 rounded-full shrink-0 ${
               isConnected ? "bg-[var(--green)]" : "bg-[var(--red)]"
             }`}
             title={isConnected ? "Connected" : "Disconnected"}
           />
 
-          {/* Autonomy Toggle */}
-          <button
-            onClick={onToggleAutonomy}
-            disabled={!isConnected}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold mono transition-all ${
-              isAutonomyActive
-                ? "bg-[var(--green)] text-[#0a0a0a] autonomy-active"
-                : "bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--green)] hover:text-[var(--green)] hover-glow"
-            } disabled:opacity-40`}
-          >
-            <Bot size={12} />
-            <span className="hidden sm:inline">{isAutonomyActive ? "AUTONOMY ON" : "AUTONOMY OFF"}</span>
-            <span className="sm:hidden">{isAutonomyActive ? "ON" : "OFF"}</span>
-          </button>
+          {/* Autonomy Toggles */}
+          <AutonomyButton
+            label="ALL"
+            shortLabel="ALL"
+            icon={<Bot size={11} />}
+            isActive={isBothActive}
+            isConnected={isConnected}
+            onClick={() => handleClick("both")}
+          />
+          <AutonomyButton
+            label="POLY"
+            shortLabel="PM"
+            icon={<Hexagon size={10} />}
+            isActive={isPolyActive}
+            isConnected={isConnected}
+            onClick={() => handleClick("polymarket")}
+          />
+          <AutonomyButton
+            label="JUP+x402"
+            shortLabel="JUP"
+            icon={<Sun size={10} />}
+            isActive={isJupActive}
+            isConnected={isConnected}
+            onClick={() => handleClick("jupiter")}
+          />
 
           {/* x402 Status Badge */}
           {x402Status && (
             <button
               onClick={onX402Click}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] mono cursor-pointer transition-all hover-glow ${
+              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] mono cursor-pointer transition-all hover-glow ${
                 x402Status.active
                   ? "bg-[var(--bg-card)] border border-[var(--accent)] text-[var(--accent)]"
                   : "bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-muted)]"
@@ -72,14 +132,14 @@ export function Header({ isConnected, isAutonomyActive, onToggleAutonomy, x402St
                 : "x402 disabled"
               }
             >
-              <CreditCard size={12} />
+              <CreditCard size={11} />
               <span>x402</span>
               {x402Status.active && (
                 <>
                   <div className="w-1.5 h-1.5 rounded-full bg-[var(--green)]" />
                   {x402Status.payments > 0 && (
-                    <span className="hidden sm:inline text-[var(--text-secondary)]">
-                      {x402Status.payments}tx · ${x402Status.totalUsd.toFixed(2)}
+                    <span className="text-[var(--text-secondary)]">
+                      {x402Status.payments}tx
                     </span>
                   )}
                 </>

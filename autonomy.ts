@@ -60,9 +60,12 @@ export type AutonomyCallbacks = {
   log: (text: string) => void;
 };
 
+export type AutonomyPlatform = "both" | "polymarket" | "jupiter";
+
 export type AutonomyHandle = {
   stop: () => void;
   readonly isRunning: boolean;
+  readonly platform: AutonomyPlatform;
 };
 
 type TradeHistoryEntry = { question: string; platform: string; time: number; price: number; amount: number };
@@ -70,6 +73,7 @@ type TradeHistoryEntry = { question: string; platform: string; time: number; pri
 // --- Internal state ---
 
 type AutonomyState = {
+  platform: AutonomyPlatform;
   cycleCount: number;
   tradeHistory: TradeHistoryEntry[];
   failedSells: Map<string, number>;
@@ -83,10 +87,11 @@ type AutonomyState = {
   cycleEnrichCache: Map<string, string>;
 };
 
-function createState(): AutonomyState {
+function createState(platform: AutonomyPlatform): AutonomyState {
   const now = new Date();
   const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
   return {
+    platform,
     cycleCount: 0,
     tradeHistory: [],
     failedSells: new Map(),
@@ -991,7 +996,8 @@ async function runAutonomyCycle(
   const connectorsActive = deps.connectorsSvc?.isActive() === true;
 
   try {
-    callbacks.log(`[AUTONOMY] Cycle #${state.cycleCount} — Polygon + Solana`);
+    const platformLabel = state.platform === "both" ? "Polygon + Solana" : state.platform === "polymarket" ? "Polygon only" : "Solana + x402 only";
+    callbacks.log(`[AUTONOMY] Cycle #${state.cycleCount} — ${platformLabel}`);
     if (ragActive) callbacks.log("[RAG] ChromaDB online");
     if (connectorsActive) callbacks.log("[CONNECTORS] News + Search online");
 
@@ -1040,8 +1046,13 @@ async function runAutonomyCycle(
       callbacks.log(`[AUTONOMY] ${ownedTitles.size}/${MAX_POSITIONS} positions — sell-only`);
     }
 
+    // Determine which platforms to run based on the configured platform filter
+    const runPoly = state.platform === "both" || state.platform === "polymarket";
+    const runJup = state.platform === "both" || state.platform === "jupiter";
+
     // ========== Run POLYMARKET and JUPITER in parallel ==========
     const polyPhase = async () => {
+      if (!runPoly) return;
       callbacks.log(`[POLYMARKET] ${lowPolyBalance ? "SELL-ONLY (low balance)" : "SELL + BUY"}`);
       await polymarketSellPhase(
         deps, callbacks, state,
@@ -1092,6 +1103,7 @@ async function runAutonomyCycle(
     };
 
     const jupPhase = async () => {
+      if (!runJup) return;
       callbacks.log(`[JUPITER] ${lowSolBalance ? "SELL-ONLY (low balance)" : "SELL + BUY"}`);
       await jupiterSellClaimPhase(
         deps, callbacks, state,
@@ -1204,14 +1216,15 @@ async function runAutonomyCycle(
 export function startAutonomy(
   deps: AutonomyDeps,
   callbacks: AutonomyCallbacks,
+  platform: AutonomyPlatform = "both",
 ): AutonomyHandle {
-  const state = createState();
+  const state = createState(platform);
   let timer: ReturnType<typeof setTimeout> | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let running = true;
 
-  // Start heartbeat
-  (async () => {
+  // Start heartbeat (only needed for Polymarket GTC orders)
+  if (platform !== "jupiter") (async () => {
     try {
       const extSvc = (await deps.runtime.getServiceLoadPromise(
         POLYMARKET_EXT_SERVICE_TYPE,
@@ -1284,6 +1297,9 @@ export function startAutonomy(
   return {
     get isRunning() {
       return running;
+    },
+    get platform() {
+      return platform;
     },
     stop() {
       running = false;

@@ -92,6 +92,7 @@ export function useWebSocket() {
           break;
         case "autonomy_status":
           setIsAutonomyActive(msg.active);
+          setAutonomyPlatform(msg.active ? (msg.platform ?? "both") : null);
           break;
         case "error":
           setMessages((prev) => [
@@ -125,13 +126,36 @@ export function useWebSocket() {
   }, []);
 
   const [isAutonomyActive, setIsAutonomyActive] = useState(false);
+  const [autonomyPlatform, setAutonomyPlatform] = useState<"both" | "polymarket" | "jupiter" | null>(null);
 
   const toggleAutonomy = useCallback(() => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    const newState = !isAutonomyActive;
-    wsRef.current.send(JSON.stringify({ type: newState ? "start_autonomy" : "stop_autonomy" }));
-    setIsAutonomyActive(newState);
+    if (isAutonomyActive) {
+      wsRef.current.send(JSON.stringify({ type: "stop_autonomy" }));
+      setIsAutonomyActive(false);
+      setAutonomyPlatform(null);
+    } else {
+      wsRef.current.send(JSON.stringify({ type: "start_autonomy" }));
+      setIsAutonomyActive(true);
+      setAutonomyPlatform("both");
+    }
   }, [isAutonomyActive]);
 
-  return { messages, sendMessage, isConnected, isThinking, portfolio, requestStatus, isAutonomyActive, toggleAutonomy };
+  const startAutonomyPlatform = useCallback((platform: "both" | "polymarket" | "jupiter") => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    const msgType = platform === "polymarket" ? "start_autonomy_polymarket" :
+                    platform === "jupiter" ? "start_autonomy_jupiter" : "start_autonomy";
+    wsRef.current.send(JSON.stringify({ type: msgType }));
+    setIsAutonomyActive(true);
+    setAutonomyPlatform(platform);
+  }, []);
+
+  const stopAutonomy = useCallback(() => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    wsRef.current.send(JSON.stringify({ type: "stop_autonomy" }));
+    setIsAutonomyActive(false);
+    setAutonomyPlatform(null);
+  }, []);
+
+  return { messages, sendMessage, isConnected, isThinking, portfolio, requestStatus, isAutonomyActive, autonomyPlatform, toggleAutonomy, startAutonomyPlatform, stopAutonomy };
 }

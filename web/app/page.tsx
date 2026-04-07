@@ -17,7 +17,7 @@ import { BarChart3, MessageSquare, Puzzle } from "lucide-react";
 type MobileTab = "chat" | "portfolio" | "plugins";
 
 export default function Home() {
-  const { messages, sendMessage, isConnected, isThinking, portfolio, requestStatus, isAutonomyActive, toggleAutonomy } =
+  const { messages, sendMessage, isConnected, isThinking, portfolio, requestStatus, isAutonomyActive, autonomyPlatform, toggleAutonomy, startAutonomyPlatform, stopAutonomy } =
     useWebSocket();
 
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
@@ -85,7 +85,9 @@ export default function Home() {
       <Header
         isConnected={isConnected}
         isAutonomyActive={isAutonomyActive}
-        onToggleAutonomy={toggleAutonomy}
+        autonomyPlatform={autonomyPlatform}
+        onStartPlatform={startAutonomyPlatform}
+        onStop={stopAutonomy}
         x402Status={portfolio?.x402}
         onX402Click={() => setShowX402(true)}
       />

@@ -26,6 +26,8 @@ import {
   SCORE_TIME_WEIGHT,
   SCORE_VOLUME_WEIGHT,
   RAG_SIMILARITY_WEIGHT,
+  DAILY_SPEND_LIMIT_USD,
+  HEARTBEAT_MAX_FAILURES,
   calcBetSize,
 } from "./config";
 import { withRetry } from "./retry";
@@ -63,7 +65,7 @@ export type AutonomyHandle = {
   readonly isRunning: boolean;
 };
 
-type TradeHistoryEntry = { question: string; platform: string; time: number; price: number };
+type TradeHistoryEntry = { question: string; platform: string; time: number; price: number; amount: number };
 
 // --- Internal state ---
 
@@ -72,17 +74,76 @@ type AutonomyState = {
   tradeHistory: TradeHistoryEntry[];
   failedSells: Map<string, number>;
   failedBuys: Map<string, number>;
-  recentlySold: Set<string>;
+  recentlySold: Map<string, number>;  // token/pubkey → timestamp (auto-expires)
+  dailySpend: number;                 // USD spent today
+  dailySpendResetAt: number;          // timestamp of next daily reset
+  prevPolyBalance: number;            // for P&L tracking
+  prevSolBalance: number;
+  /** Cache enrichment context per cycle to avoid duplicate API calls */
+  cycleEnrichCache: Map<string, string>;
 };
 
 function createState(): AutonomyState {
+  const now = new Date();
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
   return {
     cycleCount: 0,
     tradeHistory: [],
     failedSells: new Map(),
     failedBuys: new Map(),
-    recentlySold: new Set(),
+    recentlySold: new Map(),
+    dailySpend: 0,
+    dailySpendResetAt: tomorrow.getTime(),
+    prevPolyBalance: -1,
+    prevSolBalance: -1,
+    cycleEnrichCache: new Map(),
   };
+}
+
+/**
+ * Housekeeping — clean up expired entries from maps/sets.
+ * Called at the start of each cycle to prevent unbounded growth.
+ */
+function housekeep(state: AutonomyState): void {
+  const now = Date.now();
+
+  // Expire recentlySold entries older than FAILED_SELL_COOLDOWN_MS
+  for (const [key, ts] of state.recentlySold) {
+    if (now - ts >= FAILED_SELL_COOLDOWN_MS) state.recentlySold.delete(key);
+  }
+
+  // Expire failedSells entries older than 2× cooldown (fully stale)
+  for (const [key, ts] of state.failedSells) {
+    if (now - ts >= FAILED_SELL_COOLDOWN_MS * 2) state.failedSells.delete(key);
+  }
+
+  // Expire failedBuys entries older than 2× cooldown
+  for (const [key, ts] of state.failedBuys) {
+    if (now - ts >= FAILED_BUY_COOLDOWN_MS * 2) state.failedBuys.delete(key);
+  }
+
+  // Reset daily spend at midnight
+  if (now >= state.dailySpendResetAt) {
+    state.dailySpend = 0;
+    const tomorrow = new Date();
+    tomorrow.setHours(24, 0, 0, 0);
+    state.dailySpendResetAt = tomorrow.getTime();
+  }
+
+  // Clear per-cycle enrichment cache
+  state.cycleEnrichCache.clear();
+}
+
+/**
+ * Check if daily spend limit allows a purchase.
+ */
+function canSpend(state: AutonomyState, amount: number): boolean {
+  if (DAILY_SPEND_LIMIT_USD <= 0) return true; // no limit
+  return state.dailySpend + amount <= DAILY_SPEND_LIMIT_USD;
+}
+
+function recordSpend(state: AutonomyState, amount: number): void {
+  state.dailySpend += amount;
 }
 
 // --- Helpers ---
@@ -203,12 +264,85 @@ async function directPolymarketSell(
     callbacks.log(
       `[SELL:POLYMARKET] ✅ ${statusIcon}: "${title}" — ${shares} shares @ $${price.toFixed(2)} ($${total})${txInfo}`,
     );
-    state.recentlySold.add(token);
+    state.recentlySold.set(token, Date.now());
     return true;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     callbacks.log(`[SELL:POLYMARKET] ❌ "${title}" — failed: ${msg}`);
     state.failedSells.set(token, Date.now());
+    return false;
+  }
+}
+
+// --- Direct Polymarket buy via CLOB API (bypasses LLM) ---
+
+async function directPolymarketBuy(
+  deps: AutonomyDeps,
+  callbacks: AutonomyCallbacks,
+  state: AutonomyState,
+  question: string,
+  side: string,
+  betSize: number,
+): Promise<boolean> {
+  try {
+    const extSvc = (await deps.runtime.getServiceLoadPromise(
+      POLYMARKET_EXT_SERVICE_TYPE,
+    )) as unknown as PolymarketExtService;
+    if (!extSvc?.isFullyActive()) {
+      callbacks.log(`[BUY:POLYMARKET] ❌ CLOB not active`);
+      return false;
+    }
+
+    // Search for the market
+    const markets = await extSvc.clob!.searchMarkets(question);
+    if (markets.length === 0) {
+      callbacks.log(`[BUY:POLYMARKET] ❌ No market found matching "${question.slice(0, 50)}"`);
+      return false;
+    }
+    const market = markets[0]!;
+    const outcome = side === "YES" ? "Yes" : "No";
+    const token = market.tokens.find((t) => t.outcome.toLowerCase() === outcome.toLowerCase());
+    if (!token) {
+      callbacks.log(`[BUY:POLYMARKET] ❌ No ${outcome} token for "${market.question?.slice(0, 50)}"`);
+      return false;
+    }
+
+    // Get best ask price from order book
+    let price = token.price;
+    try {
+      const book = await extSvc.clob!.getOrderBook(token.token_id);
+      if (book.asks.length > 0) {
+        price = parseFloat(book.asks[0]!.price);
+      }
+    } catch {
+      // Fall back to token.price
+    }
+
+    if (price < 0.01 || price > 0.99) {
+      callbacks.log(`[BUY:POLYMARKET] ❌ Price $${price.toFixed(4)} out of range`);
+      return false;
+    }
+
+    const size = Math.floor(betSize / price);
+    if (size < 1) {
+      callbacks.log(`[BUY:POLYMARKET] ❌ $${betSize} at $${price.toFixed(2)}/share = ${(betSize / price).toFixed(1)} shares (min 1)`);
+      return false;
+    }
+
+    const result = await extSvc.placeOrder({ tokenId: token.token_id, side: "BUY", price, size });
+    const total = (size * price).toFixed(2);
+    const statusIcon = result.status === "matched" ? "FILLED" : String(result.status).toUpperCase();
+    const txInfo = result.transactionsHashes.length > 0
+      ? ` | tx: ${result.transactionsHashes[0]!.slice(0, 10)}...`
+      : "";
+    callbacks.log(
+      `[BUY:POLYMARKET] ✅ ${statusIcon}: ${size} ${outcome} shares of "${market.question?.slice(0, 60)}" @ $${price.toFixed(2)} ($${total})${txInfo}`,
+    );
+    recordSpend(state, Number(total));
+    return true;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    callbacks.log(`[BUY:POLYMARKET] ❌ "${question.slice(0, 50)}" — failed: ${msg}`);
     return false;
   }
 }
@@ -423,10 +557,19 @@ async function applyRagSimilarity(
 async function indexAndEnrich(
   deps: AutonomyDeps,
   callbacks: AutonomyCallbacks,
+  state: AutonomyState,
   markets: ScoredMarket[] | JupMarket[],
   platform: "polymarket" | "jupiter",
   topQuestion: string,
 ): Promise<string> {
+  // Check enrichment cache — avoid duplicate NewsAPI/Tavily calls for similar topics
+  const cacheKey = topQuestion.toLowerCase().slice(0, 40);
+  const cached = state.cycleEnrichCache.get(cacheKey);
+  if (cached !== undefined) {
+    callbacks.log(`[RAG:ENRICH] Using cached context for "${topQuestion.slice(0, 40)}"`);
+    return cached;
+  }
+
   const ragActive = deps.ragSvc?.isActive() === true;
   const connectorsActive = deps.connectorsSvc?.isActive() === true;
 
@@ -505,12 +648,15 @@ async function indexAndEnrich(
       callbacks.log(`[RAG:ENRICH] Found ${r.similarMarkets.length} similar markets in ChromaDB`);
     }
 
-    return parts.length > 0
+    const result = parts.length > 0
       ? `\n\nADDITIONAL CONTEXT FOR YOUR ANALYSIS:\n${parts.join("\n\n")}\n\nUse this context to improve your prediction accuracy.`
       : "";
+    state.cycleEnrichCache.set(cacheKey, result);
+    return result;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     callbacks.log(`[RAG:ENRICH] Context fetch failed: ${msg}`);
+    state.cycleEnrichCache.set(cacheKey, "");
     return "";
   }
 }
@@ -617,7 +763,11 @@ async function collectPositions(
           const pnl = pos.percentPnl ?? 0;
           const price = pos.curPrice ?? 0;
           if (price < 0.02 || pos.redeemable) continue;
-          if (isRecentlyTraded(state, pos.title ?? "")) continue;
+          // Skip freshly bought positions (protect POSITION_MIN_AGE_MS)
+          const isNew = state.tradeHistory.some(
+            (h) => h.question.toLowerCase() === (pos.title ?? "").toLowerCase() && Date.now() - h.time < POSITION_MIN_AGE_MS,
+          );
+          if (isNew) continue;
           if (pnl <= -95) continue;
           if (price < 0.05) continue;
           if (!isFailCooledDown(state.failedSells, pos.asset, FAILED_SELL_COOLDOWN_MS)) continue;
@@ -657,7 +807,11 @@ async function collectPositions(
             continue;
           }
           const pnl = pos.pnlUsdPercent ?? 0;
-          if (isRecentlyTraded(state, title)) continue;
+          // Skip freshly bought positions
+          const isNewJup = state.tradeHistory.some(
+            (h) => h.question.toLowerCase().includes(title.toLowerCase()) && Date.now() - h.time < POSITION_MIN_AGE_MS,
+          );
+          if (isNewJup) continue;
           if (
             (pnl < sellLossThreshold || pnl > sellProfitThreshold) &&
             pos.pubkey &&
@@ -755,7 +909,7 @@ async function jupiterSellClaimPhase(
           const { transaction } = await jupSvc.client.closePosition(sell.pubkey, jupSvc.ownerPubkey);
           const signature = await jupSvc.signAndSubmit(transaction);
           callbacks.log(`[SELL:JUPITER] ✅ Closed! Signature: ${signature}`);
-          state.recentlySold.add(sell.pubkey);
+          state.recentlySold.set(sell.pubkey, Date.now());
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
           callbacks.log(`[SELL:JUPITER] ❌ Failed to close: ${errMsg}`);
@@ -776,7 +930,9 @@ async function runAutonomyCycle(
   callbacks: AutonomyCallbacks,
   state: AutonomyState,
 ): Promise<void> {
+  const cycleStart = Date.now();
   state.cycleCount++;
+  housekeep(state);
   try {
     callbacks.send({ type: "thinking", active: true });
   } catch {}
@@ -798,6 +954,24 @@ async function runAutonomyCycle(
     callbacks.log(
       `[BALANCE] Polygon: $${polyBalance.toFixed(2)} | Solana: $${solBalance.toFixed(2)} (USDC+JupUSD)`,
     );
+
+    // P&L tracking
+    if (state.prevPolyBalance >= 0 || state.prevSolBalance >= 0) {
+      const polyDelta = state.prevPolyBalance >= 0 ? polyBalance - state.prevPolyBalance : 0;
+      const solDelta = state.prevSolBalance >= 0 ? solBalance - state.prevSolBalance : 0;
+      const totalDelta = polyDelta + solDelta;
+      if (Math.abs(totalDelta) >= 0.01) {
+        const sign = totalDelta >= 0 ? "+" : "";
+        callbacks.log(`[P&L] ${sign}$${totalDelta.toFixed(2)} since last cycle (poly: ${sign}$${polyDelta.toFixed(2)}, sol: ${sign}$${solDelta.toFixed(2)})`);
+      }
+    }
+    state.prevPolyBalance = polyBalance;
+    state.prevSolBalance = solBalance;
+
+    // Daily spend limit check
+    if (DAILY_SPEND_LIMIT_USD > 0) {
+      callbacks.log(`[SPEND] Today: $${state.dailySpend.toFixed(2)} / $${DAILY_SPEND_LIMIT_USD.toFixed(2)} limit`);
+    }
 
     // Dynamic sell thresholds — per-platform
     const polySellLoss = lowPolyBalance ? SELL_LOSS_THRESHOLD_AGGRESSIVE : SELL_LOSS_THRESHOLD_NORMAL;
@@ -833,7 +1007,7 @@ async function runAutonomyCycle(
       try {
         const scored = await scanPolymarketMarkets(ownedTitles, state);
         const ragContext = scored.length > 0
-          ? await indexAndEnrich(deps, callbacks, scored, "polymarket", scored[0]!.question)
+          ? await indexAndEnrich(deps, callbacks, state, scored, "polymarket", scored[0]!.question)
           : "";
         callbacks.log(`[POLYMARKET] ${scored.length} new markets | balance: $${polyBalance.toFixed(2)}`);
 
@@ -842,14 +1016,21 @@ async function runAutonomyCycle(
           const analysis = await analyzeCandidates(deps, callbacks, candidates, ragContext);
           if (analysis) {
             const betSize = calcBetSize(analysis.pick.score, polyBalance);
-            callbacks.log(`[ANALYSIS:POLY] ${analysis.reason}`);
-            callbacks.log(
-              `[BUY:POLYMARKET] "${analysis.pick.question}" (${analysis.side}:$${analysis.pick.yesPrice.toFixed(2)}, score:${analysis.pick.score.toFixed(2)}, $${betSize.toFixed(2)}, ${(analysis.pick as ScoredMarket).daysLeft?.toFixed(0) ?? "?"}d left)`,
-            );
-            await sendPrompt(deps, callbacks,
-              `buy $${betSize.toFixed(0)} ${analysis.side} on "${analysis.pick.question}" on polymarket`,
-            );
-            recordTrade(state, { question: analysis.pick.question, platform: "POLYMARKET", time: Date.now(), price: analysis.pick.yesPrice });
+            if (!canSpend(state, betSize)) {
+              callbacks.log(`[POLYMARKET] Daily spend limit reached ($${state.dailySpend.toFixed(2)}/$${DAILY_SPEND_LIMIT_USD.toFixed(2)}) — skipping buy`);
+            } else {
+              callbacks.log(`[ANALYSIS:POLY] ${analysis.reason}`);
+              callbacks.log(
+                `[BUY:POLYMARKET] "${analysis.pick.question}" (${analysis.side}:$${analysis.pick.yesPrice.toFixed(2)}, score:${analysis.pick.score.toFixed(2)}, $${betSize.toFixed(2)}, ${(analysis.pick as ScoredMarket).daysLeft?.toFixed(0) ?? "?"}d left)`,
+              );
+              // Direct CLOB API buy — bypasses LLM for reliability
+              const bought = await directPolymarketBuy(deps, callbacks, state, analysis.pick.question, analysis.side, betSize);
+              if (bought) {
+                recordTrade(state, { question: analysis.pick.question, platform: "POLYMARKET", time: Date.now(), price: analysis.pick.yesPrice, amount: betSize });
+              } else {
+                state.failedBuys.set(analysis.pick.question, Date.now());
+              }
+            }
           }
         } else {
           callbacks.log("[POLYMARKET] No new markets to buy");
@@ -876,7 +1057,7 @@ async function runAutonomyCycle(
       try {
         const jupScored = await scanJupiterMarkets(ownedTitles, state);
         const ragContext = jupScored.length > 0
-          ? await indexAndEnrich(deps, callbacks, jupScored, "jupiter", jupScored[0]!.question)
+          ? await indexAndEnrich(deps, callbacks, state, jupScored, "jupiter", jupScored[0]!.question)
           : "";
         callbacks.log(`[JUPITER] ${jupScored.length} new markets | SOL balance: $${solBalance.toFixed(2)}`);
 
@@ -897,32 +1078,38 @@ async function runAutonomyCycle(
           const reason = analysis?.reason ?? "best scored market";
 
           const betSize = calcBetSize(pick.score, solBalance);
-          callbacks.log(`[ANALYSIS:JUP] ${reason}`);
-          callbacks.log(
-            `[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${(pick as JupMarket).volume?.toFixed(0) ?? "0"})`,
-          );
-          const betResults = await sendPrompt(deps, callbacks,
-            `bet $${betSize.toFixed(0)} ${side} on jupiter market ${(pick as JupMarket).marketId}`,
-          );
-          const betFailed = betResults.some((r) => /failed|error|no shares|no buyers/i.test(r));
-          if (betFailed) {
-            state.failedBuys.set((pick as JupMarket).marketId, Date.now());
-            if (candidates.length > 1) {
-              const fallback = (candidates as JupMarket[]).find(
-                (c) => c.marketId !== (pick as JupMarket).marketId && !state.failedBuys.has(c.marketId),
-              );
-              if (fallback) {
-                callbacks.log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${side})`);
-                const fbResults = await sendPrompt(deps, callbacks,
-                  `bet $${betSize.toFixed(0)} ${side} on jupiter market ${fallback.marketId}`,
+          if (!canSpend(state, betSize)) {
+            callbacks.log(`[JUPITER] Daily spend limit reached ($${state.dailySpend.toFixed(2)}/$${DAILY_SPEND_LIMIT_USD.toFixed(2)}) — skipping buy`);
+          } else {
+            callbacks.log(`[ANALYSIS:JUP] ${reason}`);
+            callbacks.log(
+              `[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${(pick as JupMarket).volume?.toFixed(0) ?? "0"})`,
+            );
+            const betResults = await sendPrompt(deps, callbacks,
+              `bet $${betSize.toFixed(0)} ${side} on jupiter market ${(pick as JupMarket).marketId}`,
+            );
+            const betFailed = betResults.some((r) => /failed|error|no shares|no buyers/i.test(r));
+            if (betFailed) {
+              state.failedBuys.set((pick as JupMarket).marketId, Date.now());
+              if (candidates.length > 1) {
+                const fallback = (candidates as JupMarket[]).find(
+                  (c) => c.marketId !== (pick as JupMarket).marketId && !state.failedBuys.has(c.marketId),
                 );
-                if (fbResults.some((r) => /failed|error|no shares|no buyers/i.test(r))) {
-                  state.failedBuys.set(fallback.marketId, Date.now());
+                if (fallback) {
+                  callbacks.log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${side})`);
+                  const fbResults = await sendPrompt(deps, callbacks,
+                    `bet $${betSize.toFixed(0)} ${side} on jupiter market ${fallback.marketId}`,
+                  );
+                  if (fbResults.some((r) => /failed|error|no shares|no buyers/i.test(r))) {
+                    state.failedBuys.set(fallback.marketId, Date.now());
+                  }
                 }
               }
+            } else {
+              recordSpend(state, betSize);
             }
+            recordTrade(state, { question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice, amount: betSize });
           }
-          recordTrade(state, { question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice });
         } else {
           callbacks.log("[JUPITER] No new markets to buy");
         }
@@ -943,11 +1130,12 @@ async function runAutonomyCycle(
       )) as unknown as X402SolanaService | null;
       if (x402Svc?.isActive()) x402Payments = x402Svc.getPaymentStats().count;
     } catch {}
+    const cycleDuration = ((Date.now() - cycleStart) / 1000).toFixed(1);
+    const spendInfo = DAILY_SPEND_LIMIT_USD > 0 ? ` | spent: $${state.dailySpend.toFixed(2)}/$${DAILY_SPEND_LIMIT_USD.toFixed(2)}` : "";
     callbacks.log(
-      `[AUTONOMY] x402: ${x402Payments} payments | positions: ${ownedTitles.size}/${MAX_POSITIONS} | poly: $${polyBalance.toFixed(2)} | sol: $${solBalance.toFixed(2)}`,
+      `[AUTONOMY] x402: ${x402Payments} payments | positions: ${ownedTitles.size}/${MAX_POSITIONS} | poly: $${polyBalance.toFixed(2)} | sol: $${solBalance.toFixed(2)}${spendInfo}`,
     );
-
-    callbacks.log("[AUTONOMY] Cycle complete.");
+    callbacks.log(`[AUTONOMY] Cycle #${state.cycleCount} complete in ${cycleDuration}s`);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     callbacks.log(`[AUTONOMY] Fatal error: ${errMsg}`);
@@ -981,11 +1169,26 @@ export function startAutonomy(
       if (extSvc?.clob) {
         extSvc.clob.resetHeartbeat();
         extSvc.clob.heartbeat().catch(() => {});
+        let consecutiveFailures = 0;
         heartbeatTimer = setInterval(() => {
-          extSvc.clob!.heartbeat().catch((err) => {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            console.warn(`autonomy: heartbeat failed: ${errMsg}`);
-          });
+          extSvc.clob!.heartbeat()
+            .then(() => {
+              if (consecutiveFailures > 0) {
+                callbacks.send({ type: "action_result", text: `[HEARTBEAT] ✅ Recovered after ${consecutiveFailures} failures` });
+                consecutiveFailures = 0;
+              }
+            })
+            .catch((err) => {
+              consecutiveFailures++;
+              const errMsg = err instanceof Error ? err.message : String(err);
+              console.warn(`autonomy: heartbeat failed (${consecutiveFailures}x): ${errMsg}`);
+              if (consecutiveFailures >= HEARTBEAT_MAX_FAILURES) {
+                callbacks.send({
+                  type: "action_result",
+                  text: `[HEARTBEAT] ⚠️ ${consecutiveFailures} consecutive failures — GTC orders at risk of auto-cancel! Error: ${errMsg}`,
+                });
+              }
+            });
         }, HEARTBEAT_INTERVAL_MS);
         callbacks.send({
           type: "action_result",

@@ -97,6 +97,16 @@ export const MAX_RETRIES = envInt("MAX_RETRIES", 3);
 /** Base delay for exponential backoff (ms) */
 export const RETRY_BASE_DELAY_MS = envInt("RETRY_BASE_DELAY_MS", 1000);
 
+// --- Spending limits ---
+
+/** Maximum USD to spend per day across all platforms (0 = unlimited) */
+export const DAILY_SPEND_LIMIT_USD = envFloat("DAILY_SPEND_LIMIT_USD", 0);
+
+// --- Heartbeat ---
+
+/** Max consecutive heartbeat failures before alerting user */
+export const HEARTBEAT_MAX_FAILURES = envInt("HEARTBEAT_MAX_FAILURES", 5);
+
 // --- Smart position sizing ---
 
 /**

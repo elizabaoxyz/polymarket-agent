@@ -198,22 +198,64 @@ async function directLlmCall(
   prompt: string,
   maxTokens = 500,
 ): Promise<string> {
-  try {
-    const result = await deps.runtime.useModel(ModelType.TEXT_SMALL, {
-      prompt,
-      temperature: 0.3,
-      maxTokens,
-    });
-    if (typeof result === "string" && result.trim().length > 0) {
-      return result.trim();
+  // Try TEXT_LARGE first (more reliable), fall back to TEXT_SMALL
+  const modelsToTry = [ModelType.TEXT_LARGE, ModelType.TEXT_SMALL] as const;
+  for (const modelType of modelsToTry) {
+    try {
+      const result = await deps.runtime.useModel(modelType, {
+        prompt,
+        temperature: 0.3,
+        maxTokens,
+      });
+      // Handle various return types
+      let text = "";
+      if (typeof result === "string") {
+        text = result.trim();
+      } else if (result && typeof result === "object") {
+        // Some providers return { text: "..." } or { content: "..." }
+        const obj = result as Record<string, unknown>;
+        text = String(obj.text ?? obj.content ?? obj.response ?? obj.message ?? "").trim();
+      }
+      if (text.length > 0) return text;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      callbacks.log(`[LLM] ${modelType} failed: ${msg}`);
     }
-    callbacks.log(`[LLM] Empty response (prompt: ${prompt.slice(0, 50)}...)`);
-    return "";
+  }
+
+  // All models failed — fall back to sendPrompt through message handler
+  // This is slower but more reliable as it uses the full elizaOS pipeline
+  callbacks.log(`[LLM] Direct model calls failed, falling back to message handler...`);
+  try {
+    const results: string[] = [];
+    const mem = createMessageMemory({
+      id: uuidv4() as ReturnType<typeof stringToUuid>,
+      entityId: deps.userId,
+      roomId: deps.roomId,
+      content: { text: `RESPOND WITH TEXT ONLY. Do not trigger any actions.\n\n${prompt}`, source: "web-chat", channelType: ChannelType.DM },
+    });
+    await deps.runtimeMutex.runExclusive(async () => {
+      await deps.messageService.handleMessage(
+        deps.runtime,
+        mem,
+        async (content: Content) => {
+          if (typeof content.text === "string" && content.text.trim()) {
+            results.push(content.text.trim());
+          }
+          return [];
+        },
+        {} as never,
+      );
+    });
+    const text = results.join(" ").trim();
+    if (text.length > 0) return text;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    callbacks.log(`[LLM] Error: ${msg}`);
-    return "";
+    callbacks.log(`[LLM] Message handler fallback also failed: ${msg}`);
   }
+
+  callbacks.log(`[LLM] All attempts failed for prompt: ${prompt.slice(0, 50)}...`);
+  return "";
 }
 
 function isRecentlyTraded(state: AutonomyState, question: string): boolean {

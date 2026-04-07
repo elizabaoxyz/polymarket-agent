@@ -194,18 +194,24 @@ async function sendPrompt(
  */
 async function directLlmCall(
   deps: AutonomyDeps,
+  callbacks: AutonomyCallbacks,
   prompt: string,
+  maxTokens = 500,
 ): Promise<string> {
   try {
     const result = await deps.runtime.useModel(ModelType.TEXT_SMALL, {
       prompt,
       temperature: 0.3,
-      maxTokens: 300,
+      maxTokens,
     });
-    return typeof result === "string" ? result.trim() : "";
+    if (typeof result === "string" && result.trim().length > 0) {
+      return result.trim();
+    }
+    callbacks.log(`[LLM] Empty response (prompt: ${prompt.slice(0, 50)}...)`);
+    return "";
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[directLlmCall] failed: ${msg}`);
+    callbacks.log(`[LLM] Error: ${msg}`);
     return "";
   }
 }
@@ -399,6 +405,7 @@ async function polymarketSellPhase(
     callbacks.log(`[SELL ANALYSIS] Analyzing ${sellTargets.length} positions...`);
     const sellText = await directLlmCall(
       deps,
+      callbacks,
       `You are a portfolio manager reviewing positions. Today is ${new Date().toISOString().split("T")[0]}.${lowBalance ? ` Balance is critically low ($${polyBalance.toFixed(2)}). Be aggressive — sell anything profitable.` : ""} For each position, decide SELL or HOLD.\n\n${sellList}\n\nRespond with one line per position:\n<number>: SELL or HOLD — <reason>`,
     );
 
@@ -426,6 +433,7 @@ async function polymarketSellPhase(
     callbacks.log(`[RECOVERY MODE] Balance $${polyBalance.toFixed(2)} — asking LLM which positions to sell...`);
     const recoveryText = await directLlmCall(
       deps,
+      callbacks,
       `You are a portfolio manager. Balance is critically low ($${polyBalance.toFixed(2)}). Today is ${new Date().toISOString().split("T")[0]}.\n\nPositions (worst first):\n${positionList}\n\nPick 1-3 to sell. Respond with:\n<number>: SELL — <reason>`,
     );
     const sorted = allSellable.sort((a, b) => a.pnl - b.pnl);
@@ -534,7 +542,7 @@ async function scanJupiterMarkets(
       _jupDbgTotal++;
       const yp = Number(m.pricing?.buyYesPriceUsd ?? 0) / 1_000_000;
       const np = Number(m.pricing?.buyNoPriceUsd ?? 0) / 1_000_000;
-      if (yp < 0.05 || yp > 0.95) { _jupDbgPrice++; continue; }
+      if (yp < 0.02 || yp > 0.98) { _jupDbgPrice++; continue; }
       const effectiveNp = np > 0 ? np : 1 - yp;
       const spread = Math.abs(effectiveNp - yp);
       const mid = (yp + effectiveNp) / 2;
@@ -545,7 +553,11 @@ async function scanJupiterMarkets(
       const volumeScore = Math.min(1, volume / 10000);
       const score = spreadScore * 0.35 + midScore * 0.3 + volumeScore * 0.35;
       const q = `${event.metadata?.title} — ${m.metadata?.title}`;
-      if (ownedTitles.has((event.metadata?.title ?? "").toLowerCase())) { _jupDbgOwned++; continue; }
+      // Check market-level title, not event-level — owning 1 market in an event
+      // shouldn't block buying other markets in the same event
+      const marketTitle = (m.metadata?.title ?? "").toLowerCase();
+      const eventTitle = (event.metadata?.title ?? "").toLowerCase();
+      if (ownedTitles.has(marketTitle) || ownedTitles.has(`${eventTitle} — ${marketTitle}`)) { _jupDbgOwned++; continue; }
       if (isRecentlyTraded(state, q)) continue;
       if (!isFailCooledDown(state.failedBuys, m.marketId, FAILED_BUY_COOLDOWN_MS)) continue;
       jupScored.push({ question: q, marketId: m.marketId, yesPrice: yp, score, volume });
@@ -722,7 +734,7 @@ PICK: <number 1-${candidates.length}>
 SIDE: YES or NO
 REASON: <one sentence explanation>`;
 
-  const text = await directLlmCall(deps, structuredPrompt);
+  const text = await directLlmCall(deps, callbacks, structuredPrompt);
 
   if (text.length > 0) {
     callbacks.log(`[ANALYSIS] LLM response: "${text.slice(0, 120)}"`);
@@ -759,7 +771,7 @@ REASON: <one sentence explanation>`;
   // Fallback: simpler YES/NO question on top pick
   const pick = candidates[0]!;
   const simplePrompt = `Today is ${new Date().toISOString().split("T")[0]}. Should I bet YES or NO on: "${pick.question}"? Current YES price: $${pick.yesPrice.toFixed(2)}. Answer only YES or NO with a short reason.`;
-  const fbText = await directLlmCall(deps, simplePrompt);
+  const fbText = await directLlmCall(deps, callbacks, simplePrompt);
 
   if (fbText.length > 0) {
     callbacks.log(`[ANALYSIS] Fallback response: "${fbText.slice(0, 100)}"`);
@@ -957,6 +969,7 @@ async function jupiterSellClaimPhase(
     callbacks.log(`[SELL ANALYSIS] Analyzing ${jupSellTargets.length} Jupiter positions...`);
     const jupSellText = await directLlmCall(
       deps,
+      callbacks,
       `You are a portfolio manager reviewing Jupiter/Solana positions. Today is ${new Date().toISOString().split("T")[0]}.${lowSolBalance ? ` Balance is critically low ($${solBalance.toFixed(2)}). Be aggressive.` : ""} For each position, decide SELL or HOLD.\n\n${jupSellList}\n\nRespond with one line per position:\n<number>: SELL or HOLD — <reason>`,
     );
 
@@ -1202,6 +1215,7 @@ async function runAutonomyCycle(
             callbacks.log(`[JUPITER] No new markets. Reviewing ${jupAllPositions.length} existing positions...`);
             const reviewText = await directLlmCall(
               deps,
+              callbacks,
               `You are a portfolio manager reviewing Jupiter/Solana prediction positions. Today is ${new Date().toISOString().split("T")[0]}.\n\nCurrent positions:\n${positionList}\n\nAre any of these worth selling now? Consider: dead money, unlikely outcomes, better to reallocate.\nFor each position, respond: <number>: SELL or HOLD — <reason>`,
             );
             if (reviewText.length > 0) {

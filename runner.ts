@@ -58,7 +58,7 @@ const DEFAULT_ROOM_ID = stringToUuid("polymarket-runtime-room");
 const DEFAULT_WORLD_ID = stringToUuid("polymarket-runtime-world");
 const DEFAULT_USER_ID = stringToUuid("polymarket-operator");
 const POLYGON_CHAIN_ID = 137;
-const PROVIDER_OPTIONS = ["openai", "anthropic", "gemini", "groq", "grok"] as const;
+const PROVIDER_OPTIONS = ["openai", "anthropic", "gemini", "groq", "grok", "glm"] as const;
 
 type EnvSnapshot = Record<string, string>;
 
@@ -468,6 +468,13 @@ function buildSettingsFields(
       value: getEnvValue(snapshot, "XAI_API_KEY") ?? "",
       secret: true,
       required: provider === "grok",
+    },
+    {
+      key: "GLM_API_KEY",
+      label: "GLM / Z.AI API Key",
+      value: getEnvValue(snapshot, "GLM_API_KEY") ?? "",
+      secret: true,
+      required: provider === "glm",
     },
     {
       key: "EVM_PRIVATE_KEY",

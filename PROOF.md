@@ -386,17 +386,16 @@ Every 60-second cycle logs:
 │                   WEB DASHBOARD                           │
 │                                                          │
 │  Left Sidebar          Center Chat        Header          │
-│  ├─ Polygon USDC       ├─ Trade logs      ├─ Autonomy    │
-│  ├─ Solana USDC        ├─ Sell confirms   │  ON/OFF      │
-│  ├─ Position count     ├─ Buy confirms    └─ x402 badge  │
-│  └─ Live feed          └─ PnL updates       (payments,   │
-│                                               total $)    │
+│  ├─ Polygon USDC       ├─ Trade logs      ├─ [ALL] toggle│
+│  ├─ Solana USDC        ├─ Sell confirms   ├─ [POLY]      │
+│  ├─ Position count     ├─ Buy confirms    ├─ [JUP+x402]  │
+│  └─ Live feed          └─ PnL updates     └─ x402 badge  │
 └──────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 4. Git History (186 commits)
+## 4. Git History (198 commits)
 
 Key commits showing progressive implementation:
 
@@ -404,14 +403,18 @@ Key commits showing progressive implementation:
 |--------|-------------|
 | `30bdaed` | `docs: add x402 Solana payment integration design spec` |
 | `390ef6a` | `feat: add x402 payment protocol dependencies` |
-| `9f7d4fd` | `fix(web): update x402 modal to reflect buy-only payment flow` |
-| `01e5572` | `fix(jupiter): include JupUSD in balance + use as deposit mint` |
 | `a3e49bb` | `feat: add RAG pipeline (ChromaDB), News/Search connectors` |
 | `d984a92` | `feat: wire RAG + Connectors into autonomy loop` |
 | `a6dd282` | `refactor: break up God file, add auth/retry/mutex/config` |
 | `713244c` | `fix: bypass LLM for Polymarket sells, use direct CLOB API` |
+| `e0b39ed` | `fix: Polymarket sells use position curPrice fallback` |
+| `6c80409` | `feat: run both platforms every cycle` |
+| `ada64d5` | `fix: run Polymarket + Jupiter in parallel, prevent cycle overlap` |
+| `96ddc75` | `feat: major autonomy upgrades — direct buys, P&L, spend limits` |
+| `75dfaf0` | `feat: per-platform autonomy toggles — ALL, POLY, JUP+x402` |
+| `5ee1cbb` | `feat: Jupiter position review when 0 new markets` |
 
-Full history: `git log --oneline` (186 commits from `f0553d4 init new repo` to present)
+Full history: `git log --oneline` (198 commits from `f0553d4 init new repo` to present)
 
 ---
 

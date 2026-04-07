@@ -473,6 +473,63 @@ async function directPolymarketBuy(
   }
 }
 
+// --- Direct Jupiter buy via API (bypasses LLM action routing) ---
+
+async function directJupiterBuy(
+  deps: AutonomyDeps,
+  callbacks: AutonomyCallbacks,
+  state: AutonomyState,
+  marketId: string,
+  side: string,
+  betSize: number,
+): Promise<boolean> {
+  try {
+    const jupSvc = (await deps.runtime.getServiceLoadPromise(
+      JUPITER_SERVICE_TYPE,
+    )) as unknown as JupiterPredictionService | null;
+    if (!jupSvc || !jupSvc.ownerPubkey) {
+      callbacks.log(`[BUY:JUPITER] ❌ Jupiter service not available`);
+      return false;
+    }
+
+    const isYes = side.toUpperCase() === "YES";
+    const depositAmount = Math.round(Math.max(betSize, 1.1) * 1_000_000); // micro-USD
+
+    // Check JupUSD balance — prefer over USDC
+    let mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"; // USDC
+    try {
+      const { Connection, PublicKey } = await import("@solana/web3.js");
+      const conn = new Connection(process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com", "confirmed");
+      const jupMint = new PublicKey("JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD");
+      const jupAccounts = await conn.getTokenAccountsByOwner(new PublicKey(jupSvc.ownerPubkey), { mint: jupMint });
+      if (jupAccounts.value.length > 0 && jupAccounts.value[0]) {
+        const info = await conn.getTokenAccountBalance(jupAccounts.value[0].pubkey);
+        if (Number(info.value.uiAmount ?? 0) >= betSize) {
+          mint = "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD";
+        }
+      }
+    } catch {}
+
+    const { orderId, signature } = await jupSvc.placeOrderAndSign({
+      ownerPubkey: jupSvc.ownerPubkey,
+      marketId,
+      isYes,
+      isBuy: true,
+      depositAmount,
+      depositMint: mint,
+    });
+
+    callbacks.log(`[BUY:JUPITER] ✅ Order placed! Order: ${orderId} | Signature: ${signature}`);
+    recordSpend(state, betSize);
+    return true;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    callbacks.log(`[BUY:JUPITER] ❌ Failed: ${msg}`);
+    state.failedBuys.set(marketId, Date.now());
+    return false;
+  }
+}
+
 // --- Polymarket sell phase ---
 
 async function polymarketSellPhase(
@@ -1373,36 +1430,16 @@ async function runAutonomyCycle(
             callbacks.log(
               `[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${(pick as JupMarket).volume?.toFixed(0) ?? "0"})`,
             );
-            const betResults = await sendPrompt(deps, callbacks,
-              `bet $${betSize.toFixed(0)} ${side} on jupiter market ${(pick as JupMarket).marketId}`,
-            );
-            const betResultText = betResults.join(" ");
-            if (betResultText.length > 0) {
-              callbacks.log(`[BUY:JUPITER] Result: ${betResultText.slice(0, 150)}`);
-            } else {
-              callbacks.log(`[BUY:JUPITER] Order submitted (no confirmation text returned)`);
-            }
-            const betFailed = betResults.some((r) => /failed|error|no shares|no buyers/i.test(r));
-            if (betFailed) {
-              callbacks.log(`[BUY:JUPITER] ❌ Trade failed`);
-              state.failedBuys.set((pick as JupMarket).marketId, Date.now());
-              if (candidates.length > 1) {
-                const fallback = (candidates as JupMarket[]).find(
-                  (c) => c.marketId !== (pick as JupMarket).marketId && !state.failedBuys.has(c.marketId),
-                );
-                if (fallback) {
-                  callbacks.log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${side})`);
-                  const fbResults = await sendPrompt(deps, callbacks,
-                    `bet $${betSize.toFixed(0)} ${side} on jupiter market ${fallback.marketId}`,
-                  );
-                  if (fbResults.some((r) => /failed|error|no shares|no buyers/i.test(r))) {
-                    state.failedBuys.set(fallback.marketId, Date.now());
-                  }
-                }
+            // Direct API buy — bypasses LLM action routing for reliable execution
+            const bought = await directJupiterBuy(deps, callbacks, state, (pick as JupMarket).marketId, side, betSize);
+            if (!bought && candidates.length > 1) {
+              const fallback = (candidates as JupMarket[]).find(
+                (c) => c.marketId !== (pick as JupMarket).marketId && !state.failedBuys.has(c.marketId),
+              );
+              if (fallback) {
+                callbacks.log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${side})`);
+                await directJupiterBuy(deps, callbacks, state, fallback.marketId, side, betSize);
               }
-            } else {
-              callbacks.log(`[BUY:JUPITER] ✅ Order placed`);
-              recordSpend(state, betSize);
             }
             recordTrade(state, { question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice, amount: betSize });
           }

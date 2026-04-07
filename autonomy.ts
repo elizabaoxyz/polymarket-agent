@@ -4,7 +4,7 @@
  */
 
 import type { AgentRuntime, Content } from "@elizaos/core";
-import { createMessageMemory, stringToUuid, ChannelType } from "@elizaos/core";
+import { createMessageMemory, stringToUuid, ChannelType, ModelType } from "@elizaos/core";
 import { v4 as uuidv4 } from "uuid";
 
 import {
@@ -180,6 +180,29 @@ async function sendPrompt(
     callbacks.send({ type: "action_result", text: `[ERROR] ${errMsg}` });
   }
   return results;
+}
+
+/**
+ * Call the LLM directly via runtime.useModel() — bypasses elizaOS message handler
+ * and action routing. Use this for analysis-only prompts where we don't want the
+ * LLM to trigger actions like POLYMARKET_PLACE_ORDER.
+ */
+async function directLlmCall(
+  deps: AutonomyDeps,
+  prompt: string,
+): Promise<string> {
+  try {
+    const result = await deps.runtime.useModel(ModelType.TEXT_SMALL, {
+      prompt,
+      temperature: 0.3,
+      maxTokens: 300,
+    });
+    return typeof result === "string" ? result.trim() : "";
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[directLlmCall] failed: ${msg}`);
+    return "";
+  }
 }
 
 function isRecentlyTraded(state: AutonomyState, question: string): boolean {
@@ -369,12 +392,10 @@ async function polymarketSellPhase(
       );
     }
     callbacks.log(`[SELL ANALYSIS] Analyzing ${sellTargets.length} positions...`);
-    const sellAnalysis = await sendPrompt(
+    const sellText = await directLlmCall(
       deps,
-      callbacks,
-      `DO NOT place any orders. You are reviewing your Polymarket positions. Today is ${new Date().toISOString().split("T")[0]}.${lowBalance ? ` IMPORTANT: Balance is critically low ($${polyBalance.toFixed(2)}). Prioritize selling to free up capital. Be aggressive — sell anything profitable.` : ""} These positions hit sell thresholds. For each one, decide SELL or HOLD.\n\n${sellList}\n\nRespond with one line per position:\n<number>: SELL or HOLD — <reason>`,
+      `You are a portfolio manager reviewing positions. Today is ${new Date().toISOString().split("T")[0]}.${lowBalance ? ` Balance is critically low ($${polyBalance.toFixed(2)}). Be aggressive — sell anything profitable.` : ""} For each position, decide SELL or HOLD.\n\n${sellList}\n\nRespond with one line per position:\n<number>: SELL or HOLD — <reason>`,
     );
-    const sellText = sellAnalysis.join(" ");
 
     for (let i = 0; i < sellTargets.length; i++) {
       const sell = sellTargets[i]!;
@@ -398,12 +419,10 @@ async function polymarketSellPhase(
       .map((p, i) => `${i + 1}. "${p.title}" — PnL: ${p.pnl.toFixed(0)}%, shares: ${p.shares}`)
       .join("\n");
     callbacks.log(`[RECOVERY MODE] Balance $${polyBalance.toFixed(2)} — asking LLM which positions to sell...`);
-    const recoveryAnalysis = await sendPrompt(
+    const recoveryText = await directLlmCall(
       deps,
-      callbacks,
-      `DO NOT place any orders. Our Polymarket balance is critically low ($${polyBalance.toFixed(2)}). We need to sell some positions to free up capital. Today is ${new Date().toISOString().split("T")[0]}.\n\nHere are our positions (worst-performing first):\n${positionList}\n\nWhich positions should we sell? Consider: which markets are least likely to recover? Which are dead money? Pick 1-3 positions to sell.\n\nRespond with the numbers to SELL, one per line:\n<number>: SELL — <reason>`,
+      `You are a portfolio manager. Balance is critically low ($${polyBalance.toFixed(2)}). Today is ${new Date().toISOString().split("T")[0]}.\n\nPositions (worst first):\n${positionList}\n\nPick 1-3 to sell. Respond with:\n<number>: SELL — <reason>`,
     );
-    const recoveryText = recoveryAnalysis.join(" ");
     const sorted = allSellable.sort((a, b) => a.pnl - b.pnl);
     for (let i = 0; i < Math.min(10, sorted.length); i++) {
       const sellPattern = new RegExp(`${i + 1}[:\\s]*SELL`, "i");
@@ -684,58 +703,72 @@ async function analyzeCandidates(
 
   callbacks.log(`[ANALYSIS] Analyzing top ${candidates.length} markets...`);
 
-  // Try structured analysis first — single prompt that asks for PICK/SIDE/REASON.
-  // We make TWO attempts: first the multi-market structured prompt, then a simpler
-  // YES/NO on just the top pick. Both go through sendPrompt which routes through
-  // the LLM. If the LLM returns empty (triggers an action instead of replying),
-  // we fall back to price heuristic.
-  const attempts: Array<{ prompt: string; parser: (text: string) => { pick: (typeof candidates)[0]; side: string; reason: string } | null }> = [
-    {
-      prompt: `You are a prediction market analyst. DO NOT place any orders or trigger any actions — only analyze and respond with text.
+  // Use directLlmCall — bypasses elizaOS message handler / action routing.
+  // The message handler was swallowing analysis responses by triggering
+  // POLYMARKET_PLACE_ORDER instead of returning text.
+  const structuredPrompt = `You are a prediction market analyst. Today is ${new Date().toISOString().split("T")[0]}.
 
-Today is ${new Date().toISOString().split("T")[0]}. Analyze these markets:\n\n${candidateList}${ragContext}\n\nYou MUST respond in EXACTLY this format (3 lines, nothing else):\nPICK: <number 1-${candidates.length}>\nSIDE: YES or NO\nREASON: <one sentence>`,
-      parser: (text) => {
-        const pickMatch = /PICK:\s*(\d+)/i.exec(text);
-        const sideMatch = /SIDE:\s*(YES|NO)/i.exec(text);
-        const reasonMatch = /REASON:\s*(.+?)(?:\.|$)/i.exec(text);
-        if (!sideMatch) return null;
-        const pickIdx = pickMatch ? Math.min(Number.parseInt(pickMatch[1]!) - 1, candidates.length - 1) : 0;
-        return {
-          pick: candidates[Math.max(0, pickIdx)]!,
-          side: sideMatch[1]!.toUpperCase(),
-          reason: reasonMatch ? reasonMatch[1]!.trim() : text.slice(0, 100),
-        };
-      },
-    },
-    {
-      prompt: `Answer ONLY with YES or NO followed by a short reason. Do not trigger any actions.\n\nToday is ${new Date().toISOString().split("T")[0]}. Should I bet YES or NO on: "${candidates[0]!.question}"? Current YES price: $${candidates[0]!.yesPrice.toFixed(2)}.`,
-      parser: (text) => {
-        const yesNo = /\b(YES|NO)\b/i.exec(text);
-        if (!yesNo) return null;
-        return {
-          pick: candidates[0]!,
-          side: yesNo[1]!.toUpperCase(),
-          reason: text.slice(0, 100) || "fallback analysis",
-        };
-      },
-    },
-  ];
+Analyze these markets and pick the best bet:
 
-  for (let i = 0; i < attempts.length; i++) {
-    const attempt = attempts[i]!;
-    const results = await sendPrompt(deps, callbacks, attempt.prompt);
-    const text = results.join(" ");
-    if (text.length > 0) {
-      const parsed = attempt.parser(text);
-      if (parsed) return parsed;
-      callbacks.log(`[ANALYSIS] Attempt ${i + 1} parse failed (got: "${text.slice(0, 60)}"), ${i + 1 < attempts.length ? "trying simpler prompt..." : "using heuristic"}`);
-    } else {
-      callbacks.log(`[ANALYSIS] Attempt ${i + 1} returned empty${i + 1 < attempts.length ? ", trying simpler prompt..." : ""}`);
+${candidateList}${ragContext}
+
+Respond in EXACTLY this format (3 lines only):
+PICK: <number 1-${candidates.length}>
+SIDE: YES or NO
+REASON: <one sentence explanation>`;
+
+  const text = await directLlmCall(deps, structuredPrompt);
+
+  if (text.length > 0) {
+    callbacks.log(`[ANALYSIS] LLM response: "${text.slice(0, 120)}"`);
+    const pickMatch = /PICK:\s*(\d+)/i.exec(text);
+    const sideMatch = /SIDE:\s*(YES|NO)/i.exec(text);
+    const reasonMatch = /REASON:\s*(.+?)(?:\.|$)/i.exec(text);
+
+    if (sideMatch) {
+      const pickIdx = pickMatch
+        ? Math.min(Number.parseInt(pickMatch[1]!) - 1, candidates.length - 1)
+        : 0;
+      return {
+        pick: candidates[Math.max(0, pickIdx)]!,
+        side: sideMatch[1]!.toUpperCase(),
+        reason: reasonMatch ? reasonMatch[1]!.trim() : text.slice(0, 100),
+      };
+    }
+
+    // Try to extract YES/NO from unstructured response
+    const yesNo = /\b(YES|NO)\b/i.exec(text);
+    if (yesNo) {
+      return {
+        pick: candidates[0]!,
+        side: yesNo[1]!.toUpperCase(),
+        reason: text.slice(0, 100),
+      };
+    }
+
+    callbacks.log(`[ANALYSIS] Could not parse LLM response, trying simpler prompt...`);
+  } else {
+    callbacks.log(`[ANALYSIS] LLM returned empty, trying simpler prompt...`);
+  }
+
+  // Fallback: simpler YES/NO question on top pick
+  const pick = candidates[0]!;
+  const simplePrompt = `Today is ${new Date().toISOString().split("T")[0]}. Should I bet YES or NO on: "${pick.question}"? Current YES price: $${pick.yesPrice.toFixed(2)}. Answer only YES or NO with a short reason.`;
+  const fbText = await directLlmCall(deps, simplePrompt);
+
+  if (fbText.length > 0) {
+    callbacks.log(`[ANALYSIS] Fallback response: "${fbText.slice(0, 100)}"`);
+    const yesNo = /\b(YES|NO)\b/i.exec(fbText);
+    if (yesNo) {
+      return {
+        pick,
+        side: yesNo[1]!.toUpperCase(),
+        reason: fbText.slice(0, 100),
+      };
     }
   }
 
   // Last resort: price-based heuristic
-  const pick = candidates[0]!;
   const heuristicSide = pick.yesPrice < 0.5 ? "YES" : "NO";
   callbacks.log(`[ANALYSIS] All LLM attempts failed — using price heuristic: ${heuristicSide} (YES=$${pick.yesPrice.toFixed(2)})`);
   return {
@@ -899,12 +932,10 @@ async function jupiterSellClaimPhase(
       );
     }
     callbacks.log(`[SELL ANALYSIS] Analyzing ${jupSellTargets.length} Jupiter positions...`);
-    const jupSellAnalysis = await sendPrompt(
+    const jupSellText = await directLlmCall(
       deps,
-      callbacks,
-      `DO NOT place any orders. You are reviewing your Jupiter/Solana positions. Today is ${new Date().toISOString().split("T")[0]}.${lowSolBalance ? ` IMPORTANT: Balance is critically low ($${solBalance.toFixed(2)}). Prioritize selling to free up capital.` : ""} These positions hit sell thresholds. For each one, decide SELL or HOLD.\n\n${jupSellList}\n\nRespond with one line per position:\n<number>: SELL or HOLD — <reason>`,
+      `You are a portfolio manager reviewing Jupiter/Solana positions. Today is ${new Date().toISOString().split("T")[0]}.${lowSolBalance ? ` Balance is critically low ($${solBalance.toFixed(2)}). Be aggressive.` : ""} For each position, decide SELL or HOLD.\n\n${jupSellList}\n\nRespond with one line per position:\n<number>: SELL or HOLD — <reason>`,
     );
-    const jupSellText = jupSellAnalysis.join(" ");
 
     let jupSvc: JupiterPredictionService | null = null;
     try {

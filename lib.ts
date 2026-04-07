@@ -440,7 +440,7 @@ export const DEFAULT_LLM_MODELS: Record<LlmProvider, string> = {
   gemini: "gemini-2.5-pro-preview-03-25",
   groq: "llama-3.3-70b-versatile",
   grok: "grok-3",
-  glm: "glm-4.5",
+  glm: "glm-4.7",
 };
 
 export function resolveLlmProviderFromEnv(): LlmProvider | null {
@@ -469,9 +469,8 @@ export function buildLlmPlugins(provider: LlmProvider | null): Array<typeof open
     case "grok":
       return [XAIPlugin];
     case "glm":
-      // GLM Coding Plan uses OpenAI-compatible API at api.z.ai/api/coding/paas/v4
-      // All models are reasoning models — need high max_tokens for content to appear
-      return [openaiPlugin];
+      // GLM Coding Plan uses Anthropic-compatible API at api.z.ai/api/anthropic
+      return [anthropicPlugin];
     case "openai":
     default:
       return [openaiPlugin];
@@ -483,15 +482,15 @@ export function buildLlmRuntimeSettings(provider: LlmProvider | null): Record<st
   const smallModel =
     process.env.ELIZA_LLM_SMALL_MODEL ?? process.env.LLM_SMALL_MODEL ?? model ?? undefined;
   const settings: Record<string, string | undefined> = {
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? (provider === "glm" ? process.env.GLM_API_KEY : undefined),
-    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? (provider === "glm" ? process.env.GLM_API_KEY : undefined),
     GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
     GROQ_API_KEY: process.env.GROQ_API_KEY,
     XAI_API_KEY: process.env.XAI_API_KEY,
-    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL ?? (provider === "glm" ? "https://api.z.ai/api/coding/paas/v4" : undefined),
+    OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
     GROQ_BASE_URL: process.env.GROQ_BASE_URL,
     XAI_BASE_URL: process.env.XAI_BASE_URL,
-    ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+    ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL ?? (provider === "glm" ? "https://api.z.ai/api/anthropic" : undefined),
     GOOGLE_API_BASE_URL: process.env.GOOGLE_API_BASE_URL,
     LARGE_MODEL: model ?? undefined,
     SMALL_MODEL: smallModel,
@@ -504,15 +503,15 @@ export function buildLlmRuntimeSettings(provider: LlmProvider | null): Record<st
     X402_MAX_PAYMENT_USD: process.env.X402_MAX_PAYMENT_USD || undefined,
   };
   if (model) {
-    if (provider === "openai" || provider === "glm") settings.OPENAI_LARGE_MODEL = model;
-    if (provider === "anthropic") settings.ANTHROPIC_LARGE_MODEL = model;
+    if (provider === "openai") settings.OPENAI_LARGE_MODEL = model;
+    if (provider === "anthropic" || provider === "glm") settings.ANTHROPIC_LARGE_MODEL = model;
     if (provider === "gemini") settings.GOOGLE_LARGE_MODEL = model;
     if (provider === "groq") settings.GROQ_LARGE_MODEL = model;
     if (provider === "grok") settings.XAI_LARGE_MODEL = model;
   }
   if (smallModel) {
-    if (provider === "openai" || provider === "glm") settings.OPENAI_SMALL_MODEL = smallModel;
-    if (provider === "anthropic") settings.ANTHROPIC_SMALL_MODEL = smallModel;
+    if (provider === "openai") settings.OPENAI_SMALL_MODEL = smallModel;
+    if (provider === "anthropic" || provider === "glm") settings.ANTHROPIC_SMALL_MODEL = smallModel;
     if (provider === "gemini") settings.GOOGLE_SMALL_MODEL = smallModel;
     if (provider === "groq") settings.GROQ_SMALL_MODEL = smallModel;
     if (provider === "grok") settings.XAI_SMALL_MODEL = smallModel;

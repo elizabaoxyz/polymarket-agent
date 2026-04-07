@@ -811,31 +811,31 @@ async function runAutonomyCycle(
     const { ownedTitles, polySellTargets, polyAllSellable, jupSellTargets, jupClaimable } =
       await collectPositions(state, sellLossThreshold, sellProfitThreshold);
 
-    // ========== POLYMARKET: always sell, buy if balance allows ==========
-    callbacks.log(`[POLYMARKET] ${lowPolyBalance ? "SELL-ONLY (low balance)" : "SELL + BUY"}`);
-    await polymarketSellPhase(
-      deps,
-      callbacks,
-      state,
-      polySellTargets,
-      polyAllSellable,
-      polyBalance,
-      lowPolyBalance,
-      polySellLoss,
-    );
+    const positionsFull = ownedTitles.size >= MAX_POSITIONS;
+    if (positionsFull) {
+      callbacks.log(`[AUTONOMY] ${ownedTitles.size}/${MAX_POSITIONS} positions — sell-only`);
+    }
 
-    if (ownedTitles.size >= MAX_POSITIONS) {
-      callbacks.log(`[AUTONOMY] ${ownedTitles.size}/${MAX_POSITIONS} positions — full, selling only`);
-    } else if (!lowPolyBalance) {
-      // Buy on Polymarket
+    // ========== Run POLYMARKET and JUPITER in parallel ==========
+    const polyPhase = async () => {
+      callbacks.log(`[POLYMARKET] ${lowPolyBalance ? "SELL-ONLY (low balance)" : "SELL + BUY"}`);
+      await polymarketSellPhase(
+        deps, callbacks, state,
+        polySellTargets, polyAllSellable,
+        polyBalance, lowPolyBalance, polySellLoss,
+      );
+
+      if (positionsFull || lowPolyBalance) {
+        if (lowPolyBalance) callbacks.log(`[POLYMARKET] Balance $${polyBalance.toFixed(2)} — sell-only mode`);
+        return;
+      }
+
       try {
         const scored = await scanPolymarketMarkets(ownedTitles, state);
         const ragContext = scored.length > 0
           ? await indexAndEnrich(deps, callbacks, scored, "polymarket", scored[0]!.question)
           : "";
-        callbacks.log(
-          `[POLYMARKET] ${scored.length} new markets | balance: $${polyBalance.toFixed(2)}`,
-        );
+        callbacks.log(`[POLYMARKET] ${scored.length} new markets | balance: $${polyBalance.toFixed(2)}`);
 
         if (scored.length > 0) {
           const candidates = scored.slice(0, 5);
@@ -846,17 +846,10 @@ async function runAutonomyCycle(
             callbacks.log(
               `[BUY:POLYMARKET] "${analysis.pick.question}" (${analysis.side}:$${analysis.pick.yesPrice.toFixed(2)}, score:${analysis.pick.score.toFixed(2)}, $${betSize.toFixed(2)}, ${(analysis.pick as ScoredMarket).daysLeft?.toFixed(0) ?? "?"}d left)`,
             );
-            await sendPrompt(
-              deps,
-              callbacks,
+            await sendPrompt(deps, callbacks,
               `buy $${betSize.toFixed(0)} ${analysis.side} on "${analysis.pick.question}" on polymarket`,
             );
-            recordTrade(state, {
-              question: analysis.pick.question,
-              platform: "POLYMARKET",
-              time: Date.now(),
-              price: analysis.pick.yesPrice,
-            });
+            recordTrade(state, { question: analysis.pick.question, platform: "POLYMARKET", time: Date.now(), price: analysis.pick.yesPrice });
           }
         } else {
           callbacks.log("[POLYMARKET] No new markets to buy");
@@ -865,40 +858,27 @@ async function runAutonomyCycle(
         const msg = err instanceof Error ? err.message : String(err);
         callbacks.log(`[POLYMARKET] Scan failed: ${msg}`);
       }
-    } else {
-      callbacks.log(`[POLYMARKET] Balance $${polyBalance.toFixed(2)} — sell-only mode`);
-    }
+    };
 
-    // ========== JUPITER: always sell/claim, buy if balance allows ==========
-    callbacks.log(`[JUPITER] ${lowSolBalance ? "SELL-ONLY (low balance)" : "SELL + BUY"}`);
-    await jupiterSellClaimPhase(
-      deps,
-      callbacks,
-      state,
-      jupSellTargets,
-      jupClaimable,
-      solBalance,
-      lowSolBalance,
-      jupSellLoss,
-    );
+    const jupPhase = async () => {
+      callbacks.log(`[JUPITER] ${lowSolBalance ? "SELL-ONLY (low balance)" : "SELL + BUY"}`);
+      await jupiterSellClaimPhase(
+        deps, callbacks, state,
+        jupSellTargets, jupClaimable,
+        solBalance, lowSolBalance, jupSellLoss,
+      );
 
-    if (!lowSolBalance && ownedTitles.size < MAX_POSITIONS) {
-      // Buy on Jupiter
+      if (positionsFull || lowSolBalance) {
+        if (lowSolBalance) callbacks.log(`[JUPITER] Balance $${solBalance.toFixed(2)} — sell-only mode`);
+        return;
+      }
+
       try {
         const jupScored = await scanJupiterMarkets(ownedTitles, state);
-        const ragContext =
-          jupScored.length > 0
-            ? await indexAndEnrich(
-                deps,
-                callbacks,
-                jupScored,
-                "jupiter",
-                jupScored[0]!.question,
-              )
-            : "";
-        callbacks.log(
-          `[JUPITER] ${jupScored.length} new markets | SOL balance: $${solBalance.toFixed(2)}`,
-        );
+        const ragContext = jupScored.length > 0
+          ? await indexAndEnrich(deps, callbacks, jupScored, "jupiter", jupScored[0]!.question)
+          : "";
+        callbacks.log(`[JUPITER] ${jupScored.length} new markets | SOL balance: $${solBalance.toFixed(2)}`);
 
         // x402 payment for analysis
         const x402ApiUrl = process.env.X402_API_URL;
@@ -921,27 +901,19 @@ async function runAutonomyCycle(
           callbacks.log(
             `[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${(pick as JupMarket).volume?.toFixed(0) ?? "0"})`,
           );
-          const betResults = await sendPrompt(
-            deps,
-            callbacks,
+          const betResults = await sendPrompt(deps, callbacks,
             `bet $${betSize.toFixed(0)} ${side} on jupiter market ${(pick as JupMarket).marketId}`,
           );
-          const betFailed = betResults.some((r) =>
-            /failed|error|no shares|no buyers/i.test(r),
-          );
+          const betFailed = betResults.some((r) => /failed|error|no shares|no buyers/i.test(r));
           if (betFailed) {
             state.failedBuys.set((pick as JupMarket).marketId, Date.now());
             if (candidates.length > 1) {
               const fallback = (candidates as JupMarket[]).find(
-                (c) =>
-                  c.marketId !== (pick as JupMarket).marketId &&
-                  !state.failedBuys.has(c.marketId),
+                (c) => c.marketId !== (pick as JupMarket).marketId && !state.failedBuys.has(c.marketId),
               );
               if (fallback) {
                 callbacks.log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${side})`);
-                const fbResults = await sendPrompt(
-                  deps,
-                  callbacks,
+                const fbResults = await sendPrompt(deps, callbacks,
                   `bet $${betSize.toFixed(0)} ${side} on jupiter market ${fallback.marketId}`,
                 );
                 if (fbResults.some((r) => /failed|error|no shares|no buyers/i.test(r))) {
@@ -950,12 +922,7 @@ async function runAutonomyCycle(
               }
             }
           }
-          recordTrade(state, {
-            question: pick.question,
-            platform: "JUPITER",
-            time: Date.now(),
-            price: pick.yesPrice,
-          });
+          recordTrade(state, { question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice });
         } else {
           callbacks.log("[JUPITER] No new markets to buy");
         }
@@ -963,9 +930,10 @@ async function runAutonomyCycle(
         const msg = err instanceof Error ? err.message : String(err);
         callbacks.log(`[JUPITER] Scan failed: ${msg}`);
       }
-    } else if (lowSolBalance) {
-      callbacks.log(`[JUPITER] Balance $${solBalance.toFixed(2)} — sell-only mode`);
-    }
+    };
+
+    // Run both platforms in parallel — neither blocks the other
+    await Promise.allSettled([polyPhase(), jupPhase()]);
 
     // Status summary
     let x402Payments = 0;
@@ -1000,7 +968,7 @@ export function startAutonomy(
   callbacks: AutonomyCallbacks,
 ): AutonomyHandle {
   const state = createState();
-  let timer: ReturnType<typeof setInterval> | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let running = true;
 
@@ -1048,9 +1016,17 @@ export function startAutonomy(
     } catch {}
   })();
 
-  // Run first cycle immediately, then on interval
-  runAutonomyCycle(deps, callbacks, state);
-  timer = setInterval(() => runAutonomyCycle(deps, callbacks, state), AUTONOMY_INTERVAL_MS);
+  // Run cycles with setTimeout chaining — next cycle only starts after previous finishes.
+  // This prevents overlapping cycles when a cycle takes longer than AUTONOMY_INTERVAL_MS.
+  const scheduleNext = () => {
+    if (!running) return;
+    timer = setTimeout(async () => {
+      await runAutonomyCycle(deps, callbacks, state);
+      scheduleNext();
+    }, AUTONOMY_INTERVAL_MS);
+  };
+  // Run first cycle immediately
+  runAutonomyCycle(deps, callbacks, state).then(scheduleNext);
 
   return {
     get isRunning() {
@@ -1059,7 +1035,7 @@ export function startAutonomy(
     stop() {
       running = false;
       if (timer) {
-        clearInterval(timer);
+        clearTimeout(timer);
         timer = null;
       }
       if (heartbeatTimer) {

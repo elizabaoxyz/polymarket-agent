@@ -300,27 +300,17 @@ async function callLlmDirect(prompt: string, maxTokens: number): Promise<string>
 function isRecentlyTraded(state: AutonomyState, question: string): boolean {
   const q = question.toLowerCase();
   return state.tradeHistory.some(
-    (h) => {
-      const hq = h.question.toLowerCase();
-      // Exact match OR significant substring overlap (handles title variations)
-      const match = hq === q || q.includes(hq) || hq.includes(q)
-        || (q.length > 20 && hq.length > 20 && q.slice(0, 20) === hq.slice(0, 20));
-      return match && Date.now() - h.time < SAME_MARKET_COOLDOWN_MS;
-    },
+    (h) => h.question.toLowerCase() === q && Date.now() - h.time < SAME_MARKET_COOLDOWN_MS,
   );
 }
 
 /**
  * Check if a market was EVER bought this session (no time limit).
- * Prevents repeat buys on the same market even after cooldown expires.
+ * Uses exact match only — prevents the same market from being bought twice.
  */
 function wasAlreadyBoughtThisSession(state: AutonomyState, question: string): boolean {
   const q = question.toLowerCase();
-  return state.tradeHistory.some((h) => {
-    const hq = h.question.toLowerCase();
-    return hq === q || q.includes(hq) || hq.includes(q)
-      || (q.length > 20 && hq.length > 20 && q.slice(0, 20) === hq.slice(0, 20));
-  });
+  return state.tradeHistory.some((h) => h.question.toLowerCase() === q);
 }
 
 function isFailCooledDown(failMap: Map<string, number>, key: string, cooldownMs: number): boolean {
@@ -631,48 +621,50 @@ async function polymarketSellPhase(
 
 // --- Smart profit review (runs every cycle on all positions) ---
 
-async function reviewPositionsForProfit(
+async function reviewAllPositions(
   deps: AutonomyDeps,
   callbacks: AutonomyCallbacks,
   state: AutonomyState,
   platform: "POLYMARKET" | "JUPITER",
   positions: Array<{ token?: string; pubkey?: string; title: string; pnl: number; shares?: number; curPrice?: number; isYes?: boolean; contracts?: string }>,
 ): Promise<void> {
-  // Filter to positions with any profit (> 0%) that haven't been recently sold/failed
-  const profitable = positions.filter((p) => {
-    if (p.pnl <= 0) return false;
+  // Filter to sellable positions (skip recently sold/failed, too few shares)
+  const reviewable = positions.filter((p) => {
     const key = p.token ?? p.pubkey ?? "";
     if (!key) return false;
     if (state.recentlySold.has(key)) return false;
     if (state.failedSells.has(key)) return false;
-    // Skip positions with too few shares for Polymarket
     if (platform === "POLYMARKET" && (p.shares ?? 0) < 5) return false;
     return true;
   });
 
-  if (profitable.length === 0) return;
+  if (reviewable.length === 0) {
+    callbacks.log(`[PORTFOLIO:${platform}] No reviewable positions`);
+    return;
+  }
 
-  const positionList = profitable
-    .sort((a, b) => b.pnl - a.pnl) // highest profit first
-    .slice(0, 10)
+  const positionList = reviewable
+    .sort((a, b) => b.pnl - a.pnl)
+    .slice(0, 12)
     .map((p, i) => {
       const dir = p.isYes !== undefined ? (p.isYes ? "YES" : "NO") : "";
       const qty = p.shares ?? p.contracts ?? "?";
-      return `${i + 1}. "${p.title}" — PnL: +${p.pnl.toFixed(0)}%, ${dir} ${qty} shares/contracts, cur: $${(p.curPrice ?? 0).toFixed(2)}`;
+      const sign = p.pnl >= 0 ? "+" : "";
+      return `${i + 1}. "${p.title}" — PnL: ${sign}${p.pnl.toFixed(0)}%, ${dir} ${qty} units, price: $${(p.curPrice ?? 0).toFixed(2)}`;
     })
     .join("\n");
 
-  callbacks.log(`[PROFIT REVIEW:${platform}] Reviewing ${profitable.length} profitable positions...`);
+  callbacks.log(`[PORTFOLIO:${platform}] Reviewing ${reviewable.length} positions...`);
   const reviewText = await directLlmCall(
     deps,
     callbacks,
-    `You are a trading portfolio manager focused on TAKING PROFITS. Today is ${new Date().toISOString().split("T")[0]}.
+    `You are a portfolio manager. Today is ${new Date().toISOString().split("T")[0]}.
 
-These positions are currently IN PROFIT. For each one, decide:
-- SELL — if the profit is good enough to lock in, or the market is likely to reverse
-- HOLD — only if there's strong evidence the position will grow significantly more
+Review ALL positions below. For each one decide:
+- SELL — if profitable and profit should be locked in, or if losing and unlikely to recover
+- HOLD — if the position has strong upside potential or the market hasn't resolved yet
 
-Be aggressive about taking profits. A bird in hand is worth two in the bush.
+Be aggressive about taking profits on winners. Cut losers that are dead money.
 
 ${positionList}
 
@@ -681,21 +673,22 @@ Respond with one line per position:
   );
 
   if (reviewText.length === 0) return;
-  callbacks.log(`[PROFIT REVIEW:${platform}] ${reviewText.slice(0, 200)}`);
+  callbacks.log(`[PORTFOLIO:${platform}] ${reviewText.slice(0, 300)}`);
 
-  const sorted = profitable.sort((a, b) => b.pnl - a.pnl).slice(0, 10);
+  const sorted = reviewable.sort((a, b) => b.pnl - a.pnl).slice(0, 12);
   for (let i = 0; i < sorted.length; i++) {
     const sellPattern = new RegExp(`${i + 1}[:\\s]*SELL`, "i");
     if (!sellPattern.test(reviewText)) continue;
     const pos = sorted[i]!;
     const key = pos.token ?? pos.pubkey ?? "";
     if (state.recentlySold.has(key) || state.failedSells.has(key)) continue;
+    const sign = pos.pnl >= 0 ? "+" : "";
 
     if (platform === "POLYMARKET" && pos.token) {
-      callbacks.log(`[PROFIT SELL:POLYMARKET] "${pos.title}" +${pos.pnl.toFixed(0)}% — taking profit`);
+      callbacks.log(`[SELL:POLYMARKET] "${pos.title}" ${sign}${pos.pnl.toFixed(0)}% — portfolio review`);
       await directPolymarketSell(deps, callbacks, state, pos.token, pos.shares ?? 0, pos.title, pos.curPrice);
     } else if (platform === "JUPITER" && pos.pubkey) {
-      callbacks.log(`[PROFIT SELL:JUPITER] "${pos.title}" +${pos.pnl.toFixed(0)}% — taking profit`);
+      callbacks.log(`[SELL:JUPITER] "${pos.title}" ${sign}${pos.pnl.toFixed(0)}% — portfolio review`);
       let jupSvc: JupiterPredictionService | null = null;
       try {
         jupSvc = (await deps.runtime.getServiceLoadPromise(JUPITER_SERVICE_TYPE)) as unknown as JupiterPredictionService | null;
@@ -704,11 +697,11 @@ Respond with one line per position:
         try {
           const { transaction } = await jupSvc.client.closePosition(pos.pubkey, jupSvc.ownerPubkey);
           const signature = await jupSvc.signAndSubmit(transaction);
-          callbacks.log(`[PROFIT SELL:JUPITER] ✅ Closed! Signature: ${signature}`);
+          callbacks.log(`[SELL:JUPITER] ✅ Closed! Signature: ${signature}`);
           state.recentlySold.set(pos.pubkey, Date.now());
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          callbacks.log(`[PROFIT SELL:JUPITER] ❌ Failed: ${errMsg}`);
+          callbacks.log(`[SELL:JUPITER] ❌ Failed: ${errMsg}`);
           state.failedSells.set(pos.pubkey, Date.now());
         }
       }
@@ -803,7 +796,7 @@ async function scanJupiterMarkets(
   );
   const evData = await res.json();
   let _jupDbgTotal = 0, _jupDbgPrice = 0, _jupDbgVol = 0, _jupDbgOwned = 0;
-  for (const event of (evData.data ?? []).slice(0, 30)) {
+  for (const event of (evData.data ?? [])) {
     for (const m of (event.markets ?? []).filter(
       (x: Record<string, unknown>) => x.status === "open",
     )) {
@@ -1362,7 +1355,7 @@ async function runAutonomyCycle(
 
       // Smart profit review — analyze all profitable positions every cycle
       if (polyAllSellable.length > 0) {
-        await reviewPositionsForProfit(deps, callbacks, state, "POLYMARKET",
+        await reviewAllPositions(deps, callbacks, state, "POLYMARKET",
           polyAllSellable.map((p) => ({ token: p.token, title: p.title, pnl: p.pnl, shares: p.shares, curPrice: p.curPrice })),
         );
       }
@@ -1420,7 +1413,7 @@ async function runAutonomyCycle(
 
       // Smart profit review — analyze all Jupiter positions for profit-taking
       if (jupAllPositions.length > 0) {
-        await reviewPositionsForProfit(deps, callbacks, state, "JUPITER",
+        await reviewAllPositions(deps, callbacks, state, "JUPITER",
           jupAllPositions.map((p) => ({ pubkey: p.pubkey, title: p.title, pnl: p.pnl, isYes: p.isYes, contracts: p.contracts })),
         );
       }

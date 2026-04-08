@@ -657,19 +657,75 @@ async function reviewAllPositions(
     })
     .join("\n");
 
-  callbacks.log(`[PORTFOLIO:${platform}] Reviewing ${reviewable.length} positions...`);
+  // === HARD RULES: auto-sell without asking the LLM ===
+  const autoSellTargets = reviewable.filter((p) => {
+    if (p.pnl >= 10) return true;   // Lock in 10%+ profits automatically
+    if (p.pnl <= -20) return true;  // Stop-loss at -20%
+    return false;
+  });
+
+  for (const pos of autoSellTargets) {
+    const key = pos.token ?? pos.pubkey ?? "";
+    if (state.recentlySold.has(key) || state.failedSells.has(key)) continue;
+    const sign = pos.pnl >= 0 ? "+" : "";
+    const reason = pos.pnl >= 10 ? "auto-profit-lock" : "auto-stop-loss";
+
+    if (platform === "POLYMARKET" && pos.token) {
+      callbacks.log(`[SELL:POLYMARKET] "${pos.title}" ${sign}${pos.pnl.toFixed(0)}% — ${reason}`);
+      await directPolymarketSell(deps, callbacks, state, pos.token, pos.shares ?? 0, pos.title, pos.curPrice);
+    } else if (platform === "JUPITER" && pos.pubkey) {
+      callbacks.log(`[SELL:JUPITER] "${pos.title}" ${sign}${pos.pnl.toFixed(0)}% — ${reason}`);
+      let jupSvc: JupiterPredictionService | null = null;
+      try {
+        jupSvc = (await deps.runtime.getServiceLoadPromise(JUPITER_SERVICE_TYPE)) as unknown as JupiterPredictionService | null;
+      } catch {}
+      if (jupSvc) {
+        try {
+          const { transaction } = await jupSvc.client.closePosition(pos.pubkey, jupSvc.ownerPubkey);
+          const signature = await jupSvc.signAndSubmit(transaction);
+          callbacks.log(`[SELL:JUPITER] ✅ Closed! Signature: ${signature}`);
+          state.recentlySold.set(pos.pubkey, Date.now());
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          callbacks.log(`[SELL:JUPITER] ❌ Failed: ${errMsg}`);
+          state.failedSells.set(pos.pubkey, Date.now());
+        }
+      }
+    }
+  }
+
+  // Filter out auto-sold positions from LLM review
+  const autoSoldKeys = new Set(autoSellTargets.map((p) => p.token ?? p.pubkey ?? ""));
+  const llmReviewable = reviewable.filter((p) => !autoSoldKeys.has(p.token ?? p.pubkey ?? ""));
+
+  if (llmReviewable.length === 0) return;
+
+  // Rebuild position list for LLM (only non-auto-sold)
+  const llmPositionList = llmReviewable
+    .sort((a, b) => b.pnl - a.pnl)
+    .slice(0, 12)
+    .map((p, i) => {
+      const dir = p.isYes !== undefined ? (p.isYes ? "YES" : "NO") : "";
+      const qty = p.shares ?? p.contracts ?? "?";
+      const sign = p.pnl >= 0 ? "+" : "";
+      return `${i + 1}. "${p.title}" — PnL: ${sign}${p.pnl.toFixed(0)}%, ${dir} ${qty} units, price: $${(p.curPrice ?? 0).toFixed(2)}`;
+    })
+    .join("\n");
+
+  callbacks.log(`[PORTFOLIO:${platform}] LLM reviewing ${llmReviewable.length} remaining positions...`);
   const reviewText = await directLlmCall(
     deps,
     callbacks,
-    `You are a portfolio manager. Today is ${new Date().toISOString().split("T")[0]}.
+    `You are a day trader managing prediction market positions. Today is ${new Date().toISOString().split("T")[0]}.
 
-Review ALL positions below. For each one decide:
-- SELL — if profitable and profit should be locked in, or if losing and unlikely to recover
-- HOLD — if the position has strong upside potential or the market hasn't resolved yet
+RULES — follow these strictly:
+- ANY position with PnL > 0%: SELL — take the profit now, never wait for more.
+- ANY position with PnL < -15%: SELL — cut the loss.
+- ONLY hold if the position is between -15% and 0% AND the market resolution date is more than 30 days away.
+- Sports/event markets resolving TODAY: always SELL if profitable.
 
-Be aggressive about taking profits on winners. Cut losers that are dead money.
-
-${positionList}
+Positions:
+${llmPositionList}
 
 Respond with one line per position:
 <number>: SELL or HOLD — <reason>`,
@@ -678,7 +734,7 @@ Respond with one line per position:
   if (reviewText.length === 0) return;
   callbacks.log(`[PORTFOLIO:${platform}] ${reviewText.slice(0, 300)}`);
 
-  const sorted = reviewable.sort((a, b) => b.pnl - a.pnl).slice(0, 12);
+  const sorted = llmReviewable.sort((a, b) => b.pnl - a.pnl).slice(0, 12);
   for (let i = 0; i < sorted.length; i++) {
     const sellPattern = new RegExp(`${i + 1}[:\\s]*SELL`, "i");
     if (!sellPattern.test(reviewText)) continue;

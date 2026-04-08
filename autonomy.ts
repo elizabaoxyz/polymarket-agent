@@ -719,13 +719,15 @@ async function reviewAllPositions(
   platform: "POLYMARKET" | "JUPITER",
   positions: Array<{ token?: string; pubkey?: string; title: string; pnl: number; shares?: number; curPrice?: number; isYes?: boolean; contracts?: string }>,
 ): Promise<void> {
-  // Filter to sellable positions (skip recently sold/failed, too few shares)
+  // Filter to sellable positions (skip recently sold/failed, too few shares, dead positions)
   const reviewable = positions.filter((p) => {
     const key = p.token ?? p.pubkey ?? "";
     if (!key) return false;
     if (state.recentlySold.has(key)) return false;
     if (state.failedSells.has(key)) return false;
     if (platform === "POLYMARKET" && (p.shares ?? 0) < 5) return false;
+    // Skip dead/resolved positions with $0.00 price — these can't be sold, only claimed
+    if ((p.curPrice ?? 0) < 0.01) return false;
     return true;
   });
 
@@ -1653,6 +1655,13 @@ async function runAutonomyCycle(
           const analysis = await analyzeCandidates(deps, callbacks, candidates, ragContext);
           if (analysis) {
             const marketPrice = analysis.side === "YES" ? analysis.pick.yesPrice : 1 - analysis.pick.yesPrice;
+
+            // Reject terrible risk/reward: buying at >$0.85 means risking $0.85+ to win <$0.15
+            if (marketPrice > 0.85) {
+              callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ${analysis.side} at $${marketPrice.toFixed(2)} is terrible risk/reward`);
+            } else if (marketPrice < 0.10) {
+              callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ${analysis.side} at $${marketPrice.toFixed(2)} too cheap / likely resolved`);
+            } else {
             const betSize = calcBetSize(analysis.pick.score, polyBalance, undefined, marketPrice);
             if (!canSpend(state, betSize)) {
               callbacks.log(`[POLYMARKET] Daily spend limit reached ($${state.dailySpend.toFixed(2)}/$${DAILY_SPEND_LIMIT_USD.toFixed(2)}) — skipping buy`);
@@ -1670,6 +1679,7 @@ async function runAutonomyCycle(
               }
             }
           }
+          } // close risk/reward guard
         } else {
           callbacks.log("[POLYMARKET] No new markets to buy");
         }
@@ -1733,6 +1743,17 @@ async function runAutonomyCycle(
           const reason = analysis?.reason ?? "best scored market";
 
           const jupMarketPrice = side === "YES" ? pick.yesPrice : 1 - pick.yesPrice;
+
+          // Reject terrible risk/reward: buying at >$0.85 means risking $0.85+ to win <$0.15
+          if (jupMarketPrice > 0.85) {
+            callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — ${side} at $${jupMarketPrice.toFixed(2)} is terrible risk/reward (risking $${jupMarketPrice.toFixed(2)} to win $${(1 - jupMarketPrice).toFixed(2)})`);
+          } else
+
+          if (jupMarketPrice < 0.10) {
+            callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — ${side} at $${jupMarketPrice.toFixed(2)} too cheap / likely resolved`);
+          } else
+
+          {
           const betSize = calcBetSize(pick.score, solBalance, undefined, jupMarketPrice);
           if (!canSpend(state, betSize)) {
             callbacks.log(`[JUPITER] Daily spend limit reached ($${state.dailySpend.toFixed(2)}/$${DAILY_SPEND_LIMIT_USD.toFixed(2)}) — skipping buy`);
@@ -1756,6 +1777,7 @@ async function runAutonomyCycle(
               }
             }
           }
+          } // close risk/reward guard
         } else {
           callbacks.log(`[JUPITER] No new markets to buy (profit review already ran above)`);
         }

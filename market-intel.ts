@@ -218,7 +218,16 @@ export async function fetchPolySpreads(tokenIds: string[]): Promise<Map<string, 
 
 /**
  * Fetch order book depth from Jupiter prediction market.
+ *
+ * Jupiter orderbook format: { yes: [[price_cents, qty_contracts], ...], no: [[price_cents, qty_contracts], ...] }
+ * price_cents: integer cents (24 = $0.24)
+ * qty_contracts: number of contracts at that level (each contract = $1 at resolution)
+ *
+ * Depth is measured as qty × (price/100) summed across levels within 10% of mid.
+ * "Liquid" means at least MIN_DEPTH_LEVELS price levels on each side.
  */
+const JUP_MIN_DEPTH_LEVELS = 3;
+
 export async function fetchJupDepth(
   marketId: string,
   midPrice: number,
@@ -235,31 +244,35 @@ export async function fetchJupDepth(
     );
     if (!res.ok) return empty;
     const data = await res.json() as {
-      yes?: Array<[number, number]>; // [price_cents, qty]
+      yes?: Array<[number, number]>; // [price_cents, qty_contracts]
       no?: Array<[number, number]>;
     };
 
-    const range = midPrice * 0.10;
-    let bidDepth = 0;
-    let askDepth = 0;
+    const yesLevels = data.yes ?? [];
+    const noLevels = data.no ?? [];
 
-    // YES bids are buy orders (support), YES asks are sell orders
-    for (const [priceCents, qty] of data.yes ?? []) {
-      const price = priceCents / 100;
-      const usd = (qty / 1_000_000) * price;
-      if (price <= midPrice) bidDepth += usd;
-      else if (price <= midPrice + range) askDepth += usd;
+    // Count levels as basic liquidity proxy (matches existing scanner logic)
+    const hasMinLevels = yesLevels.length >= JUP_MIN_DEPTH_LEVELS && noLevels.length >= JUP_MIN_DEPTH_LEVELS;
+
+    // Compute USD depth: sum qty × price across all levels
+    let yesDepthUsd = 0;
+    for (const [priceCents, qty] of yesLevels) {
+      yesDepthUsd += qty * (priceCents / 100);
+    }
+    let noDepthUsd = 0;
+    for (const [priceCents, qty] of noLevels) {
+      noDepthUsd += qty * (priceCents / 100);
     }
 
-    const total = bidDepth + askDepth;
-    const imbalance = total > 0 ? (bidDepth - askDepth) / total : 0;
+    const total = yesDepthUsd + noDepthUsd;
+    const imbalance = total > 0 ? (yesDepthUsd - noDepthUsd) / total : 0;
 
     return {
-      bidDepthUsd: bidDepth,
-      askDepthUsd: askDepth,
+      bidDepthUsd: yesDepthUsd,
+      askDepthUsd: noDepthUsd,
       totalDepthUsd: total,
       imbalance,
-      isLiquid: total >= minDepthUsd,
+      isLiquid: hasMinLevels && total >= minDepthUsd,
     };
   } catch {
     return empty;

@@ -906,6 +906,7 @@ async function scanPolymarketMarkets(
     if (endDate) {
       daysLeft = Math.max(0, (new Date(endDate as string).getTime() - Date.now()) / 86400000);
       if (daysLeft < 1) continue;
+      if (daysLeft > 180) continue; // Skip markets >6 months out — capital locked, no edge
     }
     const timeScore = Math.min(1, daysLeft / 30);
     // Use actual volume if available, fall back to rewards.dailyRate
@@ -1012,6 +1013,14 @@ async function scanJupiterMarkets(
       const yp = Number(m.pricing?.buyYesPriceUsd ?? 0) / 1_000_000;
       const np = Number(m.pricing?.buyNoPriceUsd ?? 0) / 1_000_000;
       if (yp < 0.02 || yp > 0.98) { _jupDbgPrice++; continue; }
+
+      // Skip markets resolving more than 180 days out — capital locked too long, no edge
+      const closeTime = Number(m.closeTime ?? 0);
+      if (closeTime > 0) {
+        const daysUntilClose = (closeTime * 1000 - Date.now()) / 86_400_000;
+        if (daysUntilClose > 180) continue;
+      }
+
       const effectiveNp = np > 0 ? np : 1 - yp;
       const spread = Math.abs(effectiveNp - yp);
       const mid = (yp + effectiveNp) / 2;
@@ -1210,41 +1219,49 @@ async function analyzeCandidates(
   candidates: Array<{ question: string; yesPrice: number; score: number; volume?: number; daysLeft?: number; intel?: MarketIntel | null }>,
   ragContext: string,
 ): Promise<{ pick: (typeof candidates)[0]; side: string; reason: string } | null> {
+  // Build candidate list with explicit risk/reward for each side
   const candidateList = candidates
     .map((c, i) => {
+      const yesPrice = c.yesPrice;
+      const noPrice = 1 - c.yesPrice;
+      const yesRR = yesPrice > 0 ? ((1 - yesPrice) / yesPrice).toFixed(1) : "∞";
+      const noRR = noPrice > 0 ? ((1 - noPrice) / noPrice).toFixed(1) : "∞";
       const extra = c.daysLeft !== undefined ? `, ${c.daysLeft.toFixed(0)} days left` : "";
       const vol = c.volume !== undefined ? `, vol: $${c.volume.toFixed(0)}` : "";
       const intelStr = c.intel ? formatIntelForPrompt(c.intel) : "";
-      return `${i + 1}. "${c.question}" — YES: $${c.yesPrice.toFixed(2)}, NO: $${(1 - c.yesPrice).toFixed(2)}, score: ${c.score.toFixed(2)}${extra}${vol}${intelStr}`;
+      return `${i + 1}. "${c.question}"
+   YES: $${yesPrice.toFixed(2)} (risk $${yesPrice.toFixed(2)}, win $${(1 - yesPrice).toFixed(2)}, ratio ${yesRR}:1)
+   NO:  $${noPrice.toFixed(2)} (risk $${noPrice.toFixed(2)}, win $${yesPrice.toFixed(2)}, ratio ${noRR}:1)
+   score: ${c.score.toFixed(2)}${extra}${vol}${intelStr}`;
     })
     .join("\n");
 
   callbacks.log(`[ANALYSIS] Analyzing top ${candidates.length} markets with intel...`);
 
-  const structuredPrompt = `You are an expert prediction market analyst and trader. Today is ${new Date().toISOString().split("T")[0]}.
+  const structuredPrompt = `You are a prediction market trader. Today is ${new Date().toISOString().split("T")[0]}.
 
-Analyze these markets and pick the best bet. Each market includes scoring data and market intelligence signals:
+For each market below, both YES and NO sides are shown with their RISK/REWARD RATIO.
+The ratio means: for every $1 you risk, you win that many dollars if correct.
 
 ${candidateList}${ragContext}
 
-ANALYSIS FRAMEWORK — consider these factors:
-1. EDGE: Is the market mispriced? Does the YES/NO price reflect reality? Look for prices far from your estimated true probability.
-2. TREND: If price trend data is shown, consider momentum. A market trending UP may continue; a market that CRASHED 20%+ in 24h is a contrarian mean-reversion opportunity.
-3. LIQUIDITY: Markets marked "ILLIQUID" are risky — you may not be able to exit. Prefer markets with $500+ depth.
-4. BUY PRESSURE: If order book shows "buy pressure", smart money may be accumulating. "Sell pressure" means exits.
-5. TIMING: Markets resolving in <3 days carry resolution risk. Markets 7-30 days out give time for price discovery.
-6. VOLUME: Higher volume = more information in the price = harder to find edge. Low volume = possible mispricing.
+YOUR DECISION PROCESS:
+1. For each market, estimate the TRUE probability of the event happening.
+2. Compare your estimate to the market price. The EDGE = |your probability - market price|.
+3. Pick the side where your edge is highest AND the risk/reward ratio is favorable.
+4. A 2:1 ratio means you only need to be right 33% of the time to profit. A 0.3:1 ratio means you need to be right 77% of the time — very hard.
 
-STRATEGY RULES:
-- Prefer markets where your estimated probability differs from the price by 15%+
-- Favor contrarian bets when a 20%+ 24h move looks like overreaction
-- Avoid illiquid markets unless the edge is overwhelming (30%+)
-- When in doubt, pick the market with the best risk/reward ratio
+RULES:
+- NEVER pick a side with ratio below 0.5:1 (you'd risk $1 to win only $0.50 — needs >67% win rate)
+- Prefer sides with ratio 1.5:1 or better (profitable even at 40% accuracy)
+- Markets resolving in 7-60 days are ideal — enough time for price discovery
+- Consider the specific event: sports/dated events have clearer edges than far-future politics
+- If ALL candidates have bad ratios on both sides, pick the LEAST bad one
 
 Respond in EXACTLY this format (3 lines only):
 PICK: <number 1-${candidates.length}>
 SIDE: YES or NO
-REASON: <one sentence explanation citing the specific signal that gives you edge>`;
+REASON: <cite the risk/reward ratio and your estimated edge>`;
 
   const text = await directLlmCall(deps, callbacks, structuredPrompt);
 

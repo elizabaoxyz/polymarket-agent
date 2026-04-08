@@ -546,10 +546,8 @@ async function directJupiterBuy(
   side: string,
   betSize: number,
   question?: string,
+  availableBalance?: number,
 ): Promise<boolean> {
-  // Dedup is handled by the caller (recordTrade before call) + scanner filtering.
-  // No additional guard here — the previous check was blocking ALL buys because
-  // recordTrade() is called BEFORE this function, so it always found a "duplicate".
   try {
     const jupSvc = (await deps.runtime.getServiceLoadPromise(
       JUPITER_SERVICE_TYPE,
@@ -562,76 +560,16 @@ async function directJupiterBuy(
     const isYes = side.toUpperCase() === "YES";
     const depositAmount = Math.round(Math.max(betSize, 1.1) * 1_000_000); // micro-USD
 
-    // Check available balance (USDC + JupUSD) minus locked open orders
-    // This prevents the "Insufficient funds" API error loop
-    let mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"; // USDC default
-    try {
-      const { Connection, PublicKey } = await import("@solana/web3.js");
-      const conn = new Connection(process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com", "confirmed");
-      const ownerPk = new PublicKey(jupSvc.ownerPubkey);
-
-      // Get USDC balance
-      const usdcMint = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
-      const usdcAccounts = await conn.getTokenAccountsByOwner(ownerPk, { mint: usdcMint });
-      let usdcBalance = 0;
-      if (usdcAccounts.value.length > 0 && usdcAccounts.value[0]) {
-        const info = await conn.getTokenAccountBalance(usdcAccounts.value[0].pubkey);
-        usdcBalance = Number(info.value.uiAmount ?? 0);
-      }
-
-      // Get JupUSD balance
-      const jupMint = new PublicKey("JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD");
-      const jupAccounts = await conn.getTokenAccountsByOwner(ownerPk, { mint: jupMint });
-      let jupBalance = 0;
-      if (jupAccounts.value.length > 0 && jupAccounts.value[0]) {
-        const info = await conn.getTokenAccountBalance(jupAccounts.value[0].pubkey);
-        jupBalance = Number(info.value.uiAmount ?? 0);
-      }
-
-      let totalBalance = usdcBalance + jupBalance;
-
-      // Subtract funds locked in open Jupiter orders
-      // Jupiter Order API returns objects with `sizeUsd` (micro-USD string) as the deposit amount
-      let lockedInOrders = 0;
-      try {
-        const openOrders = await jupSvc.client.getOrders(jupSvc.ownerPubkey);
-        if (Array.isArray(openOrders)) {
-          for (const order of openOrders) {
-            const o = order as Record<string, unknown>;
-            // sizeUsd is the canonical field; fall back to depositAmount/depositedAmount for compat
-            const deposited = Number(o.sizeUsd ?? o.depositedAmount ?? o.depositAmount ?? 0) / 1_000_000;
-            const status = String(o.status ?? "");
-            if (status !== "cancelled" && status !== "filled" && status !== "expired") {
-              lockedInOrders += deposited;
-            }
-          }
-          callbacks.log(`[BUY:JUPITER] Balance check: USDC=$${usdcBalance.toFixed(2)}, JupUSD=$${jupBalance.toFixed(2)}, locked=$${lockedInOrders.toFixed(2)}, ${(openOrders as unknown[]).length} orders`);
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        callbacks.log(`[BUY:JUPITER] ⚠️ Order check failed: ${msg} — using raw balance`);
-      }
-
-      const availableBalance = totalBalance - lockedInOrders;
-
-      // Prefer JupUSD if enough (after subtracting locked), else USDC
-      const availableJup = Math.max(0, jupBalance - lockedInOrders * (jupBalance / totalBalance || 0));
-      const availableUsdc = Math.max(0, usdcBalance - lockedInOrders * (usdcBalance / totalBalance || 0));
-      if (availableJup >= betSize) {
-        mint = "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD";
-      } else if (availableUsdc >= betSize) {
-        mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-      }
-
-      if (availableBalance < betSize) {
-        callbacks.log(`[BUY:JUPITER] ❌ Not enough available balance: $${availableBalance.toFixed(2)} (total: $${totalBalance.toFixed(2)}, locked: $${lockedInOrders.toFixed(2)}) < $${betSize.toFixed(2)}`);
-        state.jupBuyPausedUntil = Date.now() + 5 * 60_000;
-        return false;
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      callbacks.log(`[BUY:JUPITER] ⚠️ Balance check failed: ${msg} — proceeding with API call`);
+    // Use available balance from cycle-level check (already subtracts locked orders)
+    // This avoids duplicate RPC calls that cause 429 rate limits
+    if (availableBalance !== undefined && availableBalance < betSize) {
+      callbacks.log(`[BUY:JUPITER] ❌ Not enough available balance: $${availableBalance.toFixed(2)} < $${betSize.toFixed(2)}`);
+      state.jupBuyPausedUntil = Date.now() + 5 * 60_000;
+      return false;
     }
+
+    // Default to USDC; cycle-level code handles the primary balance check
+    const mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
     const { orderId, signature } = await jupSvc.placeOrderAndSign({
       ownerPubkey: jupSvc.ownerPubkey,
@@ -1816,7 +1754,7 @@ async function runAutonomyCycle(
             // Mark as pending for parallel dedup
             state.pendingBuys.add(pick.question.toLowerCase());
             // Direct API buy — bypasses LLM action routing for reliable execution
-            const bought = await directJupiterBuy(deps, callbacks, state, (pick as JupMarket).marketId, side, betSize, pick.question);
+            const bought = await directJupiterBuy(deps, callbacks, state, (pick as JupMarket).marketId, side, betSize, pick.question, solBalance);
             if (bought) {
               recordTrade(state, { question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice, amount: betSize });
             } else if (candidates.length > 1) {
@@ -1830,7 +1768,7 @@ async function runAutonomyCycle(
                 if (fbPrice > 0.10 && fbPrice < 0.85) {
                   callbacks.log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${fbSide}:$${fbPrice.toFixed(2)})`);
                   state.pendingBuys.add(fallback.question.toLowerCase());
-                  const fbBought = await directJupiterBuy(deps, callbacks, state, fallback.marketId, fbSide, betSize, fallback.question);
+                  const fbBought = await directJupiterBuy(deps, callbacks, state, fallback.marketId, fbSide, betSize, fallback.question, solBalance);
                   if (fbBought) {
                     recordTrade(state, { question: fallback.question, platform: "JUPITER", time: Date.now(), price: fallback.yesPrice, amount: betSize });
                   }

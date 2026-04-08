@@ -304,15 +304,6 @@ function isRecentlyTraded(state: AutonomyState, question: string): boolean {
   );
 }
 
-/**
- * Check if a market was EVER bought this session (no time limit).
- * Uses exact match only — prevents the same market from being bought twice.
- */
-function wasAlreadyBoughtThisSession(state: AutonomyState, question: string): boolean {
-  const q = question.toLowerCase();
-  return state.tradeHistory.some((h) => h.question.toLowerCase() === q);
-}
-
 function isFailCooledDown(failMap: Map<string, number>, key: string, cooldownMs: number): boolean {
   const failTime = failMap.get(key);
   return !failTime || Date.now() - failTime >= cooldownMs;
@@ -418,11 +409,9 @@ async function directPolymarketBuy(
   betSize: number,
   availableBalance?: number,
 ): Promise<boolean> {
-  // Guard: prevent duplicate buys at execution time
-  if (wasAlreadyBoughtThisSession(state, question)) {
-    callbacks.log(`[BUY:POLYMARKET] ⚠️ Already bought "${question.slice(0, 50)}" this session — skipping`);
-    return false;
-  }
+  // Dedup is handled by the caller (recordTrade before call) + scanner filtering.
+  // No additional guard here — the previous check was blocking ALL buys because
+  // recordTrade() is called BEFORE this function, so it always found a "duplicate".
   try {
     const extSvc = (await deps.runtime.getServiceLoadPromise(
       POLYMARKET_EXT_SERVICE_TYPE,
@@ -499,11 +488,9 @@ async function directJupiterBuy(
   betSize: number,
   question?: string,
 ): Promise<boolean> {
-  // Guard: prevent duplicate buys at execution time
-  if (question && wasAlreadyBoughtThisSession(state, question)) {
-    callbacks.log(`[BUY:JUPITER] ⚠️ Already bought "${question.slice(0, 50)}" this session — skipping`);
-    return false;
-  }
+  // Dedup is handled by the caller (recordTrade before call) + scanner filtering.
+  // No additional guard here — the previous check was blocking ALL buys because
+  // recordTrade() is called BEFORE this function, so it always found a "duplicate".
   try {
     const jupSvc = (await deps.runtime.getServiceLoadPromise(
       JUPITER_SERVICE_TYPE,
@@ -740,7 +727,6 @@ async function scanPolymarketMarkets(
     if (yp < 0.1 || yp > 0.9) continue;
     const q = String(m.question ?? "");
     if (ownedTitles.has(q.toLowerCase())) continue;
-    if (wasAlreadyBoughtThisSession(state, q)) continue;
     if (isRecentlyTraded(state, q)) continue;
 
     const spread = Math.abs(np - yp);
@@ -819,7 +805,6 @@ async function scanJupiterMarkets(
       const marketTitle = (m.metadata?.title ?? "").toLowerCase();
       const eventTitle = (event.metadata?.title ?? "").toLowerCase();
       if (ownedTitles.has(marketTitle) || ownedTitles.has(`${eventTitle} — ${marketTitle}`)) { _jupDbgOwned++; continue; }
-      if (wasAlreadyBoughtThisSession(state, q)) { _jupDbgOwned++; continue; }
       if (isRecentlyTraded(state, q)) continue;
       if (!isFailCooledDown(state.failedBuys, m.marketId, FAILED_BUY_COOLDOWN_MS)) continue;
       jupScored.push({ question: q, marketId: m.marketId, yesPrice: yp, score, volume });

@@ -123,9 +123,9 @@ function housekeep(state: AutonomyState): void {
     if (now - ts >= FAILED_SELL_COOLDOWN_MS) state.recentlySold.delete(key);
   }
 
-  // Expire recentlySoldQuestions older than 30 minutes
+  // Expire recentlySoldQuestions older than 24 hours (matches SAME_MARKET_COOLDOWN_MS)
   for (const [key, ts] of state.recentlySoldQuestions) {
-    if (now - ts >= 1_800_000) state.recentlySoldQuestions.delete(key);
+    if (now - ts >= 86_400_000) state.recentlySoldQuestions.delete(key);
   }
 
   // Expire failedSells entries older than 2× cooldown (fully stale)

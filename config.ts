@@ -69,7 +69,7 @@ export const FAILED_BUY_COOLDOWN_MS = envInt("FAILED_BUY_COOLDOWN_MS", 1_800_000
 export const POSITION_MIN_AGE_MS = envInt("POSITION_MIN_AGE_MS", 600_000);
 
 /** Cooldown between trading the same market (ms) */
-export const SAME_MARKET_COOLDOWN_MS = envInt("SAME_MARKET_COOLDOWN_MS", 300_000);
+export const SAME_MARKET_COOLDOWN_MS = envInt("SAME_MARKET_COOLDOWN_MS", 86_400_000);
 
 /** Maximum trade history entries to keep */
 export const MAX_TRADE_HISTORY = envInt("MAX_TRADE_HISTORY", 100);

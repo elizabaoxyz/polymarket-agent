@@ -106,6 +106,8 @@ type AutonomyState = {
   jupBuyPausedUntil: number;
   /** Questions recently sold — don't re-buy (auto-expires) */
   recentlySoldQuestions: Map<string, number>;
+  /** Questions currently being bought (parallel dedup within a cycle) */
+  pendingBuys: Set<string>;
 };
 
 function createState(platform: AutonomyPlatform): AutonomyState {
@@ -125,6 +127,7 @@ function createState(platform: AutonomyPlatform): AutonomyState {
     cycleEnrichCache: new Map(),
     jupBuyPausedUntil: 0,
     recentlySoldQuestions: new Map(),
+    pendingBuys: new Set(),
   };
 }
 
@@ -163,8 +166,9 @@ function housekeep(state: AutonomyState): void {
     state.dailySpendResetAt = tomorrow.getTime();
   }
 
-  // Clear per-cycle enrichment cache
+  // Clear per-cycle caches
   state.cycleEnrichCache.clear();
+  state.pendingBuys.clear();
 }
 
 /**
@@ -280,6 +284,7 @@ async function callLlmDirect(prompt: string, maxTokens: number): Promise<string>
       body: JSON.stringify({
         model,
         max_tokens: maxTokens,
+        temperature: 0.3,
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -749,8 +754,8 @@ async function reviewAllPositions(
 
   // === HARD RULES: auto-sell without asking the LLM ===
   const autoSellTargets = reviewable.filter((p) => {
-    if (p.pnl >= 10) return true;   // Lock in 10%+ profits automatically
-    if (p.pnl <= -20) return true;  // Stop-loss at -20%
+    if (p.pnl >= 30) return true;   // Lock in 30%+ profits automatically
+    if (p.pnl <= -25) return true;  // Stop-loss at -25%
     return false;
   });
 
@@ -829,16 +834,22 @@ async function reviewAllPositions(
   const reviewText = await directLlmCall(
     deps,
     callbacks,
-    `You are an aggressive day trader managing prediction market positions. Today is ${new Date().toISOString().split("T")[0]}.
+    `You are a disciplined prediction market portfolio manager. Today is ${new Date().toISOString().split("T")[0]}.
 
 RULES — follow these strictly:
-- ANY position with PnL > 0%: SELL — take the profit now. Do not wait for more. Greed kills.
-- ANY position with PnL < -15%: SELL — cut the loss immediately.
-- Positions between -15% and 0%: check the trend data:
+- Positions with PnL > +20%: SELL — lock in significant profit.
+- Positions with PnL +5% to +20%: check trend data:
+  - If price is trending DOWN or flat: SELL — take profit before it fades.
+  - If price is trending UP: HOLD — let the winner run.
+- Positions with PnL 0% to +5%: HOLD — too small to justify selling (spread costs eat the profit).
+- Positions with PnL -15% to 0%: check trend data:
   - If price is trending DOWN (negative 1h/24h change): SELL — cut before it gets worse.
   - If price is trending UP or flat: HOLD — give it time to recover.
-- Sports/event markets resolving TODAY or TOMORROW: always SELL if profitable — take guaranteed money.
-- If a position shows a 20%+ drop in 24h, it's likely a momentum collapse — SELL regardless of PnL.
+- Positions with PnL < -15%: SELL — cut the loss.
+- Sports/event markets resolving within 2 DAYS: SELL if profitable — take guaranteed money.
+- 20%+ price drop in 24h with no recovery: SELL — momentum collapse.
+
+IMPORTANT: Do NOT sell small winners (<5% profit). The bid-ask spread costs 3-5% on each round trip. Selling at +2% and re-buying costs more than holding.
 
 Positions:
 ${llmPositionList}
@@ -922,6 +933,7 @@ async function scanPolymarketMarkets(
     if (ownedTitles.has(q.toLowerCase())) continue;
     if (isRecentlyTraded(state, q)) continue;
     if (state.recentlySoldQuestions.has(q.toLowerCase())) continue;
+    if (state.pendingBuys.has(q.toLowerCase())) continue;
 
     const spread = Math.abs(np - yp);
     const midpoint = (yp + np) / 2;
@@ -935,7 +947,8 @@ async function scanPolymarketMarkets(
       if (daysLeft < 1) continue;
     }
     const timeScore = Math.min(1, daysLeft / 30);
-    const volume = Number(m.rewards?.dailyRate ?? 0);
+    // Use actual volume if available, fall back to rewards.dailyRate
+    const volume = Number(m.volume ?? m.rewards?.dailyRate ?? 0);
     const volumeScore = Math.min(1, volume / 100);
 
     const tokenId = String(yes.token_id ?? "");
@@ -1053,6 +1066,7 @@ async function scanJupiterMarkets(
       if (ownedTitles.has(marketTitle) || ownedTitles.has(`${eventTitle} — ${marketTitle}`)) { _jupDbgOwned++; continue; }
       if (isRecentlyTraded(state, q)) continue;
       if (state.recentlySoldQuestions.has(q.toLowerCase())) continue;
+      if (state.pendingBuys.has(q.toLowerCase())) continue;
       if (!isFailCooledDown(state.failedBuys, m.marketId, FAILED_BUY_COOLDOWN_MS)) continue;
       jupScored.push({ question: q, marketId: m.marketId, yesPrice: yp, score, volume, intel: null });
     }
@@ -1668,13 +1682,16 @@ async function runAutonomyCycle(
             } else {
               callbacks.log(`[ANALYSIS:POLY] ${analysis.reason}`);
               callbacks.log(
-                `[BUY:POLYMARKET] "${analysis.pick.question}" (${analysis.side}:$${marketPrice.toFixed(2)}, score:${analysis.pick.score.toFixed(2)}, kelly:$${betSize.toFixed(2)}, ${(analysis.pick as ScoredMarket).daysLeft?.toFixed(0) ?? "?"}d left)`,
+                `[BUY:POLYMARKET] "${analysis.pick.question}" (${analysis.side}:$${marketPrice.toFixed(2)}, score:${analysis.pick.score.toFixed(2)}, size:$${betSize.toFixed(2)}, ${(analysis.pick as ScoredMarket).daysLeft?.toFixed(0) ?? "?"}d left)`,
               );
-              // Record trade BEFORE execution so parallel phase sees it immediately
-              recordTrade(state, { question: analysis.pick.question, platform: "POLYMARKET", time: Date.now(), price: analysis.pick.yesPrice, amount: betSize });
+              // Mark as pending for parallel dedup (cleared each cycle)
+              state.pendingBuys.add(analysis.pick.question.toLowerCase());
               // Direct CLOB API buy — bypasses LLM for reliability
               const bought = await directPolymarketBuy(deps, callbacks, state, analysis.pick.question, analysis.side, betSize, polyBalance);
-              if (!bought) {
+              if (bought) {
+                // Record trade only on success — prevents 24h cooldown on failed buys
+                recordTrade(state, { question: analysis.pick.question, platform: "POLYMARKET", time: Date.now(), price: analysis.pick.yesPrice, amount: betSize });
+              } else {
                 state.failedBuys.set(analysis.pick.question, Date.now());
               }
             }
@@ -1760,20 +1777,30 @@ async function runAutonomyCycle(
           } else {
             callbacks.log(`[ANALYSIS:JUP] ${reason}`);
             callbacks.log(
-              `[BUY:JUPITER] "${pick.question}" (${side}:$${jupMarketPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, kelly:$${betSize.toFixed(2)}, vol:$${(pick as JupMarket).volume?.toFixed(0) ?? "0"})`,
+              `[BUY:JUPITER] "${pick.question}" (${side}:$${jupMarketPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, size:$${betSize.toFixed(2)}, vol:$${(pick as JupMarket).volume?.toFixed(0) ?? "0"})`,
             );
-            // Record trade BEFORE execution so parallel phase sees it immediately
-            recordTrade(state, { question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice, amount: betSize });
+            // Mark as pending for parallel dedup
+            state.pendingBuys.add(pick.question.toLowerCase());
             // Direct API buy — bypasses LLM action routing for reliable execution
             const bought = await directJupiterBuy(deps, callbacks, state, (pick as JupMarket).marketId, side, betSize, pick.question);
-            if (!bought && candidates.length > 1) {
+            if (bought) {
+              recordTrade(state, { question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice, amount: betSize });
+            } else if (candidates.length > 1) {
+              // Fallback: re-analyze the fallback market independently (don't reuse side)
               const fallback = (candidates as JupMarket[]).find(
                 (c) => c.marketId !== (pick as JupMarket).marketId && !state.failedBuys.has(c.marketId),
               );
               if (fallback) {
-                callbacks.log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${side})`);
-                recordTrade(state, { question: fallback.question, platform: "JUPITER", time: Date.now(), price: fallback.yesPrice, amount: betSize });
-                await directJupiterBuy(deps, callbacks, state, fallback.marketId, side, betSize, fallback.question);
+                const fbSide = fallback.yesPrice < 0.5 ? "YES" : "NO";
+                const fbPrice = fbSide === "YES" ? fallback.yesPrice : 1 - fallback.yesPrice;
+                if (fbPrice > 0.10 && fbPrice < 0.85) {
+                  callbacks.log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${fbSide}:$${fbPrice.toFixed(2)})`);
+                  state.pendingBuys.add(fallback.question.toLowerCase());
+                  const fbBought = await directJupiterBuy(deps, callbacks, state, fallback.marketId, fbSide, betSize, fallback.question);
+                  if (fbBought) {
+                    recordTrade(state, { question: fallback.question, platform: "JUPITER", time: Date.now(), price: fallback.yesPrice, amount: betSize });
+                  }
+                }
               }
             }
           }

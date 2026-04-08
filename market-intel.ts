@@ -337,12 +337,32 @@ export async function fetchJupLeaderboard(
 // --- Cross-platform helpers ---
 
 /**
- * Detect contrarian opportunity: 20%+ price move in 24h signals potential mean reversion.
+ * Detect contrarian opportunity in prediction markets.
+ *
+ * Unlike equities, large prediction market moves usually reflect real information
+ * (election results, court rulings, etc.) — NOT overreaction. So we only flag
+ * contrarian opportunities when:
+ * 1. The 24h move is 20%+ AND
+ * 2. The 1h trend shows partial reversal (price bouncing back) — suggests the
+ *    initial move was indeed an overreaction, not new fundamental information.
+ *
+ * If the move is sustained (no reversal), it's likely information-driven and
+ * betting against it is dangerous.
  */
 export function detectContrarian(trend: PriceTrend | null): { isContrarian: boolean; move24h: number | null } {
   if (!trend || trend.change24h === null) return { isContrarian: false, move24h: null };
   const absMove = Math.abs(trend.change24h);
-  return { isContrarian: absMove >= 20, move24h: trend.change24h };
+  if (absMove < 20) return { isContrarian: false, move24h: trend.change24h };
+
+  // Check for reversal: 1h change should be in opposite direction of 24h change
+  if (trend.change1h !== null) {
+    const reversing = (trend.change24h > 0 && trend.change1h < -2) ||
+                      (trend.change24h < 0 && trend.change1h > 2);
+    return { isContrarian: reversing, move24h: trend.change24h };
+  }
+
+  // Without 1h data, don't assume contrarian — could be real info
+  return { isContrarian: false, move24h: trend.change24h };
 }
 
 /**

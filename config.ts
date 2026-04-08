@@ -43,10 +43,10 @@ export const SELL_LOSS_THRESHOLD_NORMAL = envFloat("SELL_LOSS_THRESHOLD_NORMAL",
 export const SELL_LOSS_THRESHOLD_AGGRESSIVE = envFloat("SELL_LOSS_THRESHOLD_AGGRESSIVE", -5);
 
 /** Normal profit threshold (%) — take profit above this */
-export const SELL_PROFIT_THRESHOLD_NORMAL = envFloat("SELL_PROFIT_THRESHOLD_NORMAL", 10);
+export const SELL_PROFIT_THRESHOLD_NORMAL = envFloat("SELL_PROFIT_THRESHOLD_NORMAL", 20);
 
 /** Aggressive profit threshold (%) — used when balance is low */
-export const SELL_PROFIT_THRESHOLD_AGGRESSIVE = envFloat("SELL_PROFIT_THRESHOLD_AGGRESSIVE", 5);
+export const SELL_PROFIT_THRESHOLD_AGGRESSIVE = envFloat("SELL_PROFIT_THRESHOLD_AGGRESSIVE", 10);
 
 /** Low balance threshold in USD — triggers aggressive mode */
 export const LOW_BALANCE_THRESHOLD = envFloat("LOW_BALANCE_THRESHOLD", 3);
@@ -65,8 +65,8 @@ export const FAILED_SELL_COOLDOWN_MS = envInt("FAILED_SELL_COOLDOWN_MS", 1_800_0
 /** Cooldown before retrying a failed buy (ms) */
 export const FAILED_BUY_COOLDOWN_MS = envInt("FAILED_BUY_COOLDOWN_MS", 1_800_000);
 
-/** Minimum age before a position can be sold (ms) */
-export const POSITION_MIN_AGE_MS = envInt("POSITION_MIN_AGE_MS", 600_000);
+/** Minimum age before a position can be sold (ms) — 2 hours prevents churn from spread costs */
+export const POSITION_MIN_AGE_MS = envInt("POSITION_MIN_AGE_MS", 7_200_000);
 
 /** Cooldown between trading the same market (ms) */
 export const SAME_MARKET_COOLDOWN_MS = envInt("SAME_MARKET_COOLDOWN_MS", 86_400_000);
@@ -121,20 +121,23 @@ export const MIN_DEPTH_USD = envFloat("MIN_DEPTH_USD", 200);
 /** Bonus score for contrarian mean-reversion opportunities */
 export const CONTRARIAN_BONUS = envFloat("CONTRARIAN_BONUS", 0.15);
 
-// --- Smart position sizing (Kelly Criterion) ---
+// --- Smart position sizing ---
 
 /**
- * Calculate bet size using Half-Kelly Criterion.
+ * Calculate bet size based on market quality score and available balance.
  *
- * Kelly formula: f = (bp - q) / b
- *   where b = net odds, p = estimated win probability, q = 1 - p
+ * Uses a tiered conviction model:
+ * - High-quality markets (score > 0.8): aggressive — 8% of balance
+ * - Good markets (score > 0.6): moderate — 5% of balance
+ * - Fair markets (score > 0.4): conservative — 3% of balance
+ * - Low markets: minimum bet only
  *
- * We use Half-Kelly (f/2) for safety — reduces variance while keeping
- * ~75% of the growth rate of full Kelly.
+ * The score is a market QUALITY metric (spread, depth, volume, momentum),
+ * not an edge estimate. Kelly Criterion requires actual edge, which the
+ * scoring algorithm cannot provide. This simpler scheme avoids the
+ * degenerate case where Kelly always returns minimum.
  *
- * The "edge" comes from the scoring algorithm — a score of 0.8 means
- * the model thinks the market is 80% likely to be a good bet.
- * We map score → estimated win probability with a conservative floor.
+ * Favorable market prices (0.20-0.45) get a 50% boost — better risk/reward.
  */
 export function calcBetSize(
   score: number,
@@ -142,24 +145,21 @@ export function calcBetSize(
   minBet = MIN_BET_SIZE_USD,
   marketPrice?: number,
 ): number {
-  // Map score to estimated win probability (conservative: floor at 0.52)
-  const estimatedWinProb = Math.max(0.52, Math.min(0.85, 0.45 + score * 0.40));
-  const q = 1 - estimatedWinProb;
+  // Tiered fraction of balance based on market quality score
+  let fraction: number;
+  if (score > 0.8) fraction = 0.08;
+  else if (score > 0.6) fraction = 0.05;
+  else if (score > 0.4) fraction = 0.03;
+  else fraction = 0.02;
 
-  // Net odds from market price (how much you win per $1 risked)
-  // For a binary market at price p, buying YES pays (1-p)/p if correct
+  // Boost for favorable price — markets at $0.20-$0.45 have better risk/reward
+  // (you risk $0.30 to win $0.70 vs. risking $0.50 to win $0.50)
   const price = marketPrice ?? 0.50;
-  const clampedPrice = Math.max(0.05, Math.min(0.95, price));
-  const netOdds = (1 - clampedPrice) / clampedPrice;
+  if (price >= 0.15 && price <= 0.45) {
+    fraction *= 1.5;
+  }
 
-  // Kelly fraction
-  const kellyF = (netOdds * estimatedWinProb - q) / netOdds;
-
-  // Half-Kelly, clamped to [0, 0.10] of balance
-  const halfKelly = Math.max(0, kellyF / 2);
-  const fractionOfBalance = Math.min(halfKelly, 0.10);
-
-  const size = balance * fractionOfBalance;
+  const size = balance * fraction;
 
   // Clamp to configured bounds
   return Math.max(minBet, Math.min(MAX_BET_SIZE_USD, size));

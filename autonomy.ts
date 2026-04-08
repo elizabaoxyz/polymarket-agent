@@ -106,6 +106,10 @@ type AutonomyState = {
   jupBuyPausedUntil: number;
   /** Questions recently sold — don't re-buy (auto-expires) */
   recentlySoldQuestions: Map<string, number>;
+  /** Consecutive idle cycles (both platforms in sell-only with nothing to sell) */
+  idleCycles: number;
+  /** Whether deposit-needed notification was sent this idle streak */
+  depositNotified: boolean;
   /** Questions currently being bought (parallel dedup within a cycle) */
   pendingBuys: Set<string>;
 };
@@ -128,6 +132,8 @@ function createState(platform: AutonomyPlatform): AutonomyState {
     jupBuyPausedUntil: 0,
     recentlySoldQuestions: new Map(),
     pendingBuys: new Set(),
+    idleCycles: 0,
+    depositNotified: false,
   };
 }
 
@@ -1635,9 +1641,12 @@ async function runAutonomyCycle(
     const jupSellLoss = lowSolBalance ? SELL_LOSS_THRESHOLD_AGGRESSIVE : SELL_LOSS_THRESHOLD_NORMAL;
     const jupSellProfit = lowSolBalance ? SELL_PROFIT_THRESHOLD_AGGRESSIVE : SELL_PROFIT_THRESHOLD_NORMAL;
 
-    // Collect positions (use the more aggressive threshold of the two)
-    const sellLossThreshold = Math.max(polySellLoss, jupSellLoss);
-    const sellProfitThreshold = Math.min(polySellProfit, jupSellProfit);
+    // Collect positions — use the WIDER threshold to catch all potential sells,
+    // then per-platform phases apply their own thresholds.
+    // (Previously used the more aggressive, which wrongly applied Poly's aggressive
+    // thresholds to Jupiter when only Poly was low.)
+    const sellLossThreshold = Math.min(polySellLoss, jupSellLoss);      // e.g. -15 (wider)
+    const sellProfitThreshold = Math.max(polySellProfit, jupSellProfit); // e.g. +20 (wider)
     const { ownedTitles, polySellTargets, polyAllSellable, jupSellTargets, jupAllPositions, jupClaimable } =
       await collectPositions(state, sellLossThreshold, sellProfitThreshold);
 
@@ -1832,6 +1841,25 @@ async function runAutonomyCycle(
     // Run both platforms in parallel — neither blocks the other
     await Promise.allSettled([polyPhase(), jupPhase()]);
 
+    // Idle detection — both platforms low with nothing actionable
+    const bothLow = lowPolyBalance && lowSolBalance;
+    const hadSells = polySellTargets.length > 0 || jupSellTargets.length > 0 || jupClaimable.length > 0;
+    const hadPositionsToReview = polyAllSellable.length > 0 || jupAllPositions.length > 0;
+    if (bothLow && !hadSells && !hadPositionsToReview) {
+      state.idleCycles++;
+      if (!state.depositNotified && state.idleCycles >= 3) {
+        callbacks.log(`[AUTONOMY] ⚠️ Both platforms low on funds (Poly: $${polyBalance.toFixed(2)}, Sol: $${solBalance.toFixed(2)}). Deposit funds to resume trading. Slowing cycle to 5 minutes.`);
+        callbacks.send({ type: "action_result", text: `⚠️ DEPOSIT NEEDED — Both platforms have insufficient balance to trade. Poly: $${polyBalance.toFixed(2)}, Sol available: $${solBalance.toFixed(2)}. The agent will check less frequently until funds are available.` });
+        state.depositNotified = true;
+      }
+    } else {
+      // Reset idle state when there's activity
+      if (state.idleCycles > 0) {
+        state.idleCycles = 0;
+        state.depositNotified = false;
+      }
+    }
+
     // Status summary
     let x402Payments = 0;
     try {
@@ -1842,8 +1870,9 @@ async function runAutonomyCycle(
     } catch {}
     const cycleDuration = ((Date.now() - cycleStart) / 1000).toFixed(1);
     const spendInfo = DAILY_SPEND_LIMIT_USD > 0 ? ` | spent: $${state.dailySpend.toFixed(2)}/$${DAILY_SPEND_LIMIT_USD.toFixed(2)}` : "";
+    const idleInfo = state.idleCycles > 0 ? ` | idle: ${state.idleCycles} cycles` : "";
     callbacks.log(
-      `[AUTONOMY] x402: ${x402Payments} payments | positions: ${ownedTitles.size}/${MAX_POSITIONS} | poly: $${polyBalance.toFixed(2)} | sol: $${solBalance.toFixed(2)}${spendInfo}`,
+      `[AUTONOMY] x402: ${x402Payments} payments | positions: ${ownedTitles.size}/${MAX_POSITIONS} | poly: $${polyBalance.toFixed(2)} | sol: $${solBalance.toFixed(2)}${spendInfo}${idleInfo}`,
     );
     callbacks.log(`[AUTONOMY] Cycle #${state.cycleCount} complete in ${cycleDuration}s`);
   } catch (err) {
@@ -1932,12 +1961,17 @@ export function startAutonomy(
 
   // Run cycles with setTimeout chaining — next cycle only starts after previous finishes.
   // This prevents overlapping cycles when a cycle takes longer than AUTONOMY_INTERVAL_MS.
+  // When idle (both platforms low, nothing to do), slow down to 5× interval to save resources.
+  const IDLE_MULTIPLIER = 5;
   const scheduleNext = () => {
     if (!running) return;
+    const interval = state.idleCycles >= 3
+      ? AUTONOMY_INTERVAL_MS * IDLE_MULTIPLIER
+      : AUTONOMY_INTERVAL_MS;
     timer = setTimeout(async () => {
       await runAutonomyCycle(deps, callbacks, state);
       scheduleNext();
-    }, AUTONOMY_INTERVAL_MS);
+    }, interval);
   };
   // Run first cycle immediately
   runAutonomyCycle(deps, callbacks, state).then(scheduleNext);

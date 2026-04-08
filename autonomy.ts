@@ -447,36 +447,52 @@ async function directPolymarketBuy(
       return false;
     }
 
-    // Get best ask price from order book
-    let price = token.price;
+    // IMPORTANT: Use mid-price (token.price) for limit orders, NOT the ask price.
+    // The ask is often $0.99 on thin markets — buying there guarantees a 50% loss.
+    // Instead, place a GTC limit bid at mid-price and wait for a fill.
+    const askPrice = token.price; // default to mid
+    let midPrice = token.price;
     try {
       const book = await extSvc.clob!.getOrderBook(token.token_id);
-      if (book.asks.length > 0) {
-        price = parseFloat(book.asks[0]!.price);
+      const bestAsk = book.asks.length > 0 ? parseFloat(book.asks[0]!.price) : null;
+      const bestBid = book.bids.length > 0 ? parseFloat(book.bids[0]!.price) : null;
+      // Calculate true mid-price from order book
+      if (bestAsk !== null && bestBid !== null) {
+        midPrice = Math.round(((bestAsk + bestBid) / 2) * 100) / 100;
+      } else if (bestAsk !== null) {
+        midPrice = bestAsk; // fallback
+      }
+      // If ask is way above mid (>20% premium), always use mid-price with limit order
+      if (bestAsk !== null && bestAsk > midPrice * 1.2) {
+        callbacks.log(
+          `[BUY:POLYMARKET] ⚠️ Ask $${bestAsk.toFixed(2)} is ${Math.round((bestAsk / midPrice - 1) * 100)}% above mid $${midPrice.toFixed(2)} — using limit bid at mid`,
+        );
       }
     } catch {
       // Fall back to token.price
     }
 
+    // Always use mid-price for the limit order
+    let price = midPrice;
     if (price < 0.01 || price > 0.99) {
       callbacks.log(`[BUY:POLYMARKET] ❌ Price $${price.toFixed(4)} out of range`);
       return false;
     }
 
-    const size = Math.max(5, Math.floor(betSize / price)); // Polymarket minimum is 5 shares
+    // Calculate position size based on mid-price
+    const size = Math.max(5, Math.floor(betSize / price));
     let totalCost = size * price;
-    const balance = availableBalance ?? betSize * 2; // if no balance passed, use generous estimate
+    const balance = availableBalance ?? betSize * 2;
     if (totalCost > balance) {
-      // Can't afford 5 shares at ask price — place a limit order at the mid-market price instead
-      // This places a GTC bid that fills when price comes down, rather than giving up entirely
-      const affordablePrice = Math.floor((balance / 5) * 100) / 100; // max price for 5 shares
+      // Reduce price to fit budget, but never above mid-price
+      const affordablePrice = Math.floor((balance / 5) * 100) / 100;
       if (affordablePrice < 0.01) {
         callbacks.log(`[BUY:POLYMARKET] ❌ Not enough balance: $${balance.toFixed(2)} — can't even afford 5 shares at $0.01`);
         return false;
       }
-      price = affordablePrice;
+      price = Math.min(affordablePrice, midPrice);
       callbacks.log(
-        `[BUY:POLYMARKET] 💡 Ask too expensive, placing limit bid at $${price.toFixed(2)} (5 shares = $${(5 * price).toFixed(2)})`,
+        `[BUY:POLYMARKET] 💡 Adjusting limit bid to $${price.toFixed(2)} (5 shares = $${(5 * price).toFixed(2)})`,
       );
     }
 
@@ -524,20 +540,46 @@ async function directJupiterBuy(
     const isYes = side.toUpperCase() === "YES";
     const depositAmount = Math.round(Math.max(betSize, 1.1) * 1_000_000); // micro-USD
 
-    // Check JupUSD balance — prefer over USDC
-    let mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"; // USDC
+    // Check available balance (USDC + JupUSD) before placing order
+    // This prevents the "Insufficient funds" API error loop
+    let mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"; // USDC default
     try {
       const { Connection, PublicKey } = await import("@solana/web3.js");
       const conn = new Connection(process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com", "confirmed");
+      const ownerPk = new PublicKey(jupSvc.ownerPubkey);
+
+      // Get USDC balance
+      const usdcMint = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+      const usdcAccounts = await conn.getTokenAccountsByOwner(ownerPk, { mint: usdcMint });
+      let usdcBalance = 0;
+      if (usdcAccounts.value.length > 0 && usdcAccounts.value[0]) {
+        const info = await conn.getTokenAccountBalance(usdcAccounts.value[0].pubkey);
+        usdcBalance = Number(info.value.uiAmount ?? 0);
+      }
+
+      // Get JupUSD balance
       const jupMint = new PublicKey("JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD");
-      const jupAccounts = await conn.getTokenAccountsByOwner(new PublicKey(jupSvc.ownerPubkey), { mint: jupMint });
+      const jupAccounts = await conn.getTokenAccountsByOwner(ownerPk, { mint: jupMint });
+      let jupBalance = 0;
       if (jupAccounts.value.length > 0 && jupAccounts.value[0]) {
         const info = await conn.getTokenAccountBalance(jupAccounts.value[0].pubkey);
-        if (Number(info.value.uiAmount ?? 0) >= betSize) {
-          mint = "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD";
-        }
+        jupBalance = Number(info.value.uiAmount ?? 0);
       }
-    } catch {}
+
+      const totalBalance = usdcBalance + jupBalance;
+      // Prefer JupUSD if enough, else USDC
+      if (jupBalance >= betSize) {
+        mint = "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD";
+      }
+
+      if (totalBalance < betSize) {
+        callbacks.log(`[BUY:JUPITER] ❌ Not enough balance: $${totalBalance.toFixed(2)} (USDC: $${usdcBalance.toFixed(2)}, JupUSD: $${jupBalance.toFixed(2)}) < $${betSize.toFixed(2)}`);
+        state.jupBuyPausedUntil = Date.now() + 5 * 60_000; // Pause to avoid tight-looping
+        return false;
+      }
+    } catch {
+      // Balance check failed — proceed anyway, API will reject if insufficient
+    }
 
     const { orderId, signature } = await jupSvc.placeOrderAndSign({
       ownerPubkey: jupSvc.ownerPubkey,

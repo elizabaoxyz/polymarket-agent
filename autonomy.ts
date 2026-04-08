@@ -576,19 +576,22 @@ async function directJupiterBuy(
     }
 
     // Pick mint based on which token has enough balance — prefer JupUSD, fall back to USDC
+    // Jupiter requires the full deposit from a SINGLE token — can't split across mints
     let mint: string;
-    if ((jupUsdBalance ?? 0) >= betSize) {
+    const jup = jupUsdBalance ?? 0;
+    const usdc = usdcBalance ?? 0;
+    if (jup >= betSize) {
       mint = "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD";
-    } else if ((usdcBalance ?? 0) >= betSize) {
+    } else if (usdc >= betSize) {
       mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
     } else {
-      // Neither token alone has enough — try JupUSD first (most common from sells)
-      mint = (jupUsdBalance ?? 0) > (usdcBalance ?? 0)
-        ? "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD"
-        : "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+      // Neither token alone has enough — reject
+      callbacks.log(`[BUY:JUPITER] ❌ Neither token has enough for $${betSize.toFixed(2)} (USDC=$${usdc.toFixed(2)}, JupUSD=$${jup.toFixed(2)}). Need to consolidate or deposit.`);
+      state.jupBuyPausedUntil = Date.now() + 5 * 60_000;
+      return false;
     }
     const mintLabel = mint.startsWith("Jupr") ? "JupUSD" : "USDC";
-    callbacks.log(`[BUY:JUPITER] Using ${mintLabel} (USDC=$${(usdcBalance ?? 0).toFixed(2)}, JupUSD=$${(jupUsdBalance ?? 0).toFixed(2)})`);
+    callbacks.log(`[BUY:JUPITER] Using ${mintLabel} (USDC=$${usdc.toFixed(2)}, JupUSD=$${jup.toFixed(2)})`);
 
     const { orderId, signature } = await jupSvc.placeOrderAndSign({
       ownerPubkey: jupSvc.ownerPubkey,

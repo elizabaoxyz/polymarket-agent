@@ -85,6 +85,8 @@ type AutonomyState = {
   prevSolBalance: number;
   /** Cache enrichment context per cycle to avoid duplicate API calls */
   cycleEnrichCache: Map<string, string>;
+  /** Timestamp until which Jupiter buys should be paused (insufficient funds cooldown) */
+  jupBuyPausedUntil: number;
 };
 
 function createState(platform: AutonomyPlatform): AutonomyState {
@@ -102,6 +104,7 @@ function createState(platform: AutonomyPlatform): AutonomyState {
     prevPolyBalance: -1,
     prevSolBalance: -1,
     cycleEnrichCache: new Map(),
+    jupBuyPausedUntil: 0,
   };
 }
 
@@ -452,11 +455,20 @@ async function directPolymarketBuy(
     }
 
     const size = Math.max(5, Math.floor(betSize / price)); // Polymarket minimum is 5 shares
-    const totalCost = size * price;
+    let totalCost = size * price;
     const balance = availableBalance ?? betSize * 2; // if no balance passed, use generous estimate
     if (totalCost > balance) {
-      callbacks.log(`[BUY:POLYMARKET] ❌ Not enough balance: $${balance.toFixed(2)} < $${totalCost.toFixed(2)} (${size} shares @ $${price.toFixed(2)})`);
-      return false;
+      // Can't afford 5 shares at ask price — place a limit order at the mid-market price instead
+      // This places a GTC bid that fills when price comes down, rather than giving up entirely
+      const affordablePrice = Math.floor((balance / 5) * 100) / 100; // max price for 5 shares
+      if (affordablePrice < 0.01) {
+        callbacks.log(`[BUY:POLYMARKET] ❌ Not enough balance: $${balance.toFixed(2)} — can't even afford 5 shares at $0.01`);
+        return false;
+      }
+      price = affordablePrice;
+      callbacks.log(
+        `[BUY:POLYMARKET] 💡 Ask too expensive, placing limit bid at $${price.toFixed(2)} (5 shares = $${(5 * price).toFixed(2)})`,
+      );
     }
 
     const result = await extSvc.placeOrder({ tokenId: token.token_id, side: "BUY", price, size });
@@ -534,6 +546,10 @@ async function directJupiterBuy(
     const msg = err instanceof Error ? err.message : String(err);
     callbacks.log(`[BUY:JUPITER] ❌ Failed: ${msg}`);
     state.failedBuys.set(marketId, Date.now());
+    // Pause Jupiter buys on insufficient funds to avoid tight-looping
+    if (msg.includes("Insufficient funds") || msg.includes("insufficient")) {
+      state.jupBuyPausedUntil = Date.now() + 5 * 60_000; // 5 min cooldown
+    }
     return false;
   }
 }
@@ -1126,7 +1142,12 @@ async function collectPositions(
             continue;
           }
           const pnl = pos.pnlUsdPercent ?? 0;
-          // Track all positions for review
+          // Skip freshly bought positions — protects both sell targeting AND portfolio review
+          const isNewJup = state.tradeHistory.some(
+            (h) => h.question.toLowerCase().includes(title.toLowerCase()) && Date.now() - h.time < POSITION_MIN_AGE_MS,
+          );
+          if (isNewJup) continue;
+          // Track remaining positions for portfolio review
           if (pos.pubkey) {
             jupAllPositions.push({
               marketId: pos.marketId,
@@ -1137,11 +1158,6 @@ async function collectPositions(
               contracts: pos.contracts ?? "0",
             });
           }
-          // Skip freshly bought positions for sell targeting
-          const isNewJup = state.tradeHistory.some(
-            (h) => h.question.toLowerCase().includes(title.toLowerCase()) && Date.now() - h.time < POSITION_MIN_AGE_MS,
-          );
-          if (isNewJup) continue;
           if (
             (pnl < sellLossThreshold || pnl > sellProfitThreshold) &&
             pos.pubkey &&
@@ -1405,6 +1421,13 @@ async function runAutonomyCycle(
 
       if (positionsFull || lowSolBalance) {
         if (lowSolBalance) callbacks.log(`[JUPITER] Balance $${solBalance.toFixed(2)} — sell-only mode`);
+        return;
+      }
+
+      // Skip Jupiter buying if recently hit insufficient funds (funds locked in open orders)
+      if (Date.now() < state.jupBuyPausedUntil) {
+        const remaining = Math.ceil((state.jupBuyPausedUntil - Date.now()) / 60_000);
+        callbacks.log(`[JUPITER] Skipping buy — insufficient funds cooldown (${remaining}m remaining)`);
         return;
       }
 

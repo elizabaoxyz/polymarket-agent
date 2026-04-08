@@ -36,7 +36,7 @@ import {
 } from "./config";
 import { withRetry } from "./retry";
 import { AsyncMutex } from "./mutex";
-import { getSolanaKeypair } from "./solana-wallet";
+import { getSolanaKeypair, getCachedSolanaBalanceBreakdown } from "./solana-wallet";
 import { getPortfolioStatus } from "./portfolio";
 import { PolymarketExtService } from "./plugins/polymarket-ext/service";
 import { POLYMARKET_EXT_SERVICE_TYPE } from "./plugins/polymarket-ext/types";
@@ -547,6 +547,8 @@ async function directJupiterBuy(
   betSize: number,
   question?: string,
   availableBalance?: number,
+  usdcBalance?: number,
+  jupUsdBalance?: number,
 ): Promise<boolean> {
   try {
     const jupSvc = (await deps.runtime.getServiceLoadPromise(
@@ -561,15 +563,26 @@ async function directJupiterBuy(
     const depositAmount = Math.round(Math.max(betSize, 1.1) * 1_000_000); // micro-USD
 
     // Use available balance from cycle-level check (already subtracts locked orders)
-    // This avoids duplicate RPC calls that cause 429 rate limits
     if (availableBalance !== undefined && availableBalance < betSize) {
       callbacks.log(`[BUY:JUPITER] ❌ Not enough available balance: $${availableBalance.toFixed(2)} < $${betSize.toFixed(2)}`);
       state.jupBuyPausedUntil = Date.now() + 5 * 60_000;
       return false;
     }
 
-    // Default to USDC; cycle-level code handles the primary balance check
-    const mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+    // Pick mint based on which token has enough balance — prefer JupUSD, fall back to USDC
+    let mint: string;
+    if ((jupUsdBalance ?? 0) >= betSize) {
+      mint = "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD";
+    } else if ((usdcBalance ?? 0) >= betSize) {
+      mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+    } else {
+      // Neither token alone has enough — try JupUSD first (most common from sells)
+      mint = (jupUsdBalance ?? 0) > (usdcBalance ?? 0)
+        ? "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD"
+        : "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+    }
+    const mintLabel = mint.startsWith("Jupr") ? "JupUSD" : "USDC";
+    callbacks.log(`[BUY:JUPITER] Using ${mintLabel} (USDC=$${(usdcBalance ?? 0).toFixed(2)}, JupUSD=$${(jupUsdBalance ?? 0).toFixed(2)})`);
 
     const { orderId, signature } = await jupSvc.placeOrderAndSign({
       ownerPubkey: jupSvc.ownerPubkey,
@@ -1539,6 +1552,11 @@ async function runAutonomyCycle(
     const polyBalance = portfolioStatus.balance;
     const solBalanceTotal = portfolioStatus.solanaBalance;
 
+    // Get per-token Solana balance breakdown (USDC vs JupUSD)
+    const solBreakdown = await getCachedSolanaBalanceBreakdown();
+    let solUsdcBalance = solBreakdown.usdc;
+    let solJupUsdBalance = solBreakdown.jupUsd;
+
     // Compute available Solana balance (subtract locked orders)
     let solLockedInOrders = 0;
     try {
@@ -1560,10 +1578,18 @@ async function runAutonomyCycle(
       }
     } catch {}
     const solBalance = Math.max(0, solBalanceTotal - solLockedInOrders);
+    // Proportionally reduce per-token balances by locked amount
+    if (solLockedInOrders > 0 && solBalanceTotal > 0) {
+      const lockRatio = Math.min(1, solLockedInOrders / solBalanceTotal);
+      solUsdcBalance = Math.max(0, solUsdcBalance * (1 - lockRatio));
+      solJupUsdBalance = Math.max(0, solJupUsdBalance * (1 - lockRatio));
+    }
 
     const lowPolyBalance = polyBalance < LOW_BALANCE_THRESHOLD;
     const lowSolBalance = solBalance < LOW_BALANCE_THRESHOLD;
-    const lockedInfo = solLockedInOrders > 0 ? ` (available: $${solBalance.toFixed(2)}, locked: $${solLockedInOrders.toFixed(2)})` : "";
+    const lockedInfo = solLockedInOrders > 0
+      ? ` (avail: $${solBalance.toFixed(2)}, locked: $${solLockedInOrders.toFixed(2)}, USDC: $${solUsdcBalance.toFixed(2)}, JupUSD: $${solJupUsdBalance.toFixed(2)})`
+      : ` (USDC: $${solUsdcBalance.toFixed(2)}, JupUSD: $${solJupUsdBalance.toFixed(2)})`;
     callbacks.log(
       `[BALANCE] Polygon: $${polyBalance.toFixed(2)} | Solana: $${solBalanceTotal.toFixed(2)}${lockedInfo}`,
     );
@@ -1754,7 +1780,7 @@ async function runAutonomyCycle(
             // Mark as pending for parallel dedup
             state.pendingBuys.add(pick.question.toLowerCase());
             // Direct API buy — bypasses LLM action routing for reliable execution
-            const bought = await directJupiterBuy(deps, callbacks, state, (pick as JupMarket).marketId, side, betSize, pick.question, solBalance);
+            const bought = await directJupiterBuy(deps, callbacks, state, (pick as JupMarket).marketId, side, betSize, pick.question, solBalance, solUsdcBalance, solJupUsdBalance);
             if (bought) {
               recordTrade(state, { question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice, amount: betSize });
             } else if (candidates.length > 1) {
@@ -1768,7 +1794,7 @@ async function runAutonomyCycle(
                 if (fbPrice > 0.10 && fbPrice < 0.85) {
                   callbacks.log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${fbSide}:$${fbPrice.toFixed(2)})`);
                   state.pendingBuys.add(fallback.question.toLowerCase());
-                  const fbBought = await directJupiterBuy(deps, callbacks, state, fallback.marketId, fbSide, betSize, fallback.question, solBalance);
+                  const fbBought = await directJupiterBuy(deps, callbacks, state, fallback.marketId, fbSide, betSize, fallback.question, solBalance, solUsdcBalance, solJupUsdBalance);
                   if (fbBought) {
                     recordTrade(state, { question: fallback.question, platform: "JUPITER", time: Date.now(), price: fallback.yesPrice, amount: betSize });
                   }

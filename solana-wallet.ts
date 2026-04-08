@@ -54,44 +54,60 @@ export function getSolanaConnection(): Connection {
 
 // --- Balance cache ---
 
-let _balanceCache = { value: 0, fetchedAt: 0 };
+export type SolanaBalanceBreakdown = {
+  total: number;
+  usdc: number;
+  jupUsd: number;
+};
+
+let _balanceCache: SolanaBalanceBreakdown & { fetchedAt: number } = { total: 0, usdc: 0, jupUsd: 0, fetchedAt: 0 };
 const BALANCE_CACHE_TTL = 60_000; // 60 seconds
 
 /**
- * Get the combined USDC + JupUSD balance for the configured Solana wallet.
+ * Get the USDC + JupUSD balance breakdown for the configured Solana wallet.
  * Cached for 60 seconds to avoid RPC rate limits.
  */
-export async function getCachedSolanaBalance(): Promise<number> {
+export async function getCachedSolanaBalanceBreakdown(): Promise<SolanaBalanceBreakdown> {
   if (Date.now() - _balanceCache.fetchedAt < BALANCE_CACHE_TTL) {
-    return _balanceCache.value;
+    return { total: _balanceCache.total, usdc: _balanceCache.usdc, jupUsd: _balanceCache.jupUsd };
   }
 
   const kp = getSolanaKeypair();
-  if (!kp) return 0;
+  if (!kp) return { total: 0, usdc: 0, jupUsd: 0 };
 
   try {
     const conn = getSolanaConnection();
-    let total = 0;
+    let usdc = 0;
+    let jupUsd = 0;
 
     // Check USDC balance
     const usdcAccounts = await conn.getTokenAccountsByOwner(kp.publicKey, { mint: USDC_MINT });
     if (usdcAccounts.value.length > 0 && usdcAccounts.value[0]) {
       const info = await conn.getTokenAccountBalance(usdcAccounts.value[0].pubkey);
-      total += Number(info.value.uiAmount ?? 0);
+      usdc = Number(info.value.uiAmount ?? 0);
     }
 
     // Check JupUSD balance (Jupiter's stablecoin — returned when selling positions)
     const jupAccounts = await conn.getTokenAccountsByOwner(kp.publicKey, { mint: JUPUSD_MINT });
     if (jupAccounts.value.length > 0 && jupAccounts.value[0]) {
       const info = await conn.getTokenAccountBalance(jupAccounts.value[0].pubkey);
-      total += Number(info.value.uiAmount ?? 0);
+      jupUsd = Number(info.value.uiAmount ?? 0);
     }
 
-    _balanceCache = { value: total, fetchedAt: Date.now() };
-    return total;
+    const total = usdc + jupUsd;
+    _balanceCache = { total, usdc, jupUsd, fetchedAt: Date.now() };
+    return { total, usdc, jupUsd };
   } catch {
-    return _balanceCache.value;
+    return { total: _balanceCache.total, usdc: _balanceCache.usdc, jupUsd: _balanceCache.jupUsd };
   }
+}
+
+/**
+ * Get the combined USDC + JupUSD balance (backwards-compatible wrapper).
+ */
+export async function getCachedSolanaBalance(): Promise<number> {
+  const { total } = await getCachedSolanaBalanceBreakdown();
+  return total;
 }
 
 /**

@@ -7,7 +7,7 @@ RUN bun install --frozen-lockfile
 
 # Copy source
 COPY lib.ts runner.ts ws-server.ts tsconfig.json ./
-COPY config.ts retry.ts mutex.ts portfolio.ts autonomy.ts solana-wallet.ts ./
+COPY config.ts retry.ts mutex.ts portfolio.ts autonomy.ts solana-wallet.ts market-intel.ts ./
 COPY plugins/ ./plugins/
 
 EXPOSE 3001

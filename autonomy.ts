@@ -591,36 +591,46 @@ async function directJupiterBuy(
       let totalBalance = usdcBalance + jupBalance;
 
       // Subtract funds locked in open Jupiter orders
+      // Jupiter Order API returns objects with `sizeUsd` (micro-USD string) as the deposit amount
       let lockedInOrders = 0;
       try {
         const openOrders = await jupSvc.client.getOrders(jupSvc.ownerPubkey);
         if (Array.isArray(openOrders)) {
           for (const order of openOrders) {
-            const deposited = Number((order as Record<string, unknown>).depositedAmount ?? (order as Record<string, unknown>).depositAmount ?? 0) / 1_000_000;
-            const status = String((order as Record<string, unknown>).status ?? "");
+            const o = order as Record<string, unknown>;
+            // sizeUsd is the canonical field; fall back to depositAmount/depositedAmount for compat
+            const deposited = Number(o.sizeUsd ?? o.depositedAmount ?? o.depositAmount ?? 0) / 1_000_000;
+            const status = String(o.status ?? "");
             if (status !== "cancelled" && status !== "filled" && status !== "expired") {
               lockedInOrders += deposited;
             }
           }
+          callbacks.log(`[BUY:JUPITER] Balance check: USDC=$${usdcBalance.toFixed(2)}, JupUSD=$${jupBalance.toFixed(2)}, locked=$${lockedInOrders.toFixed(2)}, ${(openOrders as unknown[]).length} orders`);
         }
-      } catch {
-        // Can't check orders — estimate locked as total minus what's likely available
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        callbacks.log(`[BUY:JUPITER] ⚠️ Order check failed: ${msg} — using raw balance`);
       }
 
       const availableBalance = totalBalance - lockedInOrders;
 
-      // Prefer JupUSD if enough, else USDC
-      if (jupBalance >= betSize) {
+      // Prefer JupUSD if enough (after subtracting locked), else USDC
+      const availableJup = Math.max(0, jupBalance - lockedInOrders * (jupBalance / totalBalance || 0));
+      const availableUsdc = Math.max(0, usdcBalance - lockedInOrders * (usdcBalance / totalBalance || 0));
+      if (availableJup >= betSize) {
         mint = "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD";
+      } else if (availableUsdc >= betSize) {
+        mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
       }
 
       if (availableBalance < betSize) {
-        callbacks.log(`[BUY:JUPITER] ❌ Not enough available balance: $${availableBalance.toFixed(2)} (total: $${totalBalance.toFixed(2)}, locked in orders: $${lockedInOrders.toFixed(2)}) < $${betSize.toFixed(2)}`);
-        state.jupBuyPausedUntil = Date.now() + 5 * 60_000; // Pause to avoid tight-looping
+        callbacks.log(`[BUY:JUPITER] ❌ Not enough available balance: $${availableBalance.toFixed(2)} (total: $${totalBalance.toFixed(2)}, locked: $${lockedInOrders.toFixed(2)}) < $${betSize.toFixed(2)}`);
+        state.jupBuyPausedUntil = Date.now() + 5 * 60_000;
         return false;
       }
-    } catch {
-      // Balance check failed — proceed anyway, API will reject if insufficient
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      callbacks.log(`[BUY:JUPITER] ⚠️ Balance check failed: ${msg} — proceeding with API call`);
     }
 
     const { orderId, signature } = await jupSvc.placeOrderAndSign({
@@ -1589,11 +1599,35 @@ async function runAutonomyCycle(
     // Get balances
     const portfolioStatus = await getPortfolioStatus(deps.runtime);
     const polyBalance = portfolioStatus.balance;
-    const solBalance = portfolioStatus.solanaBalance;
+    const solBalanceTotal = portfolioStatus.solanaBalance;
+
+    // Compute available Solana balance (subtract locked orders)
+    let solLockedInOrders = 0;
+    try {
+      const jupSvc = (await deps.runtime.getServiceLoadPromise(
+        JUPITER_SERVICE_TYPE,
+      )) as unknown as JupiterPredictionService | null;
+      if (jupSvc?.ownerPubkey) {
+        const openOrders = await jupSvc.client.getOrders(jupSvc.ownerPubkey);
+        if (Array.isArray(openOrders)) {
+          for (const order of openOrders) {
+            const o = order as Record<string, unknown>;
+            const deposited = Number(o.sizeUsd ?? o.depositedAmount ?? o.depositAmount ?? 0) / 1_000_000;
+            const status = String(o.status ?? "");
+            if (status !== "cancelled" && status !== "filled" && status !== "expired") {
+              solLockedInOrders += deposited;
+            }
+          }
+        }
+      }
+    } catch {}
+    const solBalance = Math.max(0, solBalanceTotal - solLockedInOrders);
+
     const lowPolyBalance = polyBalance < LOW_BALANCE_THRESHOLD;
     const lowSolBalance = solBalance < LOW_BALANCE_THRESHOLD;
+    const lockedInfo = solLockedInOrders > 0 ? ` (available: $${solBalance.toFixed(2)}, locked: $${solLockedInOrders.toFixed(2)})` : "";
     callbacks.log(
-      `[BALANCE] Polygon: $${polyBalance.toFixed(2)} | Solana: $${solBalance.toFixed(2)} (USDC+JupUSD)`,
+      `[BALANCE] Polygon: $${polyBalance.toFixed(2)} | Solana: $${solBalanceTotal.toFixed(2)}${lockedInfo}`,
     );
 
     // P&L tracking

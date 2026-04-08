@@ -87,6 +87,8 @@ type AutonomyState = {
   cycleEnrichCache: Map<string, string>;
   /** Timestamp until which Jupiter buys should be paused (insufficient funds cooldown) */
   jupBuyPausedUntil: number;
+  /** Questions recently sold — don't re-buy (auto-expires) */
+  recentlySoldQuestions: Map<string, number>;
 };
 
 function createState(platform: AutonomyPlatform): AutonomyState {
@@ -105,6 +107,7 @@ function createState(platform: AutonomyPlatform): AutonomyState {
     prevSolBalance: -1,
     cycleEnrichCache: new Map(),
     jupBuyPausedUntil: 0,
+    recentlySoldQuestions: new Map(),
   };
 }
 
@@ -118,6 +121,11 @@ function housekeep(state: AutonomyState): void {
   // Expire recentlySold entries older than FAILED_SELL_COOLDOWN_MS
   for (const [key, ts] of state.recentlySold) {
     if (now - ts >= FAILED_SELL_COOLDOWN_MS) state.recentlySold.delete(key);
+  }
+
+  // Expire recentlySoldQuestions older than 30 minutes
+  for (const [key, ts] of state.recentlySoldQuestions) {
+    if (now - ts >= 1_800_000) state.recentlySoldQuestions.delete(key);
   }
 
   // Expire failedSells entries older than 2× cooldown (fully stale)
@@ -392,6 +400,7 @@ async function directPolymarketSell(
       `[SELL:POLYMARKET] ✅ ${statusIcon}: "${title}" — ${shares} shares @ $${price.toFixed(2)} ($${total})${txInfo}`,
     );
     state.recentlySold.set(token, Date.now());
+    state.recentlySoldQuestions.set(title.toLowerCase(), Date.now());
     return true;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -685,6 +694,7 @@ async function reviewAllPositions(
           const signature = await jupSvc.signAndSubmit(transaction);
           callbacks.log(`[SELL:JUPITER] ✅ Closed! Signature: ${signature}`);
           state.recentlySold.set(pos.pubkey, Date.now());
+          state.recentlySoldQuestions.set(pos.title.toLowerCase(), Date.now());
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
           callbacks.log(`[SELL:JUPITER] ❌ Failed: ${errMsg}`);
@@ -721,7 +731,7 @@ async function reviewAllPositions(
 RULES — follow these strictly:
 - ANY position with PnL > 0%: SELL — take the profit now, never wait for more.
 - ANY position with PnL < -15%: SELL — cut the loss.
-- ONLY hold if the position is between -15% and 0% AND the market resolution date is more than 30 days away.
+- Positions with PnL between -15% and 0%: HOLD — these are within acceptable drawdown range, do not sell.
 - Sports/event markets resolving TODAY: always SELL if profitable.
 
 Positions:
@@ -758,6 +768,7 @@ Respond with one line per position:
           const signature = await jupSvc.signAndSubmit(transaction);
           callbacks.log(`[SELL:JUPITER] ✅ Closed! Signature: ${signature}`);
           state.recentlySold.set(pos.pubkey, Date.now());
+          state.recentlySoldQuestions.set(pos.title.toLowerCase(), Date.now());
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
           callbacks.log(`[SELL:JUPITER] ❌ Failed: ${errMsg}`);
@@ -800,6 +811,7 @@ async function scanPolymarketMarkets(
     const q = String(m.question ?? "");
     if (ownedTitles.has(q.toLowerCase())) continue;
     if (isRecentlyTraded(state, q)) continue;
+    if (state.recentlySoldQuestions.has(q.toLowerCase())) continue;
 
     const spread = Math.abs(np - yp);
     const midpoint = (yp + np) / 2;
@@ -878,6 +890,7 @@ async function scanJupiterMarkets(
       const eventTitle = (event.metadata?.title ?? "").toLowerCase();
       if (ownedTitles.has(marketTitle) || ownedTitles.has(`${eventTitle} — ${marketTitle}`)) { _jupDbgOwned++; continue; }
       if (isRecentlyTraded(state, q)) continue;
+      if (state.recentlySoldQuestions.has(q.toLowerCase())) continue;
       if (!isFailCooledDown(state.failedBuys, m.marketId, FAILED_BUY_COOLDOWN_MS)) continue;
       jupScored.push({ question: q, marketId: m.marketId, yesPrice: yp, score, volume });
     }
@@ -1162,6 +1175,8 @@ async function collectPositions(
           if (pnl <= -95) continue;
           if (price < 0.05) continue;
           if (!isFailCooledDown(state.failedSells, pos.asset, FAILED_SELL_COOLDOWN_MS)) continue;
+          // Skip positions too small to sell on Polymarket (min 5 shares) — dead money
+          if ((pos.size ?? 0) < 5) continue;
           polyAllSellable.push({ token: pos.asset, shares: pos.size, title: pos.title, pnl, curPrice: price });
           if (pnl < sellLossThreshold || pnl > sellProfitThreshold) {
             polySellTargets.push({ token: pos.asset, shares: pos.size, title: pos.title, pnl, curPrice: price });
@@ -1315,6 +1330,7 @@ async function jupiterSellClaimPhase(
           const signature = await jupSvc.signAndSubmit(transaction);
           callbacks.log(`[SELL:JUPITER] ✅ Closed! Signature: ${signature}`);
           state.recentlySold.set(sell.pubkey, Date.now());
+          state.recentlySoldQuestions.set(sell.title.toLowerCase(), Date.now());
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
           callbacks.log(`[SELL:JUPITER] ❌ Failed to close: ${errMsg}`);

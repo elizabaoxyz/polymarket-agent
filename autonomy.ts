@@ -25,6 +25,10 @@ import {
   SCORE_MIDPOINT_WEIGHT,
   SCORE_TIME_WEIGHT,
   SCORE_VOLUME_WEIGHT,
+  SCORE_MOMENTUM_WEIGHT,
+  SCORE_DEPTH_WEIGHT,
+  MIN_DEPTH_USD,
+  CONTRARIAN_BONUS,
   RAG_SIMILARITY_WEIGHT,
   DAILY_SPEND_LIMIT_USD,
   HEARTBEAT_MAX_FAILURES,
@@ -42,6 +46,19 @@ import { X402_SERVICE_TYPE } from "./plugins/x402-solana/types";
 import type { RAGService } from "./plugins/rag/service";
 import type { ConnectorsService } from "./plugins/connectors/service";
 import type { MarketDocument, NewsDocument } from "./plugins/rag/types";
+import {
+  type MarketIntel,
+  type PriceTrend,
+  type DepthInfo,
+  gatherPolyIntel,
+  gatherJupIntel,
+  fetchPolyPriceHistory,
+  computePriceTrend,
+  fetchPolyDepth,
+  fetchJupDepth,
+  formatIntelForPrompt,
+  detectContrarian,
+} from "./market-intel";
 
 // --- Types ---
 
@@ -772,35 +789,60 @@ async function reviewAllPositions(
 
   if (llmReviewable.length === 0) return;
 
-  // Rebuild position list for LLM (only non-auto-sold)
-  const llmPositionList = llmReviewable
-    .sort((a, b) => b.pnl - a.pnl)
-    .slice(0, 12)
+  // Fetch price trends for top positions (parallel, cap at 8 to avoid rate limits)
+  const sortedForReview = llmReviewable.sort((a, b) => b.pnl - a.pnl).slice(0, 12);
+  const trendMap = new Map<string, PriceTrend>();
+  if (platform === "POLYMARKET") {
+    const trendFetches = sortedForReview.slice(0, 8).map(async (p) => {
+      if (!p.token) return;
+      try {
+        const history = await fetchPolyPriceHistory(p.token, "1h", 24);
+        if (history.length > 2) {
+          trendMap.set(p.token, computePriceTrend(history, p.curPrice ?? 0));
+        }
+      } catch {}
+    });
+    await Promise.allSettled(trendFetches);
+  }
+
+  // Rebuild position list for LLM with trend context
+  const llmPositionList = sortedForReview
     .map((p, i) => {
       const dir = p.isYes !== undefined ? (p.isYes ? "YES" : "NO") : "";
       const qty = p.shares ?? p.contracts ?? "?";
       const sign = p.pnl >= 0 ? "+" : "";
-      return `${i + 1}. "${p.title}" — PnL: ${sign}${p.pnl.toFixed(0)}%, ${dir} ${qty} units, price: $${(p.curPrice ?? 0).toFixed(2)}`;
+      let trendStr = "";
+      const trend = trendMap.get(p.token ?? "");
+      if (trend) {
+        const parts: string[] = [];
+        if (trend.change1h !== null) parts.push(`1h: ${trend.change1h > 0 ? "+" : ""}${trend.change1h.toFixed(1)}%`);
+        if (trend.change24h !== null) parts.push(`24h: ${trend.change24h > 0 ? "+" : ""}${trend.change24h.toFixed(1)}%`);
+        trendStr = ` | trend: ${trend.direction} (${parts.join(", ")})`;
+      }
+      return `${i + 1}. "${p.title}" — PnL: ${sign}${p.pnl.toFixed(0)}%, ${dir} ${qty} units, price: $${(p.curPrice ?? 0).toFixed(2)}${trendStr}`;
     })
     .join("\n");
 
-  callbacks.log(`[PORTFOLIO:${platform}] LLM reviewing ${llmReviewable.length} remaining positions...`);
+  callbacks.log(`[PORTFOLIO:${platform}] LLM reviewing ${llmReviewable.length} remaining positions with trend data...`);
   const reviewText = await directLlmCall(
     deps,
     callbacks,
-    `You are a day trader managing prediction market positions. Today is ${new Date().toISOString().split("T")[0]}.
+    `You are an aggressive day trader managing prediction market positions. Today is ${new Date().toISOString().split("T")[0]}.
 
 RULES — follow these strictly:
-- ANY position with PnL > 0%: SELL — take the profit now, never wait for more.
-- ANY position with PnL < -15%: SELL — cut the loss.
-- Positions with PnL between -15% and 0%: HOLD — these are within acceptable drawdown range, do not sell.
-- Sports/event markets resolving TODAY: always SELL if profitable.
+- ANY position with PnL > 0%: SELL — take the profit now. Do not wait for more. Greed kills.
+- ANY position with PnL < -15%: SELL — cut the loss immediately.
+- Positions between -15% and 0%: check the trend data:
+  - If price is trending DOWN (negative 1h/24h change): SELL — cut before it gets worse.
+  - If price is trending UP or flat: HOLD — give it time to recover.
+- Sports/event markets resolving TODAY or TOMORROW: always SELL if profitable — take guaranteed money.
+- If a position shows a 20%+ drop in 24h, it's likely a momentum collapse — SELL regardless of PnL.
 
 Positions:
 ${llmPositionList}
 
 Respond with one line per position:
-<number>: SELL or HOLD — <reason>`,
+<number>: SELL or HOLD — <reason citing specific data>`,
   );
 
   if (reviewText.length === 0) return;
@@ -849,11 +891,15 @@ type ScoredMarket = {
   score: number;
   volume: number;
   daysLeft: number;
+  tokenId: string;
+  conditionId: string | undefined;
+  intel: MarketIntel | null;
 };
 
 async function scanPolymarketMarkets(
   ownedTitles: Set<string>,
   state: AutonomyState,
+  callbacks: AutonomyCallbacks,
 ): Promise<ScoredMarket[]> {
   const scored: ScoredMarket[] = [];
   const res = await withRetry(
@@ -890,14 +936,66 @@ async function scanPolymarketMarkets(
     const volume = Number(m.rewards?.dailyRate ?? 0);
     const volumeScore = Math.min(1, volume / 100);
 
+    const tokenId = String(yes.token_id ?? "");
+    const conditionId = m.condition_id ? String(m.condition_id) : undefined;
+
     const score =
       spreadScore * SCORE_SPREAD_WEIGHT +
       midScore * SCORE_MIDPOINT_WEIGHT +
       timeScore * SCORE_TIME_WEIGHT +
       volumeScore * SCORE_VOLUME_WEIGHT;
-    scored.push({ question: q, yesPrice: yp, score, volume, daysLeft });
+    scored.push({ question: q, yesPrice: yp, score, volume, daysLeft, tokenId, conditionId, intel: null });
   }
   scored.sort((a, b) => b.score - a.score);
+
+  // Gather market intelligence for top candidates (parallel, capped at 5 to avoid rate limits)
+  const topN = scored.slice(0, 5);
+  if (topN.length > 0) {
+    callbacks.log(`[INTEL:POLY] Gathering price history + depth for top ${topN.length} markets...`);
+    const intelResults = await Promise.allSettled(
+      topN.map((m) => gatherPolyIntel(m.tokenId, m.conditionId, m.yesPrice, m.question)),
+    );
+    for (let i = 0; i < topN.length; i++) {
+      const result = intelResults[i]!;
+      if (result.status === "fulfilled") {
+        const intel = result.value;
+        topN[i]!.intel = intel;
+
+        // Adjust score with momentum signal
+        if (intel.trend) {
+          // Positive momentum → slight boost; negative → slight penalty
+          const momentumScore = (intel.trend.momentum + 1) / 2; // normalize 0-1
+          topN[i]!.score += (momentumScore - 0.5) * SCORE_MOMENTUM_WEIGHT * 2;
+        }
+
+        // Adjust score with depth/liquidity signal
+        if (intel.depth) {
+          const depthScore = Math.min(1, intel.depth.totalDepthUsd / (MIN_DEPTH_USD * 5));
+          topN[i]!.score += depthScore * SCORE_DEPTH_WEIGHT;
+
+          // Buy pressure bonus (imbalance > 0 means more bids than asks)
+          if (intel.depth.imbalance > 0.3) {
+            topN[i]!.score += 0.03; // small boost for buy pressure
+          }
+        }
+
+        // Contrarian bonus — big 24h move = mean reversion opportunity
+        if (intel.isContrarian) {
+          topN[i]!.score += CONTRARIAN_BONUS;
+          callbacks.log(`[INTEL:POLY] ⚠️ "${topN[i]!.question.slice(0, 50)}" — contrarian signal: ${intel.contrarian24hMove!.toFixed(0)}% 24h move`);
+        }
+
+        // Reject illiquid markets
+        if (intel.depth && !intel.depth.isLiquid) {
+          callbacks.log(`[INTEL:POLY] ❌ "${topN[i]!.question.slice(0, 50)}" — illiquid ($${intel.depth.totalDepthUsd.toFixed(0)} depth), deprioritized`);
+          topN[i]!.score *= 0.3; // heavy penalty, don't fully remove (LLM may still pick)
+        }
+      }
+    }
+    // Re-sort after intel adjustments
+    scored.sort((a, b) => b.score - a.score);
+  }
+
   return scored;
 }
 
@@ -909,11 +1007,13 @@ type JupMarket = {
   yesPrice: number;
   score: number;
   volume: number;
+  intel: MarketIntel | null;
 };
 
 async function scanJupiterMarkets(
   ownedTitles: Set<string>,
   state: AutonomyState,
+  callbacks: AutonomyCallbacks,
 ): Promise<JupMarket[]> {
   const jupApiKey = process.env.JUPITER_API_KEY?.trim();
   if (!jupApiKey) return [];
@@ -946,18 +1046,47 @@ async function scanJupiterMarkets(
       const volumeScore = Math.min(1, volume / 10000);
       const score = spreadScore * 0.35 + midScore * 0.3 + volumeScore * 0.35;
       const q = `${event.metadata?.title} — ${m.metadata?.title}`;
-      // Check market-level title, not event-level — owning 1 market in an event
-      // shouldn't block buying other markets in the same event
       const marketTitle = (m.metadata?.title ?? "").toLowerCase();
       const eventTitle = (event.metadata?.title ?? "").toLowerCase();
       if (ownedTitles.has(marketTitle) || ownedTitles.has(`${eventTitle} — ${marketTitle}`)) { _jupDbgOwned++; continue; }
       if (isRecentlyTraded(state, q)) continue;
       if (state.recentlySoldQuestions.has(q.toLowerCase())) continue;
       if (!isFailCooledDown(state.failedBuys, m.marketId, FAILED_BUY_COOLDOWN_MS)) continue;
-      jupScored.push({ question: q, marketId: m.marketId, yesPrice: yp, score, volume });
+      jupScored.push({ question: q, marketId: m.marketId, yesPrice: yp, score, volume, intel: null });
     }
   }
   jupScored.sort((a, b) => b.score - a.score);
+
+  // Gather market intelligence for top Jupiter candidates
+  const topN = jupScored.slice(0, 5);
+  if (topN.length > 0 && jupApiKey) {
+    callbacks.log(`[INTEL:JUP] Gathering depth for top ${topN.length} markets...`);
+    const intelResults = await Promise.allSettled(
+      topN.map((m) => gatherJupIntel(m.marketId, m.yesPrice, m.question, jupApiKey)),
+    );
+    for (let i = 0; i < topN.length; i++) {
+      const result = intelResults[i]!;
+      if (result.status === "fulfilled") {
+        const intel = result.value;
+        topN[i]!.intel = intel;
+
+        // Adjust score with depth/liquidity signal
+        if (intel.depth) {
+          const depthScore = Math.min(1, intel.depth.totalDepthUsd / (MIN_DEPTH_USD * 3));
+          topN[i]!.score += depthScore * SCORE_DEPTH_WEIGHT;
+          if (intel.depth.imbalance > 0.3) topN[i]!.score += 0.03;
+        }
+
+        // Reject illiquid markets
+        if (intel.depth && !intel.depth.isLiquid) {
+          callbacks.log(`[INTEL:JUP] ❌ "${topN[i]!.question.slice(0, 50)}" — illiquid ($${intel.depth.totalDepthUsd.toFixed(0)} depth), deprioritized`);
+          topN[i]!.score *= 0.3;
+        }
+      }
+    }
+    jupScored.sort((a, b) => b.score - a.score);
+  }
+
   // Return debug info alongside results
   (jupScored as unknown as { _debug?: string })._debug =
     `${_jupDbgTotal} scanned, filtered: price=${_jupDbgPrice}, volume=${_jupDbgVol}, owned=${_jupDbgOwned}, passed=${jupScored.length}`;
@@ -1101,32 +1230,44 @@ async function indexAndEnrich(
 async function analyzeCandidates(
   deps: AutonomyDeps,
   callbacks: AutonomyCallbacks,
-  candidates: Array<{ question: string; yesPrice: number; score: number; volume?: number; daysLeft?: number }>,
+  candidates: Array<{ question: string; yesPrice: number; score: number; volume?: number; daysLeft?: number; intel?: MarketIntel | null }>,
   ragContext: string,
 ): Promise<{ pick: (typeof candidates)[0]; side: string; reason: string } | null> {
   const candidateList = candidates
     .map((c, i) => {
       const extra = c.daysLeft !== undefined ? `, ${c.daysLeft.toFixed(0)} days left` : "";
       const vol = c.volume !== undefined ? `, vol: $${c.volume.toFixed(0)}` : "";
-      return `${i + 1}. "${c.question}" — YES: $${c.yesPrice.toFixed(2)}, NO: $${(1 - c.yesPrice).toFixed(2)}, score: ${c.score.toFixed(2)}${extra}${vol}`;
+      const intelStr = c.intel ? formatIntelForPrompt(c.intel) : "";
+      return `${i + 1}. "${c.question}" — YES: $${c.yesPrice.toFixed(2)}, NO: $${(1 - c.yesPrice).toFixed(2)}, score: ${c.score.toFixed(2)}${extra}${vol}${intelStr}`;
     })
     .join("\n");
 
-  callbacks.log(`[ANALYSIS] Analyzing top ${candidates.length} markets...`);
+  callbacks.log(`[ANALYSIS] Analyzing top ${candidates.length} markets with intel...`);
 
-  // Use directLlmCall — bypasses elizaOS message handler / action routing.
-  // The message handler was swallowing analysis responses by triggering
-  // POLYMARKET_PLACE_ORDER instead of returning text.
-  const structuredPrompt = `You are a prediction market analyst. Today is ${new Date().toISOString().split("T")[0]}.
+  const structuredPrompt = `You are an expert prediction market analyst and trader. Today is ${new Date().toISOString().split("T")[0]}.
 
-Analyze these markets and pick the best bet:
+Analyze these markets and pick the best bet. Each market includes scoring data and market intelligence signals:
 
 ${candidateList}${ragContext}
+
+ANALYSIS FRAMEWORK — consider these factors:
+1. EDGE: Is the market mispriced? Does the YES/NO price reflect reality? Look for prices far from your estimated true probability.
+2. TREND: If price trend data is shown, consider momentum. A market trending UP may continue; a market that CRASHED 20%+ in 24h is a contrarian mean-reversion opportunity.
+3. LIQUIDITY: Markets marked "ILLIQUID" are risky — you may not be able to exit. Prefer markets with $500+ depth.
+4. BUY PRESSURE: If order book shows "buy pressure", smart money may be accumulating. "Sell pressure" means exits.
+5. TIMING: Markets resolving in <3 days carry resolution risk. Markets 7-30 days out give time for price discovery.
+6. VOLUME: Higher volume = more information in the price = harder to find edge. Low volume = possible mispricing.
+
+STRATEGY RULES:
+- Prefer markets where your estimated probability differs from the price by 15%+
+- Favor contrarian bets when a 20%+ 24h move looks like overreaction
+- Avoid illiquid markets unless the edge is overwhelming (30%+)
+- When in doubt, pick the market with the best risk/reward ratio
 
 Respond in EXACTLY this format (3 lines only):
 PICK: <number 1-${candidates.length}>
 SIDE: YES or NO
-REASON: <one sentence explanation>`;
+REASON: <one sentence explanation citing the specific signal that gives you edge>`;
 
   const text = await directLlmCall(deps, callbacks, structuredPrompt);
 
@@ -1501,7 +1642,7 @@ async function runAutonomyCycle(
       }
 
       try {
-        const scored = await scanPolymarketMarkets(ownedTitles, state);
+        const scored = await scanPolymarketMarkets(ownedTitles, state, callbacks);
         const ragContext = scored.length > 0
           ? await indexAndEnrich(deps, callbacks, state, scored, "polymarket", scored[0]!.question)
           : "";
@@ -1511,13 +1652,14 @@ async function runAutonomyCycle(
           const candidates = scored.slice(0, 5);
           const analysis = await analyzeCandidates(deps, callbacks, candidates, ragContext);
           if (analysis) {
-            const betSize = calcBetSize(analysis.pick.score, polyBalance);
+            const marketPrice = analysis.side === "YES" ? analysis.pick.yesPrice : 1 - analysis.pick.yesPrice;
+            const betSize = calcBetSize(analysis.pick.score, polyBalance, undefined, marketPrice);
             if (!canSpend(state, betSize)) {
               callbacks.log(`[POLYMARKET] Daily spend limit reached ($${state.dailySpend.toFixed(2)}/$${DAILY_SPEND_LIMIT_USD.toFixed(2)}) — skipping buy`);
             } else {
               callbacks.log(`[ANALYSIS:POLY] ${analysis.reason}`);
               callbacks.log(
-                `[BUY:POLYMARKET] "${analysis.pick.question}" (${analysis.side}:$${analysis.pick.yesPrice.toFixed(2)}, score:${analysis.pick.score.toFixed(2)}, $${betSize.toFixed(2)}, ${(analysis.pick as ScoredMarket).daysLeft?.toFixed(0) ?? "?"}d left)`,
+                `[BUY:POLYMARKET] "${analysis.pick.question}" (${analysis.side}:$${marketPrice.toFixed(2)}, score:${analysis.pick.score.toFixed(2)}, kelly:$${betSize.toFixed(2)}, ${(analysis.pick as ScoredMarket).daysLeft?.toFixed(0) ?? "?"}d left)`,
               );
               // Record trade BEFORE execution so parallel phase sees it immediately
               recordTrade(state, { question: analysis.pick.question, platform: "POLYMARKET", time: Date.now(), price: analysis.pick.yesPrice, amount: betSize });
@@ -1566,7 +1708,7 @@ async function runAutonomyCycle(
       }
 
       try {
-        const jupScored = await scanJupiterMarkets(ownedTitles, state);
+        const jupScored = await scanJupiterMarkets(ownedTitles, state, callbacks);
         const debugInfo = (jupScored as unknown as { _debug?: string })._debug;
         if (debugInfo) callbacks.log(`[JUPITER:SCAN] ${debugInfo}`);
         const ragContext = jupScored.length > 0
@@ -1590,13 +1732,14 @@ async function runAutonomyCycle(
           const side = analysis?.side ?? (pick.yesPrice < 0.5 ? "YES" : "NO");
           const reason = analysis?.reason ?? "best scored market";
 
-          const betSize = calcBetSize(pick.score, solBalance);
+          const jupMarketPrice = side === "YES" ? pick.yesPrice : 1 - pick.yesPrice;
+          const betSize = calcBetSize(pick.score, solBalance, undefined, jupMarketPrice);
           if (!canSpend(state, betSize)) {
             callbacks.log(`[JUPITER] Daily spend limit reached ($${state.dailySpend.toFixed(2)}/$${DAILY_SPEND_LIMIT_USD.toFixed(2)}) — skipping buy`);
           } else {
             callbacks.log(`[ANALYSIS:JUP] ${reason}`);
             callbacks.log(
-              `[BUY:JUPITER] "${pick.question}" (${side}:$${pick.yesPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, $${betSize.toFixed(2)}, vol:$${(pick as JupMarket).volume?.toFixed(0) ?? "0"})`,
+              `[BUY:JUPITER] "${pick.question}" (${side}:$${jupMarketPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, kelly:$${betSize.toFixed(2)}, vol:$${(pick as JupMarket).volume?.toFixed(0) ?? "0"})`,
             );
             // Record trade BEFORE execution so parallel phase sees it immediately
             recordTrade(state, { question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice, amount: betSize });

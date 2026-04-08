@@ -107,16 +107,60 @@ export const DAILY_SPEND_LIMIT_USD = envFloat("DAILY_SPEND_LIMIT_USD", 0);
 /** Max consecutive heartbeat failures before alerting user */
 export const HEARTBEAT_MAX_FAILURES = envInt("HEARTBEAT_MAX_FAILURES", 5);
 
-// --- Smart position sizing ---
+// --- Market intelligence scoring weights ---
+
+/** Weight for price momentum signal in scoring */
+export const SCORE_MOMENTUM_WEIGHT = envFloat("SCORE_MOMENTUM_WEIGHT", 0.10);
+
+/** Weight for order book depth/liquidity signal */
+export const SCORE_DEPTH_WEIGHT = envFloat("SCORE_DEPTH_WEIGHT", 0.10);
+
+/** Minimum order book depth (USD) to consider a market liquid enough to trade */
+export const MIN_DEPTH_USD = envFloat("MIN_DEPTH_USD", 200);
+
+/** Bonus score for contrarian mean-reversion opportunities */
+export const CONTRARIAN_BONUS = envFloat("CONTRARIAN_BONUS", 0.15);
+
+// --- Smart position sizing (Kelly Criterion) ---
 
 /**
- * Calculate bet size based on conviction score and available balance.
- * Returns a value between MIN_BET_SIZE_USD and MAX_BET_SIZE_USD.
+ * Calculate bet size using Half-Kelly Criterion.
+ *
+ * Kelly formula: f = (bp - q) / b
+ *   where b = net odds, p = estimated win probability, q = 1 - p
+ *
+ * We use Half-Kelly (f/2) for safety — reduces variance while keeping
+ * ~75% of the growth rate of full Kelly.
+ *
+ * The "edge" comes from the scoring algorithm — a score of 0.8 means
+ * the model thinks the market is 80% likely to be a good bet.
+ * We map score → estimated win probability with a conservative floor.
  */
-export function calcBetSize(score: number, balance: number, minBet = MIN_BET_SIZE_USD): number {
-  let size: number;
-  if (score > 0.9) size = Math.min(BASE_BET_SIZE_USD * 2, balance * 0.1);
-  else if (score > 0.7) size = Math.min(BASE_BET_SIZE_USD * 1.5, balance * 0.08);
-  else size = Math.min(BASE_BET_SIZE_USD, balance * 0.05);
+export function calcBetSize(
+  score: number,
+  balance: number,
+  minBet = MIN_BET_SIZE_USD,
+  marketPrice?: number,
+): number {
+  // Map score to estimated win probability (conservative: floor at 0.52)
+  const estimatedWinProb = Math.max(0.52, Math.min(0.85, 0.45 + score * 0.40));
+  const q = 1 - estimatedWinProb;
+
+  // Net odds from market price (how much you win per $1 risked)
+  // For a binary market at price p, buying YES pays (1-p)/p if correct
+  const price = marketPrice ?? 0.50;
+  const clampedPrice = Math.max(0.05, Math.min(0.95, price));
+  const netOdds = (1 - clampedPrice) / clampedPrice;
+
+  // Kelly fraction
+  const kellyF = (netOdds * estimatedWinProb - q) / netOdds;
+
+  // Half-Kelly, clamped to [0, 0.10] of balance
+  const halfKelly = Math.max(0, kellyF / 2);
+  const fractionOfBalance = Math.min(halfKelly, 0.10);
+
+  const size = balance * fractionOfBalance;
+
+  // Clamp to configured bounds
   return Math.max(minBet, Math.min(MAX_BET_SIZE_USD, size));
 }

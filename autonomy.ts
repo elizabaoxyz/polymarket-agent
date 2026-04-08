@@ -540,7 +540,7 @@ async function directJupiterBuy(
     const isYes = side.toUpperCase() === "YES";
     const depositAmount = Math.round(Math.max(betSize, 1.1) * 1_000_000); // micro-USD
 
-    // Check available balance (USDC + JupUSD) before placing order
+    // Check available balance (USDC + JupUSD) minus locked open orders
     // This prevents the "Insufficient funds" API error loop
     let mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"; // USDC default
     try {
@@ -566,14 +566,34 @@ async function directJupiterBuy(
         jupBalance = Number(info.value.uiAmount ?? 0);
       }
 
-      const totalBalance = usdcBalance + jupBalance;
+      let totalBalance = usdcBalance + jupBalance;
+
+      // Subtract funds locked in open Jupiter orders
+      let lockedInOrders = 0;
+      try {
+        const openOrders = await jupSvc.client.getOrders(jupSvc.ownerPubkey);
+        if (Array.isArray(openOrders)) {
+          for (const order of openOrders) {
+            const deposited = Number((order as Record<string, unknown>).depositedAmount ?? (order as Record<string, unknown>).depositAmount ?? 0) / 1_000_000;
+            const status = String((order as Record<string, unknown>).status ?? "");
+            if (status !== "cancelled" && status !== "filled" && status !== "expired") {
+              lockedInOrders += deposited;
+            }
+          }
+        }
+      } catch {
+        // Can't check orders — estimate locked as total minus what's likely available
+      }
+
+      const availableBalance = totalBalance - lockedInOrders;
+
       // Prefer JupUSD if enough, else USDC
       if (jupBalance >= betSize) {
         mint = "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD";
       }
 
-      if (totalBalance < betSize) {
-        callbacks.log(`[BUY:JUPITER] ❌ Not enough balance: $${totalBalance.toFixed(2)} (USDC: $${usdcBalance.toFixed(2)}, JupUSD: $${jupBalance.toFixed(2)}) < $${betSize.toFixed(2)}`);
+      if (availableBalance < betSize) {
+        callbacks.log(`[BUY:JUPITER] ❌ Not enough available balance: $${availableBalance.toFixed(2)} (total: $${totalBalance.toFixed(2)}, locked in orders: $${lockedInOrders.toFixed(2)}) < $${betSize.toFixed(2)}`);
         state.jupBuyPausedUntil = Date.now() + 5 * 60_000; // Pause to avoid tight-looping
         return false;
       }

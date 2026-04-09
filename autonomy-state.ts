@@ -12,6 +12,7 @@ import {
   FAILED_BUY_COOLDOWN_MS,
   MAX_TRADE_HISTORY,
   DAILY_SPEND_LIMIT_USD,
+  SKIPPED_MARKET_COOLDOWN_MS,
 } from "./config";
 import type { AgentRuntime } from "@elizaos/core";
 
@@ -73,6 +74,8 @@ export type AutonomyState = {
   depositNotified: boolean;
   /** Questions currently being bought (parallel dedup within a cycle) */
   pendingBuys: Set<string>;
+  /** Markets the LLM skipped — don't re-analyze for SKIPPED_MARKET_COOLDOWN_MS */
+  skippedMarkets: Map<string, number>;
 };
 
 // --- State factory ---
@@ -95,6 +98,7 @@ export function createState(platform: AutonomyPlatform): AutonomyState {
     jupBuyPausedUntil: 0,
     recentlySoldQuestions: new Map(),
     pendingBuys: new Set(),
+    skippedMarkets: new Map(),
     idleCycles: 0,
     depositNotified: false,
   };
@@ -134,6 +138,10 @@ export function housekeep(state: AutonomyState): void {
 
   state.cycleEnrichCache.clear();
   state.pendingBuys.clear();
+
+  for (const [key, ts] of state.skippedMarkets) {
+    if (now - ts >= SKIPPED_MARKET_COOLDOWN_MS) state.skippedMarkets.delete(key);
+  }
 }
 
 export function canSpend(state: AutonomyState, amount: number): boolean {

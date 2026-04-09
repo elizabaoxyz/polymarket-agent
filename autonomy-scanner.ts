@@ -14,10 +14,14 @@ import {
   SCORE_PRICE_SWEET_SPOT_WEIGHT,
   PRICE_SWEET_SPOT_MIN,
   PRICE_SWEET_SPOT_MAX,
+  JUP_PRICE_MIN,
+  JUP_PRICE_MAX,
   MIN_DEPTH_USD,
   CONTRARIAN_BONUS,
   MIN_POLY_VOLUME,
   MIN_JUP_VOLUME,
+  POLY_PRICE_MIN,
+  POLY_PRICE_MAX,
 } from "./config";
 import type { AutonomyState, AutonomyCallbacks } from "./autonomy-state";
 import { isRecentlyTraded, isFailCooledDown } from "./autonomy-state";
@@ -71,7 +75,7 @@ export async function scanPolymarketMarkets(
     if (!yes) continue;
     const yp = Number(yes.price);
     const np = no ? Number(no.price) : 1 - yp;
-    if (yp < 0.15 || yp > 0.80) continue;
+    if (yp < POLY_PRICE_MIN || yp > POLY_PRICE_MAX) continue;
     const q = String(m.question ?? "");
     if (ownedTitles.has(q.toLowerCase())) continue;
     if (isRecentlyTraded(state, q)) continue;
@@ -188,7 +192,7 @@ export async function scanJupiterMarkets(
       _jupDbgTotal++;
       const yp = Number(m.pricing?.buyYesPriceUsd ?? 0) / 1_000_000;
       const np = Number(m.pricing?.buyNoPriceUsd ?? 0) / 1_000_000;
-      if (yp < 0.15 || yp > 0.80) { _jupDbgPrice++; continue; }
+      if (yp < JUP_PRICE_MIN || yp > JUP_PRICE_MAX) { _jupDbgPrice++; continue; }
 
       const closeTime = Number(m.closeTime ?? 0);
       if (closeTime > 0) {
@@ -222,6 +226,7 @@ export async function scanJupiterMarkets(
       if (state.recentlySoldQuestions.has(q.toLowerCase())) continue;
       if (state.pendingBuys.has(q.toLowerCase())) continue;
       if (!isFailCooledDown(state.failedBuys, m.marketId, FAILED_BUY_COOLDOWN_MS)) continue;
+      if (state.skippedMarkets.has(q.toLowerCase())) continue;
       jupScored.push({ question: q, marketId: m.marketId, yesPrice: yp, score: adjustedScore, volume, intel: null });
     }
   }

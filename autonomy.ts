@@ -23,6 +23,7 @@ import {
   DAILY_SPEND_LIMIT_USD,
   HEARTBEAT_MAX_FAILURES,
   MIN_REWARD_RATIO,
+  MIN_BET_SIZE_JUP,
   calcBetSize,
 } from "./config";
 import { getSolanaKeypair, getCachedSolanaBalanceBreakdown } from "./solana-wallet";
@@ -436,6 +437,10 @@ async function runAutonomyCycle(
           const candidates = jupScored.slice(0, 5);
           const analysis = await analyzeCandidates(deps, callbacks, candidates, ragContext);
           if (!analysis) {
+            // Record skipped markets to avoid re-analyzing them for 1 hour
+            for (const c of candidates) {
+              state.skippedMarkets.set(c.question.toLowerCase(), Date.now());
+            }
             callbacks.log("[JUPITER] No high-conviction pick — skipping buy this cycle");
           } else {
             const pick = analysis.pick;
@@ -449,7 +454,7 @@ async function runAutonomyCycle(
             } else if (jupRewardRatio < MIN_REWARD_RATIO) {
               callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — ratio ${jupRewardRatio.toFixed(1)}:1 below minimum ${MIN_REWARD_RATIO}:1`);
             } else {
-              const betSize = calcBetSize(pick.score, solBalance, undefined, jupMarketPrice, analysis.edge, analysis.confidence);
+              const betSize = calcBetSize(pick.score, solBalance, MIN_BET_SIZE_JUP, jupMarketPrice, analysis.edge, analysis.confidence);
               if (!canSpend(state, betSize)) {
                 callbacks.log(`[JUPITER] Daily spend limit reached ($${state.dailySpend.toFixed(2)}/$${DAILY_SPEND_LIMIT_USD.toFixed(2)}) — skipping buy`);
               } else {

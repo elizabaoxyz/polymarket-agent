@@ -218,12 +218,20 @@ export async function directJupiterBuy(
     let mint: string;
     const jup = jupUsdBalance ?? 0;
     const usdc = usdcBalance ?? 0;
+    const combined = jup + usdc;
     if (jup >= betSize) {
       mint = "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD";
     } else if (usdc >= betSize) {
       mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+    } else if (combined >= betSize && usdc >= 0.50) {
+      // Combined balance covers the bet — use whichever has more
+      // Jupiter only takes from one mint, so pick the larger one
+      mint = jup >= usdc
+        ? "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD"
+        : "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+      callbacks.log(`[BUY:JUPITER] Using larger mint for combined balance (USDC=$${usdc.toFixed(2)} + JupUSD=$${jup.toFixed(2)} = $${combined.toFixed(2)})`);
     } else {
-      callbacks.log(`[BUY:JUPITER] ❌ Neither token has enough for $${betSize.toFixed(2)} (USDC=$${usdc.toFixed(2)}, JupUSD=$${jup.toFixed(2)}). Need to consolidate or deposit.`);
+      callbacks.log(`[BUY:JUPITER] ❌ Combined balance $${combined.toFixed(2)} too low for $${betSize.toFixed(2)} (USDC=$${usdc.toFixed(2)}, JupUSD=$${jup.toFixed(2)}). Need to deposit.`);
       state.jupBuyPausedUntil = Date.now() + 5 * 60_000;
       return false;
     }

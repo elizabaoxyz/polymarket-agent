@@ -22,6 +22,9 @@ function envFloat(key: string, fallback: number): number {
 export const MAX_SHARES_PER_ORDER = envInt("MAX_SHARES_PER_ORDER", 500);
 export const MAX_POSITIONS = envInt("MAX_POSITIONS", 50);
 export const MIN_BET_SIZE_USD = envFloat("MIN_BET_SIZE_USD", 3);
+
+/** Minimum bet size in USD for Jupiter (lower — Jupiter has split USDC/JupUSD balances) */
+export const MIN_BET_SIZE_JUP = envFloat("MIN_BET_SIZE_JUP", 1.5);
 export const MAX_BET_SIZE_USD = envFloat("MAX_BET_SIZE_USD", 8);
 export const BASE_BET_SIZE_USD = envFloat("BASE_BET_SIZE_USD", 3);
 
@@ -98,8 +101,19 @@ export const HEARTBEAT_MAX_FAILURES = envInt("HEARTBEAT_MAX_FAILURES", 5);
 export const MIN_DEPTH_USD = envFloat("MIN_DEPTH_USD", 200);
 export const CONTRARIAN_BONUS = envFloat("CONTRARIAN_BONUS", 0.15);
 export const MIN_REWARD_RATIO = envFloat("MIN_REWARD_RATIO", 1.0);
+
+/** Price range for Polymarket markets to be considered */
+export const POLY_PRICE_MIN = envFloat("POLY_PRICE_MIN", 0.15);
+export const POLY_PRICE_MAX = envFloat("POLY_PRICE_MAX", 0.80);
+
+/** Price range for Jupiter — wider because Jupiter markets have more extreme odds */
+export const JUP_PRICE_MIN = envFloat("JUP_PRICE_MIN", 0.10);
+export const JUP_PRICE_MAX = envFloat("JUP_PRICE_MAX", 0.90);
+
+/** Cooldown in ms before re-analyzing a market the LLM already skipped */
+export const SKIPPED_MARKET_COOLDOWN_MS = envInt("SKIPPED_MARKET_COOLDOWN_MS", 3_600_000);
 export const MIN_POLY_VOLUME = envFloat("MIN_POLY_VOLUME", 500);
-export const MIN_JUP_VOLUME = envFloat("MIN_JUP_VOLUME", 5);
+export const MIN_JUP_VOLUME = envFloat("MIN_JUP_VOLUME", 1);
 
 // --- Smart position sizing ---
 

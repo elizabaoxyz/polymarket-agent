@@ -58,8 +58,18 @@ export const MAX_TRADE_HISTORY = envInt("MAX_TRADE_HISTORY", 100);
 
 export const SCORE_SPREAD_WEIGHT = envFloat("SCORE_SPREAD_WEIGHT", 0.25);
 export const SCORE_MIDPOINT_WEIGHT = envFloat("SCORE_MIDPOINT_WEIGHT", 0.15);
-export const SCORE_TIME_WEIGHT = envFloat("SCORE_TIME_WEIGHT", 0.15);
+export const SCORE_TIME_WEIGHT = envFloat("SCORE_TIME_WEIGHT", 0.20);
 export const SCORE_VOLUME_WEIGHT = envFloat("SCORE_VOLUME_WEIGHT", 0.20);
+
+/** Markets resolving within this many days get a quick-flip bonus */
+export const QUICK_FLIP_MAX_DAYS = envFloat("QUICK_FLIP_MAX_DAYS", 7);
+
+/** Score bonus for quick-flip markets */
+export const QUICK_FLIP_BONUS = envFloat("QUICK_FLIP_BONUS", 0.25);
+
+/** Maximum days until market resolution to consider */
+export const MARKET_MAX_DAYS = envFloat("MARKET_MAX_DAYS", 30);
+
 export const SCORE_PRICE_SWEET_SPOT_WEIGHT = envFloat("SCORE_PRICE_SWEET_SPOT_WEIGHT", 0.15);
 export const SCORE_MOMENTUM_WEIGHT = envFloat("SCORE_MOMENTUM_WEIGHT", 0.10);
 export const SCORE_DEPTH_WEIGHT = envFloat("SCORE_DEPTH_WEIGHT", 0.10);

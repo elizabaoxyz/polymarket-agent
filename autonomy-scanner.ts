@@ -22,6 +22,9 @@ import {
   MIN_JUP_VOLUME,
   POLY_PRICE_MIN,
   POLY_PRICE_MAX,
+  QUICK_FLIP_MAX_DAYS,
+  QUICK_FLIP_BONUS,
+  MARKET_MAX_DAYS,
 } from "./config";
 import type { AutonomyState, AutonomyCallbacks } from "./autonomy-state";
 import { isRecentlyTraded, isFailCooledDown } from "./autonomy-state";
@@ -91,10 +94,23 @@ export async function scanPolymarketMarkets(
     let daysLeft = 365;
     if (endDate) {
       daysLeft = Math.max(0, (new Date(endDate as string).getTime() - Date.now()) / 86400000);
-      if (daysLeft < 3) continue;
-      if (daysLeft > 90) continue;
+      if (daysLeft > MARKET_MAX_DAYS) continue;
     }
-    const timeScore = Math.min(1, daysLeft / 30);
+    // Quick flip: score SHORT duration higher — faster resolution = faster compounding
+    // Peak score at 3 days, decays as market gets longer
+    // Anything > 14 days gets minimal time score
+    let timeScore: number;
+    if (daysLeft <= QUICK_FLIP_MAX_DAYS) {
+      // Sweet spot: 1-7 days — these resolve fast for quick profit
+      const distFrom3 = Math.abs(daysLeft - 3);
+      timeScore = Math.max(0.6, 1 - distFrom3 / 5);
+    } else if (daysLeft <= 14) {
+      // Acceptable: 7-14 days
+      timeScore = Math.max(0.2, 0.6 - (daysLeft - QUICK_FLIP_MAX_DAYS) / 14);
+    } else {
+      // Too slow: 14+ days — low priority
+      timeScore = Math.max(0, 0.2 - (daysLeft - 14) / 76);
+    }
     const volume = Number(m.volume ?? m.rewards?.dailyRate ?? 0);
     if (volume < MIN_POLY_VOLUME) continue;
     const volumeScore = Math.min(1, volume / 5000);
@@ -116,7 +132,9 @@ export async function scanPolymarketMarkets(
       const distFrom40 = Math.abs(yp - 0.40);
       priceSweetSpot = Math.max(0, 1 - distFrom40 / 0.20);
     }
-    const adjustedScore = score + priceSweetSpot * SCORE_PRICE_SWEET_SPOT_WEIGHT;
+    // Quick flip bonus: short-duration markets get extra score
+    const quickFlipBonus = daysLeft <= QUICK_FLIP_MAX_DAYS ? QUICK_FLIP_BONUS : 0;
+    const adjustedScore = score + priceSweetSpot * SCORE_PRICE_SWEET_SPOT_WEIGHT + quickFlipBonus;
 
     scored.push({ question: q, yesPrice: yp, score: adjustedScore, volume, daysLeft, tokenId, conditionId, intel: null });
   }
@@ -195,9 +213,20 @@ export async function scanJupiterMarkets(
       if (yp < JUP_PRICE_MIN || yp > JUP_PRICE_MAX) { _jupDbgPrice++; continue; }
 
       const closeTime = Number(m.closeTime ?? 0);
+      let jupDaysLeft = 365;
       if (closeTime > 0) {
-        const daysUntilClose = (closeTime * 1000 - Date.now()) / 86_400_000;
-        if (daysUntilClose < 3 || daysUntilClose > 90) continue;
+        jupDaysLeft = (closeTime * 1000 - Date.now()) / 86_400_000;
+        if (jupDaysLeft > MARKET_MAX_DAYS) continue;
+      }
+      // Quick flip scoring: same logic as Polymarket
+      let jupTimeScore: number;
+      if (jupDaysLeft <= QUICK_FLIP_MAX_DAYS) {
+        const distFrom3 = Math.abs(jupDaysLeft - 3);
+        jupTimeScore = Math.max(0.6, 1 - distFrom3 / 5);
+      } else if (jupDaysLeft <= 14) {
+        jupTimeScore = Math.max(0.2, 0.6 - (jupDaysLeft - QUICK_FLIP_MAX_DAYS) / 14);
+      } else {
+        jupTimeScore = Math.max(0, 0.2 - (jupDaysLeft - 14) / 76);
       }
 
       const effectiveNp = np > 0 ? np : 1 - yp;
@@ -208,7 +237,7 @@ export async function scanJupiterMarkets(
       const volume = Number(m.pricing?.volume ?? 0) / 1_000_000;
       if (volume < MIN_JUP_VOLUME) { _jupDbgVol++; continue; }
       const volumeScore = Math.min(1, volume / 10000);
-      const score = spreadScore * SCORE_SPREAD_WEIGHT + midScore * SCORE_MIDPOINT_WEIGHT + volumeScore * SCORE_VOLUME_WEIGHT;
+      const score = spreadScore * SCORE_SPREAD_WEIGHT + midScore * SCORE_MIDPOINT_WEIGHT + volumeScore * SCORE_VOLUME_WEIGHT + jupTimeScore * SCORE_TIME_WEIGHT;
 
       // Price sweet spot bonus
       let priceSweetSpot = 0;
@@ -216,7 +245,9 @@ export async function scanJupiterMarkets(
         const distFrom40 = Math.abs(yp - 0.40);
         priceSweetSpot = Math.max(0, 1 - distFrom40 / 0.20);
       }
-      const adjustedScore = score + priceSweetSpot * SCORE_PRICE_SWEET_SPOT_WEIGHT;
+      // Quick flip bonus
+      const quickFlipBonus = jupDaysLeft <= QUICK_FLIP_MAX_DAYS ? QUICK_FLIP_BONUS : 0;
+      const adjustedScore = score + priceSweetSpot * SCORE_PRICE_SWEET_SPOT_WEIGHT + quickFlipBonus;
 
       const q = `${event.metadata?.title} — ${m.metadata?.title}`;
       const marketTitle = (m.metadata?.title ?? "").toLowerCase();

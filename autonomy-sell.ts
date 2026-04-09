@@ -10,6 +10,8 @@ import {
   LOW_BALANCE_THRESHOLD,
   SELL_LOSS_THRESHOLD_AGGRESSIVE,
   SELL_PROFIT_THRESHOLD_AGGRESSIVE,
+  TRAILING_STOP_ACTIVATE_PCT,
+  TRAILING_STOP_DRAWDOWN_PCT,
   POSITION_MIN_AGE_MS,
   FAILED_SELL_COOLDOWN_MS,
 } from "./config";
@@ -255,18 +257,48 @@ export async function reviewAllPositions(
     return;
   }
 
+  // Fetch price trends FIRST — needed for both auto-sell and LLM review
+  const sortedAll = [...reviewable].sort((a, b) => b.pnl - a.pnl);
+  const trendMap = new Map<string, PriceTrend>();
+  if (platform === "POLYMARKET") {
+    const trendFetches = sortedAll.slice(0, 10).map(async (p) => {
+      if (!p.token) return;
+      try {
+        const history = await fetchPolyPriceHistory(p.token, "1h", 24);
+        if (history.length > 2) {
+          trendMap.set(p.token, computePriceTrend(history, p.curPrice ?? 0));
+        }
+      } catch {}
+    });
+    await Promise.allSettled(trendFetches);
+  }
+
   // === HARD RULES: auto-sell without asking the LLM ===
   const autoSellTargets = reviewable.filter((p) => {
-    if (p.pnl >= 25) return true;
-    if (p.pnl <= -18) return true;
+    // Hard stop-loss at -20%
+    if (p.pnl <= -20) return true;
     return false;
   });
 
-  for (const pos of autoSellTargets) {
+  // === TRAILING STOP: lock in profits that are fading ===
+  // If a position is above +15% AND the 24h trend is DOWN more than 3%, sell to lock in gains
+  const trailingStopTargets = reviewable.filter((p) => {
+    if (p.pnl >= TRAILING_STOP_ACTIVATE_PCT) {
+      const trend = trendMap.get(p.token ?? "");
+      if (trend && trend.direction === "down" && trend.change24h !== null && trend.change24h < -3) {
+        return true;
+      }
+    }
+    return false;
+  });
+
+  const allAutoSell = new Set([...autoSellTargets, ...trailingStopTargets]);
+
+  for (const pos of allAutoSell) {
     const key = pos.token ?? pos.pubkey ?? "";
     if (state.recentlySold.has(key) || state.failedSells.has(key)) continue;
     const sign = pos.pnl >= 0 ? "+" : "";
-    const reason = pos.pnl >= 10 ? "auto-profit-lock" : "auto-stop-loss";
+    const reason = pos.pnl <= -20 ? "auto-stop-loss" : "trailing-stop-lock";
 
     if (platform === "POLYMARKET" && pos.token) {
       callbacks.log(`[SELL:POLYMARKET] "${pos.title}" ${sign}${pos.pnl.toFixed(0)}% — ${reason}`);
@@ -294,28 +326,14 @@ export async function reviewAllPositions(
   }
 
   // Filter out auto-sold positions from LLM review
-  const autoSoldKeys = new Set(autoSellTargets.map((p) => p.token ?? p.pubkey ?? ""));
+  const autoSoldKeys = new Set([...allAutoSell].map((p) => p.token ?? p.pubkey ?? ""));
   const llmReviewable = reviewable.filter((p) => !autoSoldKeys.has(p.token ?? p.pubkey ?? ""));
 
   if (llmReviewable.length === 0) return;
 
-  // Fetch price trends for top positions
   const sortedForReview = llmReviewable.sort((a, b) => b.pnl - a.pnl).slice(0, 12);
-  const trendMap = new Map<string, PriceTrend>();
-  if (platform === "POLYMARKET") {
-    const trendFetches = sortedForReview.slice(0, 8).map(async (p) => {
-      if (!p.token) return;
-      try {
-        const history = await fetchPolyPriceHistory(p.token, "1h", 24);
-        if (history.length > 2) {
-          trendMap.set(p.token, computePriceTrend(history, p.curPrice ?? 0));
-        }
-      } catch {}
-    });
-    await Promise.allSettled(trendFetches);
-  }
 
-  // Build position list for LLM with trend context
+  // Build position list for LLM with trend context (trendMap already populated)
   const llmPositionList = sortedForReview
     .map((p, i) => {
       const dir = p.isYes !== undefined ? (p.isYes ? "YES" : "NO") : "";
@@ -339,26 +357,28 @@ export async function reviewAllPositions(
     callbacks,
     `You are a disciplined prediction market portfolio manager. Today is ${new Date().toISOString().split("T")[0]}.
 
-RULES — follow these strictly:
-- Positions with PnL > +20%: SELL — lock in significant profit.
-- Positions with PnL +5% to +20%: check trend data:
-  - If price is trending DOWN or flat: SELL — take profit before it fades.
-  - If price is trending UP: HOLD — let the winner run.
-- Positions with PnL 0% to +5%: HOLD — too small to justify selling (spread costs eat the profit).
-- Positions with PnL -15% to 0%: check trend data:
-  - If price is trending DOWN (negative 1h/24h change): SELL — cut before it gets worse.
-  - If price is trending UP or flat: HOLD — give it time to recover.
-- Positions with PnL < -15%: SELL — cut the loss.
-- Sports/event markets resolving within 2 DAYS: SELL if profitable — take guaranteed money.
-- 20%+ price drop in 24h with no recovery: SELL — momentum collapse.
+Your #1 goal: PROTECT CAPITAL and MAXIMIZE PROFITS. Every round-trip trade costs 3-5% in spread.
 
-IMPORTANT: Do NOT sell small winners (<5% profit). The bid-ask spread costs 3-5% on each round trip. Selling at +2% and re-buying costs more than holding.
+SELL RULES (follow strictly):
+- PnL < -15%: SELL — the thesis is broken, cut losses.
+- PnL -15% to -5% with DOWNWARD trend: SELL — getting worse, cut now.
+- PnL -5% to 0%: HOLD — within normal noise, spread costs make selling unprofitable.
+- PnL 0% to +10%: HOLD — gains are too small to justify selling after spread costs.
+- PnL +10% to +30% with DOWNWARD trend: SELL — lock in profits before they evaporate.
+- PnL +10% to +30% with UPWARD trend: HOLD — let winners run.
+- PnL > +30%: SELL — take the money. No prediction market position gains forever.
+
+CRITICAL RULES:
+- Do NOT sell anything with PnL between -5% and +10%. The spread eats your profit.
+- Do NOT hold losers hoping for a miracle. If it's -15% and falling, SELL.
+- If a market resolves within 48 hours and is profitable, SELL — take guaranteed money.
+- Trend data is your most important signal. DOWN trend on a winner = SELL.
 
 Positions:
 ${llmPositionList}
 
 Respond with one line per position:
-<number>: SELL or HOLD — <reason citing specific data>`,
+<number>: SELL or HOLD — <reason citing PnL and trend data>`,
   );
 
   if (reviewText.length === 0) return;

@@ -11,6 +11,9 @@ import {
   SCORE_VOLUME_WEIGHT,
   SCORE_MOMENTUM_WEIGHT,
   SCORE_DEPTH_WEIGHT,
+  SCORE_PRICE_SWEET_SPOT_WEIGHT,
+  PRICE_SWEET_SPOT_MIN,
+  PRICE_SWEET_SPOT_MAX,
   MIN_DEPTH_USD,
   CONTRARIAN_BONUS,
   MIN_POLY_VOLUME,
@@ -100,7 +103,18 @@ export async function scanPolymarketMarkets(
       midScore * SCORE_MIDPOINT_WEIGHT +
       timeScore * SCORE_TIME_WEIGHT +
       volumeScore * SCORE_VOLUME_WEIGHT;
-    scored.push({ question: q, yesPrice: yp, score, volume, daysLeft, tokenId, conditionId, intel: null });
+
+    // Price sweet spot bonus: markets priced 25–55¢ have the best risk/reward
+    // Buying YES at 40¢ gives 1.5:1 ratio vs buying at 70¢ which gives 0.43:1
+    let priceSweetSpot = 0;
+    if (yp >= PRICE_SWEET_SPOT_MIN && yp <= PRICE_SWEET_SPOT_MAX) {
+      // Peak bonus at 0.40, tapering toward edges
+      const distFrom40 = Math.abs(yp - 0.40);
+      priceSweetSpot = Math.max(0, 1 - distFrom40 / 0.20);
+    }
+    const adjustedScore = score + priceSweetSpot * SCORE_PRICE_SWEET_SPOT_WEIGHT;
+
+    scored.push({ question: q, yesPrice: yp, score: adjustedScore, volume, daysLeft, tokenId, conditionId, intel: null });
   }
   scored.sort((a, b) => b.score - a.score);
 
@@ -191,6 +205,15 @@ export async function scanJupiterMarkets(
       if (volume < MIN_JUP_VOLUME) { _jupDbgVol++; continue; }
       const volumeScore = Math.min(1, volume / 10000);
       const score = spreadScore * SCORE_SPREAD_WEIGHT + midScore * SCORE_MIDPOINT_WEIGHT + volumeScore * SCORE_VOLUME_WEIGHT;
+
+      // Price sweet spot bonus
+      let priceSweetSpot = 0;
+      if (yp >= PRICE_SWEET_SPOT_MIN && yp <= PRICE_SWEET_SPOT_MAX) {
+        const distFrom40 = Math.abs(yp - 0.40);
+        priceSweetSpot = Math.max(0, 1 - distFrom40 / 0.20);
+      }
+      const adjustedScore = score + priceSweetSpot * SCORE_PRICE_SWEET_SPOT_WEIGHT;
+
       const q = `${event.metadata?.title} — ${m.metadata?.title}`;
       const marketTitle = (m.metadata?.title ?? "").toLowerCase();
       const eventTitle = (event.metadata?.title ?? "").toLowerCase();
@@ -199,7 +222,7 @@ export async function scanJupiterMarkets(
       if (state.recentlySoldQuestions.has(q.toLowerCase())) continue;
       if (state.pendingBuys.has(q.toLowerCase())) continue;
       if (!isFailCooledDown(state.failedBuys, m.marketId, FAILED_BUY_COOLDOWN_MS)) continue;
-      jupScored.push({ question: q, marketId: m.marketId, yesPrice: yp, score, volume, intel: null });
+      jupScored.push({ question: q, marketId: m.marketId, yesPrice: yp, score: adjustedScore, volume, intel: null });
     }
   }
   jupScored.sort((a, b) => b.score - a.score);

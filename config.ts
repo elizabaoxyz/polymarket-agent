@@ -23,7 +23,7 @@ function envFloat(key: string, fallback: number): number {
 export const MAX_SHARES_PER_ORDER = envInt("MAX_SHARES_PER_ORDER", 500);
 
 /** Maximum open positions across all platforms */
-export const MAX_POSITIONS = envInt("MAX_POSITIONS", 10);
+export const MAX_POSITIONS = envInt("MAX_POSITIONS", 50);
 
 /** Minimum bet size in USD (Polymarket) */
 export const MIN_BET_SIZE_USD = envFloat("MIN_BET_SIZE_USD", 3);

@@ -1795,9 +1795,12 @@ async function runAutonomyCycle(
         if (jupScored.length > 0) {
           const candidates = jupScored.slice(0, 5);
           const analysis = await analyzeCandidates(deps, callbacks, candidates, ragContext);
-          const pick = analysis?.pick ?? candidates[0]!;
-          const side = analysis?.side ?? (pick.yesPrice < 0.5 ? "YES" : "NO");
-          const reason = analysis?.reason ?? "best scored market";
+          if (!analysis) {
+            callbacks.log("[JUPITER] No high-conviction pick — skipping buy this cycle");
+          } else {
+          const pick = analysis.pick;
+          const side = analysis.side;
+          const reason = analysis.reason;
 
           const jupMarketPrice = side === "YES" ? pick.yesPrice : 1 - pick.yesPrice;
 
@@ -1833,6 +1836,7 @@ async function runAutonomyCycle(
             }
           }
           } // close risk/reward guard
+          } // close analysis null check
         } else {
           callbacks.log(`[JUPITER] No new markets to buy (profit review already ran above)`);
         }

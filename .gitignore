@@ -1,6 +1,27 @@
+# Environment & secrets
 .env
+.env.*
+!.env.example
+
+# Dependencies
 node_modules/
+
+# Build output
 bin/
+
+# elizaOS runtime data
 .eliza-polymarket/
 .eliza/
-*.log.superpowers/
+
+# Logs
+*.log
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Misc
+.superpowers/

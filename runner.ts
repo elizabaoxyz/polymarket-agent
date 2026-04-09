@@ -30,7 +30,8 @@ import {
   type EnvConfig,
   type LlmProvider,
 } from "./lib";
-import { runPolymarketTui, runSettingsWizard, setFatalError, type SettingsField } from "./tui";
+import { runPolymarketTui, setFatalError } from "./tui";
+import { runSettingsWizard, type SettingsField } from "./tui-settings";
 import { jupiterPredictionPlugin } from "./plugins/jupiter-prediction/index";
 import { polymarketExtPlugin } from "./plugins/polymarket-ext/index";
 import { x402SolanaPlugin } from "./plugins/x402-solana/index";

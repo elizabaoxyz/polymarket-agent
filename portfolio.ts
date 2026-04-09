@@ -6,39 +6,14 @@
 import type { AgentRuntime } from "@elizaos/core";
 import { PolymarketExtService } from "./plugins/polymarket-ext/service";
 import { POLYMARKET_EXT_SERVICE_TYPE } from "./plugins/polymarket-ext/types";
+import type { X402Status, PortfolioStatus, JupiterPositionEntry } from "./portfolio-types";
 import { X402SolanaService } from "./plugins/x402-solana/service";
 import { X402_SERVICE_TYPE } from "./plugins/x402-solana/types";
 import { getCachedSolanaBalance, getSolanaKeypair } from "./solana-wallet";
 import { withRetry } from "./retry";
 
-export type JupiterPosition = {
-  marketId: string;
-  isYes: boolean;
-  contracts: string;
-  sizeUsd: string;
-  valueUsd: string;
-  avgPriceUsd: string;
-  markPriceUsd: string;
-  pnlUsd: string;
-  pnlUsdPercent: number;
-  eventTitle: string;
-  marketTitle: string;
-};
-
-export type X402Status = {
-  active: boolean;
-  payments: number;
-  totalUsd: number;
-};
-
-export type PortfolioStatus = {
-  balance: number;
-  solanaBalance: number;
-  positions: unknown[];
-  trades: unknown[];
-  jupiterPositions: JupiterPosition[];
-  x402: X402Status;
-};
+// Re-export types for backward compatibility
+export type { X402Status, PortfolioStatus, JupiterPositionEntry } from "./portfolio-types";
 
 /**
  * Fetch the Polymarket USDC balance via CLOB API.
@@ -74,7 +49,7 @@ async function fetchPolymarketBalance(svc: PolymarketExtService): Promise<number
 /**
  * Fetch Jupiter prediction market positions via API.
  */
-async function fetchJupiterPositions(): Promise<JupiterPosition[]> {
+async function fetchJupiterPositions(): Promise<JupiterPositionEntry[]> {
   const jupApiKey = process.env.JUPITER_API_KEY?.trim();
   const kp = getSolanaKeypair();
   if (!jupApiKey || !kp) return [];
@@ -85,20 +60,8 @@ async function fetchJupiterPositions(): Promise<JupiterPosition[]> {
   );
   if (!posRes.ok) return [];
 
-  const jupData = await posRes.json();
-  return (jupData.data ?? []).map((p: Record<string, unknown>) => ({
-    marketId: p.marketId,
-    isYes: p.isYes,
-    contracts: p.contracts,
-    sizeUsd: p.sizeUsd,
-    valueUsd: p.valueUsd,
-    avgPriceUsd: p.avgPriceUsd,
-    markPriceUsd: p.markPriceUsd,
-    pnlUsd: p.pnlUsd,
-    pnlUsdPercent: p.pnlUsdPercent,
-    eventTitle: (p.eventMetadata as Record<string, string>)?.title ?? "",
-    marketTitle: (p.marketMetadata as Record<string, string>)?.title ?? "",
-  }));
+  const jupData = (await posRes.json()) as { data?: JupiterPositionEntry[] };
+  return jupData.data ?? [];
 }
 
 /**

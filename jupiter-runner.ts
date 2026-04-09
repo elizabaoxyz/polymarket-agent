@@ -18,7 +18,8 @@ import {
   writeEnvFile,
   type CliOptions,
 } from "./lib";
-import { runTradingTui, runSettingsWizard, type SettingsField } from "./tui";
+import { runTradingTui } from "./tui";
+import { runSettingsWizard, type SettingsField } from "./tui-settings";
 import { jupiterPredictionPlugin } from "./plugins/jupiter-prediction/index";
 import { JupiterPredictionService } from "./plugins/jupiter-prediction/service";
 

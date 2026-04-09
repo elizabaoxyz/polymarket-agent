@@ -63,6 +63,8 @@ import {
   polymarketSellPhase,
   reviewAllPositions,
   jupiterSellClaimPhase,
+  unifiedPortfolioReview,
+  claimJupiterPositions,
 } from "./autonomy-sell";
 
 // --- LLM analysis ---
@@ -329,17 +331,12 @@ async function runAutonomyCycle(
     const polyPhase = async () => {
       if (!runPoly) return;
       callbacks.log(`[POLYMARKET] ${lowPolyBalance ? "SELL-ONLY (low balance)" : "SELL + BUY"}`);
-      await polymarketSellPhase(
-        deps, callbacks, state,
-        polySellTargets, polyAllSellable,
-        polyBalance, lowPolyBalance, polySellLoss,
+      // Claim + unified sell+review for all Polymarket positions
+      await unifiedPortfolioReview(
+        deps, callbacks, state, "POLYMARKET",
+        polyAllSellable.map((p) => ({ token: p.token, title: p.title, pnl: p.pnl, shares: p.shares, curPrice: p.curPrice })),
+        polyBalance, lowPolyBalance,
       );
-
-      if (polyAllSellable.length > 0) {
-        await reviewAllPositions(deps, callbacks, state, "POLYMARKET",
-          polyAllSellable.map((p) => ({ token: p.token, title: p.title, pnl: p.pnl, shares: p.shares, curPrice: p.curPrice })),
-        );
-      }
 
       if (positionsFull || lowPolyBalance) {
         if (lowPolyBalance) callbacks.log(`[POLYMARKET] Balance $${polyBalance.toFixed(2)} — sell-only mode`);
@@ -393,17 +390,14 @@ async function runAutonomyCycle(
     const jupPhase = async () => {
       if (!runJup) return;
       callbacks.log(`[JUPITER] ${lowSolBalance ? "SELL-ONLY (low balance)" : "SELL + BUY"}`);
-      await jupiterSellClaimPhase(
-        deps, callbacks, state,
-        jupSellTargets, jupClaimable,
-        solBalance, lowSolBalance, jupSellLoss,
+      // Claim settled Jupiter positions first
+      await claimJupiterPositions(deps, callbacks, state, jupClaimable);
+      // Unified sell+review for all Jupiter positions
+      await unifiedPortfolioReview(
+        deps, callbacks, state, "JUPITER",
+        jupAllPositions.map((p) => ({ pubkey: p.pubkey, title: p.title, pnl: p.pnl, isYes: p.isYes, contracts: p.contracts })),
+        solBalance, lowSolBalance,
       );
-
-      if (jupAllPositions.length > 0) {
-        await reviewAllPositions(deps, callbacks, state, "JUPITER",
-          jupAllPositions.map((p) => ({ pubkey: p.pubkey, title: p.title, pnl: p.pnl, isYes: p.isYes, contracts: p.contracts })),
-        );
-      }
 
       if (positionsFull || lowSolBalance) {
         if (lowSolBalance) callbacks.log(`[JUPITER] Balance $${solBalance.toFixed(2)} — sell-only mode`);

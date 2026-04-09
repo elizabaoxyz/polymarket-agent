@@ -100,7 +100,7 @@ export const RETRY_BASE_DELAY_MS = envInt("RETRY_BASE_DELAY_MS", 1000);
 // --- Spending limits ---
 
 /** Maximum USD to spend per day across all platforms (0 = unlimited) */
-export const DAILY_SPEND_LIMIT_USD = envFloat("DAILY_SPEND_LIMIT_USD", 12);
+export const DAILY_SPEND_LIMIT_USD = envFloat("DAILY_SPEND_LIMIT_USD", 0);
 
 // --- Heartbeat ---
 

@@ -32,6 +32,9 @@ import {
   RAG_SIMILARITY_WEIGHT,
   DAILY_SPEND_LIMIT_USD,
   HEARTBEAT_MAX_FAILURES,
+  MIN_REWARD_RATIO,
+  MIN_POLY_VOLUME,
+  MIN_JUP_VOLUME,
   calcBetSize,
 } from "./config";
 import { withRetry } from "./retry";
@@ -724,8 +727,8 @@ async function reviewAllPositions(
 
   // === HARD RULES: auto-sell without asking the LLM ===
   const autoSellTargets = reviewable.filter((p) => {
-    if (p.pnl >= 30) return true;   // Lock in 30%+ profits automatically
-    if (p.pnl <= -25) return true;  // Stop-loss at -25%
+    if (p.pnl >= 25) return true;   // Lock in 25%+ profits automatically
+    if (p.pnl <= -18) return true;  // Stop-loss at -18%
     return false;
   });
 
@@ -898,7 +901,7 @@ async function scanPolymarketMarkets(
     if (!yes) continue;
     const yp = Number(yes.price);
     const np = no ? Number(no.price) : 1 - yp;
-    if (yp < 0.1 || yp > 0.9) continue;
+    if (yp < 0.15 || yp > 0.80) continue;
     const q = String(m.question ?? "");
     if (ownedTitles.has(q.toLowerCase())) continue;
     if (isRecentlyTraded(state, q)) continue;
@@ -914,13 +917,14 @@ async function scanPolymarketMarkets(
     let daysLeft = 365;
     if (endDate) {
       daysLeft = Math.max(0, (new Date(endDate as string).getTime() - Date.now()) / 86400000);
-      if (daysLeft < 1) continue;
-      if (daysLeft > 180) continue; // Skip markets >6 months out — capital locked, no edge
+      if (daysLeft < 3) continue;   // Skip same-day/next-day — not enough time for edge
+      if (daysLeft > 90) continue;  // Skip markets >3 months out — capital locked, no edge
     }
     const timeScore = Math.min(1, daysLeft / 30);
     // Use actual volume if available, fall back to rewards.dailyRate
     const volume = Number(m.volume ?? m.rewards?.dailyRate ?? 0);
-    const volumeScore = Math.min(1, volume / 100);
+    if (volume < MIN_POLY_VOLUME) continue; // Skip low-volume markets — poor liquidity, wider spreads
+    const volumeScore = Math.min(1, volume / 5000);
 
     const tokenId = String(yes.token_id ?? "");
     const conditionId = m.condition_id ? String(m.condition_id) : undefined;
@@ -1021,13 +1025,13 @@ async function scanJupiterMarkets(
       _jupDbgTotal++;
       const yp = Number(m.pricing?.buyYesPriceUsd ?? 0) / 1_000_000;
       const np = Number(m.pricing?.buyNoPriceUsd ?? 0) / 1_000_000;
-      if (yp < 0.02 || yp > 0.98) { _jupDbgPrice++; continue; }
+      if (yp < 0.15 || yp > 0.80) { _jupDbgPrice++; continue; }
 
-      // Skip markets resolving more than 180 days out — capital locked too long, no edge
+      // Skip markets resolving too soon or too far out
       const closeTime = Number(m.closeTime ?? 0);
       if (closeTime > 0) {
         const daysUntilClose = (closeTime * 1000 - Date.now()) / 86_400_000;
-        if (daysUntilClose > 180) continue;
+        if (daysUntilClose < 3 || daysUntilClose > 90) continue;
       }
 
       const effectiveNp = np > 0 ? np : 1 - yp;
@@ -1036,9 +1040,9 @@ async function scanJupiterMarkets(
       const spreadScore = Math.max(0, 1 - spread / 0.15);
       const midScore = 1 - Math.abs(mid - 0.5) * 2;
       const volume = Number(m.pricing?.volume ?? 0) / 1_000_000;
-      if (volume < 0.5) { _jupDbgVol++; continue; }
+      if (volume < MIN_JUP_VOLUME) { _jupDbgVol++; continue; }
       const volumeScore = Math.min(1, volume / 10000);
-      const score = spreadScore * 0.35 + midScore * 0.3 + volumeScore * 0.35;
+      const score = spreadScore * SCORE_SPREAD_WEIGHT + midScore * SCORE_MIDPOINT_WEIGHT + volumeScore * SCORE_VOLUME_WEIGHT;
       const q = `${event.metadata?.title} — ${m.metadata?.title}`;
       const marketTitle = (m.metadata?.title ?? "").toLowerCase();
       const eventTitle = (event.metadata?.title ?? "").toLowerCase();
@@ -1261,11 +1265,13 @@ YOUR DECISION PROCESS:
 4. A 2:1 ratio means you only need to be right 33% of the time to profit. A 0.3:1 ratio means you need to be right 77% of the time — very hard.
 
 RULES:
-- NEVER pick a side with ratio below 0.5:1 (you'd risk $1 to win only $0.50 — needs >67% win rate)
+- NEVER pick a side with ratio below 0.8:1 (you'd risk $1 to win only $0.80 — needs >56% win rate)
 - Prefer sides with ratio 1.5:1 or better (profitable even at 40% accuracy)
 - Markets resolving in 7-60 days are ideal — enough time for price discovery
 - Consider the specific event: sports/dated events have clearer edges than far-future politics
-- If ALL candidates have bad ratios on both sides, pick the LEAST bad one
+- QUALITY over QUANTITY — only pick if you have GENUINE conviction with at least 10% edge
+- If no candidate has a clear edge AND good ratio, respond with PICK: 0 to SKIP this cycle
+- It is better to skip than to make a mediocre bet
 
 Respond in EXACTLY this format (3 lines only):
 PICK: <number 1-${candidates.length}>
@@ -1281,9 +1287,13 @@ REASON: <cite the risk/reward ratio and your estimated edge>`;
     const reasonMatch = /REASON:\s*(.+?)(?:\.|$)/i.exec(text);
 
     if (sideMatch) {
-      const pickIdx = pickMatch
-        ? Math.min(Number.parseInt(pickMatch[1]!) - 1, candidates.length - 1)
-        : 0;
+      const pickNum = pickMatch ? Number.parseInt(pickMatch[1]!) : 1;
+      // PICK: 0 means the LLM wants to skip this cycle — no good candidates
+      if (pickNum === 0) {
+        callbacks.log(`[ANALYSIS] LLM chose to SKIP — no high-conviction picks this cycle`);
+        return null;
+      }
+      const pickIdx = Math.min(pickNum - 1, candidates.length - 1);
       return {
         pick: candidates[Math.max(0, pickIdx)]!,
         side: sideMatch[1]!.toUpperCase(),
@@ -1697,11 +1707,14 @@ async function runAutonomyCycle(
           if (analysis) {
             const marketPrice = analysis.side === "YES" ? analysis.pick.yesPrice : 1 - analysis.pick.yesPrice;
 
-            // Reject terrible risk/reward: buying at >$0.85 means risking $0.85+ to win <$0.15
-            if (marketPrice > 0.85) {
-              callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ${analysis.side} at $${marketPrice.toFixed(2)} is terrible risk/reward`);
-            } else if (marketPrice < 0.10) {
+            // Enforce minimum risk/reward ratio in code
+            const polyRewardRatio = marketPrice > 0 ? (1 - marketPrice) / marketPrice : 0;
+            if (marketPrice > 0.75) {
+              callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ${analysis.side} at $${marketPrice.toFixed(2)} is terrible risk/reward (ratio ${polyRewardRatio.toFixed(1)}:1)`);
+            } else if (marketPrice < 0.15) {
               callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ${analysis.side} at $${marketPrice.toFixed(2)} too cheap / likely resolved`);
+            } else if (polyRewardRatio < MIN_REWARD_RATIO) {
+              callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ratio ${polyRewardRatio.toFixed(1)}:1 below minimum ${MIN_REWARD_RATIO}:1`);
             } else {
             const betSize = calcBetSize(analysis.pick.score, polyBalance, undefined, marketPrice);
             if (!canSpend(state, betSize)) {
@@ -1788,13 +1801,14 @@ async function runAutonomyCycle(
 
           const jupMarketPrice = side === "YES" ? pick.yesPrice : 1 - pick.yesPrice;
 
-          // Reject terrible risk/reward: buying at >$0.85 means risking $0.85+ to win <$0.15
-          if (jupMarketPrice > 0.85) {
-            callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — ${side} at $${jupMarketPrice.toFixed(2)} is terrible risk/reward (risking $${jupMarketPrice.toFixed(2)} to win $${(1 - jupMarketPrice).toFixed(2)})`);
-          } else
-
-          if (jupMarketPrice < 0.10) {
+          // Enforce minimum risk/reward ratio in code
+          const jupRewardRatio = jupMarketPrice > 0 ? (1 - jupMarketPrice) / jupMarketPrice : 0;
+          if (jupMarketPrice > 0.75) {
+            callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — ${side} at $${jupMarketPrice.toFixed(2)} is terrible risk/reward (ratio ${jupRewardRatio.toFixed(1)}:1)`);
+          } else if (jupMarketPrice < 0.15) {
             callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — ${side} at $${jupMarketPrice.toFixed(2)} too cheap / likely resolved`);
+          } else if (jupRewardRatio < MIN_REWARD_RATIO) {
+            callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — ratio ${jupRewardRatio.toFixed(1)}:1 below minimum ${MIN_REWARD_RATIO}:1`);
           } else
 
           {
@@ -1813,22 +1827,9 @@ async function runAutonomyCycle(
             if (bought) {
               recordTrade(state, { question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice, amount: betSize });
             } else if (candidates.length > 1) {
-              // Fallback: re-analyze the fallback market independently (don't reuse side)
-              const fallback = (candidates as JupMarket[]).find(
-                (c) => c.marketId !== (pick as JupMarket).marketId && !state.failedBuys.has(c.marketId),
-              );
-              if (fallback) {
-                const fbSide = fallback.yesPrice < 0.5 ? "YES" : "NO";
-                const fbPrice = fbSide === "YES" ? fallback.yesPrice : 1 - fallback.yesPrice;
-                if (fbPrice > 0.10 && fbPrice < 0.85) {
-                  callbacks.log(`[BUY:JUPITER] Retrying: "${fallback.question}" (${fbSide}:$${fbPrice.toFixed(2)})`);
-                  state.pendingBuys.add(fallback.question.toLowerCase());
-                  const fbBought = await directJupiterBuy(deps, callbacks, state, fallback.marketId, fbSide, betSize, fallback.question, solBalance, solUsdcBalance, solJupUsdBalance);
-                  if (fbBought) {
-                    recordTrade(state, { question: fallback.question, platform: "JUPITER", time: Date.now(), price: fallback.yesPrice, amount: betSize });
-                  }
-                }
-              }
+              // Fallback: skip — don't buy without LLM conviction
+              callbacks.log(`[BUY:JUPITER] Primary pick failed — skipping fallback (quality over quantity)`);
+              state.failedBuys.set((pick as JupMarket).marketId, Date.now());
             }
           }
           } // close risk/reward guard

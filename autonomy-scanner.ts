@@ -70,20 +70,22 @@ export async function scanPolymarketMarkets(
     { label: "polymarket-scan" },
   );
   const data = await res.json();
-  for (const m of (data.data ?? []).filter(
+  const rawMarkets = (data.data ?? []).filter(
     (x: Record<string, unknown>) => x.active && !x.closed && x.accepting_orders,
-  )) {
+  );
+  let skipOwned = 0, skipRecent = 0, skipSold = 0, skipPending = 0, skipPrice = 0, skipDays = 0, skipVolume = 0, skipNoYes = 0;
+  for (const m of rawMarkets) {
     const yes = (m.tokens ?? []).find((t: Record<string, unknown>) => t.outcome === "Yes");
     const no = (m.tokens ?? []).find((t: Record<string, unknown>) => t.outcome === "No");
-    if (!yes) continue;
+    if (!yes) { skipNoYes++; continue; }
     const yp = Number(yes.price);
     const np = no ? Number(no.price) : 1 - yp;
-    if (yp < POLY_PRICE_MIN || yp > POLY_PRICE_MAX) continue;
+    if (yp < POLY_PRICE_MIN || yp > POLY_PRICE_MAX) { skipPrice++; continue; }
     const q = String(m.question ?? "");
-    if (ownedTitles.has(q.toLowerCase())) continue;
-    if (isRecentlyTraded(state, q)) continue;
-    if (state.recentlySoldQuestions.has(q.toLowerCase())) continue;
-    if (state.pendingBuys.has(q.toLowerCase())) continue;
+    if (ownedTitles.has(q.toLowerCase())) { skipOwned++; continue; }
+    if (isRecentlyTraded(state, q)) { skipRecent++; continue; }
+    if (state.recentlySoldQuestions.has(q.toLowerCase())) { skipSold++; continue; }
+    if (state.pendingBuys.has(q.toLowerCase())) { skipPending++; continue; }
 
     const spread = Math.abs(np - yp);
     const midpoint = (yp + np) / 2;
@@ -94,7 +96,7 @@ export async function scanPolymarketMarkets(
     let daysLeft = 365;
     if (endDate) {
       daysLeft = Math.max(0, (new Date(endDate as string).getTime() - Date.now()) / 86400000);
-      if (daysLeft > MARKET_MAX_DAYS) continue;
+      if (daysLeft > MARKET_MAX_DAYS) { skipDays++; continue; }
     }
     // Quick flip: score SHORT duration higher — faster resolution = faster compounding
     // Peak score at 3 days, decays as market gets longer
@@ -112,7 +114,7 @@ export async function scanPolymarketMarkets(
       timeScore = Math.max(0, 0.2 - (daysLeft - 14) / 76);
     }
     const volume = Number(m.volume ?? m.rewards?.dailyRate ?? 0);
-    if (volume < MIN_POLY_VOLUME) continue;
+    if (volume < MIN_POLY_VOLUME) { skipVolume++; continue; }
     const volumeScore = Math.min(1, volume / 5000);
 
     const tokenId = String(yes.token_id ?? "");
@@ -139,6 +141,9 @@ export async function scanPolymarketMarkets(
     scored.push({ question: q, yesPrice: yp, score: adjustedScore, volume, daysLeft, tokenId, conditionId, intel: null });
   }
   scored.sort((a, b) => b.score - a.score);
+  if (scored.length === 0) {
+    callbacks.log(`[INTEL:POLY] 0 markets passed (total: ${rawMarkets.length}, noYes: ${skipNoYes}, owned: ${skipOwned}, recent: ${skipRecent}, sold: ${skipSold}, pending: ${skipPending}, price: ${skipPrice}, days: ${skipDays}, volume: ${skipVolume})`);
+  }
 
   // Gather market intelligence for top candidates (parallel, capped at 5)
   const topN = scored.slice(0, 5);

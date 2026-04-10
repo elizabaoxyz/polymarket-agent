@@ -76,11 +76,15 @@ export async function directLlmCall(
 /**
  * Direct HTTP call to the LLM provider, bypassing elizaOS entirely.
  * Supports Anthropic-compatible (GLM, Claude) and OpenAI-compatible APIs.
+ * Retries up to 3 times on 429 (rate limit) with exponential backoff.
  */
 export async function callLlmDirect(prompt: string, maxTokens: number): Promise<string> {
   const glmKey = process.env.GLM_API_KEY?.trim();
   const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
   const openaiKey = process.env.OPENAI_API_KEY?.trim();
+
+  const maxRetries = 3;
+  const baseDelay = 2000;
 
   // Anthropic-compatible (GLM Coding Plan or native Anthropic)
   if (glmKey || anthropicKey) {
@@ -92,30 +96,38 @@ export async function callLlmDirect(prompt: string, maxTokens: number): Promise<
       ? (process.env.GLM_LARGE_MODEL?.trim() || "glm-4.7")
       : (process.env.ANTHROPIC_LARGE_MODEL?.trim() || process.env.LARGE_MODEL?.trim() || "claude-sonnet-4-20250514");
 
-    const res = await fetch(`${baseUrl}/v1/messages`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens,
-        temperature: 0.3,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const res = await fetch(`${baseUrl}/v1/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens,
+          temperature: 0.3,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      throw new Error(`Anthropic API ${res.status}: ${errText.slice(0, 200)}`);
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        if (res.status === 429 && attempt < maxRetries) {
+          const delay = baseDelay * Math.pow(2, attempt);
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        throw new Error(`Anthropic API ${res.status}: ${errText.slice(0, 200)}`);
+      }
+
+      type AnthropicResponse = { content?: Array<{ type: string; text?: string }> };
+      const data = (await res.json()) as AnthropicResponse;
+      const textBlock = data.content?.find((b) => b.type === "text");
+      return textBlock?.text?.trim() ?? "";
     }
-
-    type AnthropicResponse = { content?: Array<{ type: string; text?: string }> };
-    const data = (await res.json()) as AnthropicResponse;
-    const textBlock = data.content?.find((b) => b.type === "text");
-    return textBlock?.text?.trim() ?? "";
+    throw new Error("Anthropic API: max retries exceeded on 429");
   }
 
   // OpenAI-compatible
@@ -123,28 +135,36 @@ export async function callLlmDirect(prompt: string, maxTokens: number): Promise<
     const baseUrl = process.env.OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1";
     const model = process.env.OPENAI_LARGE_MODEL?.trim() || process.env.LARGE_MODEL?.trim() || "gpt-4o";
 
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${openaiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens,
-        temperature: 0.3,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${openaiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens,
+          temperature: 0.3,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      throw new Error(`OpenAI API ${res.status}: ${errText.slice(0, 200)}`);
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        if (res.status === 429 && attempt < maxRetries) {
+          const delay = baseDelay * Math.pow(2, attempt);
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        throw new Error(`OpenAI API ${res.status}: ${errText.slice(0, 200)}`);
+      }
+
+      type OpenAiResponse = { choices?: Array<{ message?: { content?: string } }> };
+      const data = (await res.json()) as OpenAiResponse;
+      return data.choices?.[0]?.message?.content?.trim() ?? "";
     }
-
-    type OpenAiResponse = { choices?: Array<{ message?: { content?: string } }> };
-    const data = (await res.json()) as OpenAiResponse;
-    return data.choices?.[0]?.message?.content?.trim() ?? "";
+    throw new Error("OpenAI API: max retries exceeded on 429");
   }
 
   throw new Error("No LLM API key configured (GLM_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY)");

@@ -89,26 +89,33 @@ export async function scanPolymarketMarkets(
     }
   }
 
-  // Parse gamma-api markets (different format)
+  // Parse gamma-api markets (different format — fields are JSON-encoded strings)
   if (gammaRes.status === "fulfilled") {
     const gammaData = await gammaRes.value.json();
     for (const g of Array.isArray(gammaData) ? gammaData : []) {
       const q = String(g.question ?? "");
       if (seenQuestions.has(q)) continue;
-      // Convert gamma format to sampling format
-      const clobTokenIds = g.clobTokenIds ?? g.clob_token_ids ?? [];
+      // Gamma API returns outcomes/prices/tokenIds as JSON-encoded string arrays like '["Yes","No"]'
+      let outcomes: string[] = [];
+      let prices: string[] = [];
+      let ids: string[] = [];
+      try {
+        outcomes = JSON.parse(String(g.outcomes ?? "[]"));
+      } catch { outcomes = String(g.outcomes ?? "").split(","); }
+      try {
+        prices = JSON.parse(String(g.outcomePrices ?? "[]"));
+      } catch { prices = String(g.outcomePrices ?? "").split(","); }
+      try {
+        ids = JSON.parse(String(g.clobTokenIds ?? g.clob_token_ids ?? "[]"));
+      } catch { ids = String(g.clobTokenIds ?? g.clob_token_ids ?? "").split(","); }
+
       const tokens: Array<{ outcome: string; price: string; token_id: string }> = [];
-      if (g.outcomes && g.outcomePrices) {
-        const outcomes = String(g.outcomes).split(",");
-        const prices = String(g.outcomePrices).split(",");
-        const ids = clobTokenIds.length > 0 ? String(clobTokenIds).split(",") : [];
-        for (let i = 0; i < outcomes.length; i++) {
-          tokens.push({
-            outcome: outcomes[i]!.trim(),
-            price: prices[i]?.trim() ?? "0.5",
-            token_id: ids[i]?.trim() ?? "",
-          });
-        }
+      for (let i = 0; i < outcomes.length; i++) {
+        tokens.push({
+          outcome: String(outcomes[i]!).trim(),
+          price: String(prices[i] ?? "0.5").trim(),
+          token_id: String(ids[i] ?? "").trim(),
+        });
       }
       if (tokens.length === 0) continue;
       allMarkets.push({
@@ -126,10 +133,12 @@ export async function scanPolymarketMarkets(
   }
 
   const rawMarkets = allMarkets;
+  callbacks.log(`[INTEL:POLY] Fetched ${rawMarkets.length} markets (sampling+gamma)`);
   let skipOwned = 0, skipRecent = 0, skipSold = 0, skipPending = 0, skipPrice = 0, skipDays = 0, skipVolume = 0, skipNoYes = 0;
   for (const m of rawMarkets) {
-    const yes = (m.tokens ?? []).find((t: Record<string, unknown>) => t.outcome === "Yes");
-    const no = (m.tokens ?? []).find((t: Record<string, unknown>) => t.outcome === "No");
+    const tokens = (m.tokens ?? []) as Array<{ outcome: string; price: string; token_id: string }>;
+    const yes = tokens.find((t) => t.outcome === "Yes");
+    const no = tokens.find((t) => t.outcome === "No");
     if (!yes) { skipNoYes++; continue; }
     const yp = Number(yes.price);
     const np = no ? Number(no.price) : 1 - yp;
@@ -166,7 +175,7 @@ export async function scanPolymarketMarkets(
       // Too slow: 14+ days — low priority
       timeScore = Math.max(0, 0.2 - (daysLeft - 14) / 76);
     }
-    const volume = Number(m.volume ?? m.rewards?.dailyRate ?? 0);
+    const volume = Number(m.volume ?? 0);
     if (volume < MIN_POLY_VOLUME) { skipVolume++; continue; }
     const volumeScore = Math.min(1, volume / 5000);
 

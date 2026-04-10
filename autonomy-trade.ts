@@ -64,8 +64,8 @@ export async function directPolymarketSell(
       return false;
     }
 
-    if (shares < 5) {
-      callbacks.log(`[SELL:POLYMARKET] ❌ "${title}" — only ${shares} shares (minimum 5). Position too small to sell.`);
+    if (shares < 1) {
+      callbacks.log(`[SELL:POLYMARKET] ❌ "${title}" — only ${shares} shares. Nothing to sell.`);
       state.failedSells.set(token, Date.now());
       return false;
     }

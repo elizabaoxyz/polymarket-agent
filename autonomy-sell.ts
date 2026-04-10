@@ -5,15 +5,12 @@
 
 import { JupiterPredictionService, JUPITER_SERVICE_TYPE } from "./plugins/jupiter-prediction/service";
 import type { AutonomyDeps, AutonomyCallbacks, AutonomyState } from "./autonomy-state";
-import { isFailCooledDown, recordTrade } from "./autonomy-state";
+import { recordTrade } from "./autonomy-state";
 import {
-  LOW_BALANCE_THRESHOLD,
   SELL_LOSS_THRESHOLD_AGGRESSIVE,
   SELL_PROFIT_THRESHOLD_AGGRESSIVE,
   TRAILING_STOP_ACTIVATE_PCT,
   TRAILING_STOP_DRAWDOWN_PCT,
-  POSITION_MIN_AGE_MS,
-  FAILED_SELL_COOLDOWN_MS,
 } from "./config";
 import { withRetry } from "./retry";
 import { getSolanaKeypair } from "./solana-wallet";
@@ -80,15 +77,10 @@ export async function collectPositions(
           if (pos.title) ownedTitles.add(pos.title.toLowerCase());
           const pnl = pos.percentPnl ?? 0;
           const price = pos.curPrice ?? 0;
-          if (price < 0.02 || pos.redeemable) continue;
-          const isNew = state.tradeHistory.some(
-            (h) => h.question.toLowerCase() === (pos.title ?? "").toLowerCase() && Date.now() - h.time < POSITION_MIN_AGE_MS,
-          );
-          if (isNew) continue;
-          if (pnl <= -95) continue;
-          if (price < 0.05) continue;
-          if (!isFailCooledDown(state.failedSells, pos.asset, FAILED_SELL_COOLDOWN_MS)) continue;
-          if ((pos.size ?? 0) < 5) continue;
+          // Skip only truly dead/empty positions — keep everything else for review
+          if (pos.redeemable) continue;
+          if (price < 0.01) continue;
+          if ((pos.size ?? 0) < 1) continue;
           polyAllSellable.push({ token: pos.asset, shares: pos.size, title: pos.title ?? "", pnl, curPrice: price });
           if (pnl < sellLossThreshold || pnl > sellProfitThreshold) {
             polySellTargets.push({ token: pos.asset, shares: pos.size, title: pos.title ?? "", pnl, curPrice: price });
@@ -131,10 +123,6 @@ export async function collectPositions(
             continue;
           }
           const pnl = pos.pnlUsdPercent ?? 0;
-          const isNewJup = state.tradeHistory.some(
-            (h) => h.question.toLowerCase().includes(title.toLowerCase()) && Date.now() - h.time < POSITION_MIN_AGE_MS,
-          );
-          if (isNewJup) continue;
           if (pos.pubkey) {
             jupAllPositions.push({
               marketId: pos.marketId,
@@ -149,8 +137,7 @@ export async function collectPositions(
             (pnl < sellLossThreshold || pnl > sellProfitThreshold) &&
             pos.pubkey &&
             pnl > -95 &&
-            !state.recentlySold.has(pos.pubkey) &&
-            isFailCooledDown(state.failedSells, pos.pubkey, FAILED_SELL_COOLDOWN_MS)
+            !state.recentlySold.has(pos.pubkey)
           ) {
             jupSellTargets.push({
               marketId: pos.marketId,
@@ -251,19 +238,32 @@ export async function unifiedPortfolioReview(
   balance: number,
   lowBalance: boolean,
 ): Promise<void> {
+  // In low-balance (sell-only) mode: clear failedSells cache so we retry everything
+  if (lowBalance) {
+    const before = state.failedSells.size;
+    state.failedSells.clear();
+    if (before > 0) callbacks.log(`[PORTFOLIO:${platform}] Cleared ${before} failed-sell entries (recovery mode)`);
+  }
+
   // Filter to reviewable positions
   const reviewable = positions.filter((p) => {
     const key = p.token ?? p.pubkey ?? "";
     if (!key) return false;
     if (state.recentlySold.has(key)) return false;
     if (state.failedSells.has(key)) return false;
-    if (platform === "POLYMARKET" && (p.shares ?? 0) < 5) return false;
+    if (platform === "POLYMARKET" && (p.shares ?? 0) < 1) return false;
     if ((p.curPrice ?? 0) < 0.01) return false;
     return true;
   });
 
   if (reviewable.length === 0) {
-    callbacks.log(`[PORTFOLIO:${platform}] No reviewable positions`);
+    // Extra diagnostic: why nothing reviewable?
+    const raw = positions.length;
+    const recentlySoldCount = positions.filter((p) => state.recentlySold.has(p.token ?? p.pubkey ?? "")).length;
+    const failedCount = positions.filter((p) => state.failedSells.has(p.token ?? p.pubkey ?? "")).length;
+    const smallShares = positions.filter((p) => platform === "POLYMARKET" && (p.shares ?? 0) < 1).length;
+    const dust = positions.filter((p) => (p.curPrice ?? 0) < 0.01).length;
+    callbacks.log(`[PORTFOLIO:${platform}] No reviewable positions (raw: ${raw}, recentlySold: ${recentlySoldCount}, failedSells: ${failedCount}, tinyShares: ${smallShares}, dust: ${dust})`);
     return;
   }
 
@@ -323,35 +323,14 @@ export async function unifiedPortfolioReview(
 
   if (llmReviewable.length === 0) return;
 
-  // If balance is critically low, skip LLM and just sell the worst positions
-  if (lowBalance && platform === "POLYMARKET") {
+  // If balance is critically low, LIQUIDATE EVERYTHING — sell all positions to recover capital
+  if (lowBalance) {
     const sorted = [...llmReviewable].sort((a, b) => a.pnl - b.pnl);
-    // Sell top 2 worst performers to recover capital
-    for (const pos of sorted.slice(0, 2)) {
-      if (pos.pnl < 0) {
-        await executeSell(deps, callbacks, state, pos, platform, "recovery-mode");
-      }
-    }
-    // Sell any profitable positions to recover capital
+    callbacks.log(`[PORTFOLIO:${platform}] LOW BALANCE RECOVERY — liquidating all ${sorted.length} positions`);
     for (const pos of sorted) {
-      if (pos.pnl > 5) {
-        await executeSell(deps, callbacks, state, pos, platform, "recovery-profit-take");
-      }
-    }
-    return;
-  }
-
-  if (lowBalance && platform === "JUPITER") {
-    const sorted = [...llmReviewable].sort((a, b) => a.pnl - b.pnl);
-    for (const pos of sorted.slice(0, 2)) {
-      if (pos.pnl < 0) {
-        await executeSell(deps, callbacks, state, pos, platform, "recovery-mode");
-      }
-    }
-    for (const pos of sorted) {
-      if (pos.pnl > 5) {
-        await executeSell(deps, callbacks, state, pos, platform, "recovery-profit-take");
-      }
+      const sign = pos.pnl >= 0 ? "+" : "";
+      const reason = pos.pnl < 0 ? `recovery-cut-loss (${sign}${pos.pnl.toFixed(0)}%)` : `recovery-take-profit (${sign}${pos.pnl.toFixed(0)}%)`;
+      await executeSell(deps, callbacks, state, pos, platform, reason);
     }
     return;
   }

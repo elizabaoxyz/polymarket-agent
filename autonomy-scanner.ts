@@ -159,6 +159,7 @@ export async function scanPolymarketMarkets(
     if (endDate) {
       daysLeft = Math.max(0, (new Date(endDate as string).getTime() - Date.now()) / 86400000);
       if (daysLeft > MARKET_MAX_DAYS) { skipDays++; continue; }
+      if (daysLeft < 0.5) { skipDays++; continue; } // already expired or resolving
     }
     // Quick flip: score SHORT duration higher — faster resolution = faster compounding
     // Peak score at 3 days, decays as market gets longer

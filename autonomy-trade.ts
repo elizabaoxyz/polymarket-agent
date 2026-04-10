@@ -106,6 +106,7 @@ export async function directPolymarketBuy(
   side: string,
   betSize: number,
   availableBalance?: number,
+  knownTokenId?: string,
 ): Promise<boolean> {
   try {
     const extSvc = (await deps.runtime.getServiceLoadPromise(
@@ -116,36 +117,53 @@ export async function directPolymarketBuy(
       return false;
     }
 
-    const markets = await extSvc.clob!.searchMarkets(question);
-    if (markets.length === 0) {
-      callbacks.log(`[BUY:POLYMARKET] ❌ No market found matching "${question.slice(0, 50)}"`);
-      return false;
-    }
-    const market = markets[0]!;
-    const outcome = side === "YES" ? "Yes" : "No";
-    const token = market.tokens.find((t) => t.outcome.toLowerCase() === outcome.toLowerCase());
-    if (!token) {
-      callbacks.log(`[BUY:POLYMARKET] ❌ No ${outcome} token for "${market.question?.slice(0, 50)}"`);
-      return false;
-    }
-
-    let midPrice = token.price;
-    try {
-      const book = await extSvc.clob!.getOrderBook(token.token_id);
-      const bestAsk = book.asks.length > 0 ? parseFloat(book.asks[0]!.price) : null;
-      const bestBid = book.bids.length > 0 ? parseFloat(book.bids[0]!.price) : null;
-      if (bestAsk !== null && bestBid !== null) {
-        midPrice = Math.round(((bestAsk + bestBid) / 2) * 100) / 100;
-      } else if (bestAsk !== null) {
-        midPrice = bestAsk;
+    // Use known token ID from scanner if available, otherwise search
+    let tokenId: string;
+    let midPrice: number;
+    if (knownTokenId) {
+      tokenId = knownTokenId;
+      // Get price from order book
+      midPrice = 0.5;
+      try {
+        const book = await extSvc.clob!.getOrderBook(tokenId);
+        const bestAsk = book.asks.length > 0 ? parseFloat(book.asks[0]!.price) : null;
+        const bestBid = book.bids.length > 0 ? parseFloat(book.bids[0]!.price) : null;
+        if (bestAsk !== null && bestBid !== null) midPrice = Math.round(((bestAsk + bestBid) / 2) * 100) / 100;
+        else if (bestAsk !== null) midPrice = bestAsk;
+        else if (bestBid !== null) midPrice = bestBid;
+      } catch {}
+    } else {
+      const markets = await extSvc.clob!.searchMarkets(question);
+      if (markets.length === 0) {
+        callbacks.log(`[BUY:POLYMARKET] ❌ No market found matching "${question.slice(0, 50)}"`);
+        return false;
       }
-      if (bestAsk !== null && bestAsk > midPrice * 1.2) {
-        callbacks.log(
-          `[BUY:POLYMARKET] ⚠️ Ask $${bestAsk.toFixed(2)} is ${Math.round((bestAsk / midPrice - 1) * 100)}% above mid $${midPrice.toFixed(2)} — using limit bid at mid`,
-        );
+      const market = markets[0]!;
+      const outcome = side === "YES" ? "Yes" : "No";
+      const token = market.tokens.find((t) => t.outcome.toLowerCase() === outcome.toLowerCase());
+      if (!token) {
+        callbacks.log(`[BUY:POLYMARKET] ❌ No ${outcome} token for "${market.question?.slice(0, 50)}"`);
+        return false;
       }
-    } catch {
-      // Fall back to token.price
+      tokenId = token.token_id;
+      midPrice = token.price;
+      try {
+        const book = await extSvc.clob!.getOrderBook(tokenId);
+        const bestAsk = book.asks.length > 0 ? parseFloat(book.asks[0]!.price) : null;
+        const bestBid = book.bids.length > 0 ? parseFloat(book.bids[0]!.price) : null;
+        if (bestAsk !== null && bestBid !== null) {
+          midPrice = Math.round(((bestAsk + bestBid) / 2) * 100) / 100;
+        } else if (bestAsk !== null) {
+          midPrice = bestAsk;
+        }
+        if (bestAsk !== null && bestAsk > midPrice * 1.2) {
+          callbacks.log(
+            `[BUY:POLYMARKET] ⚠️ Ask $${bestAsk.toFixed(2)} is ${Math.round((bestAsk / midPrice - 1) * 100)}% above mid $${midPrice.toFixed(2)} — using limit bid at mid`,
+          );
+        }
+      } catch {
+        // Fall back to token.price
+      }
     }
 
     let price = midPrice;
@@ -169,14 +187,14 @@ export async function directPolymarketBuy(
       );
     }
 
-    const result = await extSvc.placeOrder({ tokenId: token.token_id, side: "BUY", price, size });
+    const result = await extSvc.placeOrder({ tokenId, side: "BUY", price, size });
     const total = (size * price).toFixed(2);
     const statusIcon = result.status === "matched" ? "FILLED" : String(result.status).toUpperCase();
     const txInfo = result.transactionsHashes.length > 0
       ? ` | tx: ${result.transactionsHashes[0]!.slice(0, 10)}...`
       : "";
     callbacks.log(
-      `[BUY:POLYMARKET] ✅ ${statusIcon}: ${size} ${outcome} shares of "${market.question?.slice(0, 60)}" @ $${price.toFixed(2)} ($${total})${txInfo}`,
+      `[BUY:POLYMARKET] ✅ ${statusIcon}: ${size} shares @ $${price.toFixed(2)} ($${total}) for "${question.slice(0, 60)}"${txInfo}`,
     );
     recordSpend(state, Number(total));
     return true;

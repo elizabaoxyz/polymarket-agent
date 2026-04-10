@@ -65,13 +65,14 @@ export async function directPolymarketSell(
     }
 
     if (shares < 1) {
-      callbacks.log(`[SELL:POLYMARKET] ⏭️ "${title}" — ${shares} shares, nothing to sell.`);
-      state.recentlySold.set(token, Date.now()); // permanently skip
+      state.stuckDust.add(token);
       return false;
     }
     if (shares < 5) {
-      callbacks.log(`[SELL:POLYMARKET] ⏭️ "${title}" — only ${shares} shares, below CLOB minimum of 5. Stuck dust position.`);
-      state.recentlySold.set(token, Date.now()); // permanently skip — exchange won't accept
+      if (!state.stuckDust.has(token)) {
+        callbacks.log(`[SELL:POLYMARKET] ⏭️ "${title}" — only ${shares} shares, below CLOB minimum of 5. Stuck dust.`);
+      }
+      state.stuckDust.add(token);
       return false;
     }
 

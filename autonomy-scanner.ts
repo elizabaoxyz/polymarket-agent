@@ -70,7 +70,7 @@ export async function scanPolymarketMarkets(
   const [samplingRes, gammaRes] = await Promise.allSettled([
     withRetry(() => fetch("https://clob.polymarket.com/sampling-markets"), { label: "poly-sampling" }),
     withRetry(
-      () => fetch("https://gamma-api.polymarket.com/markets?closed=false&active=true&order=volume24hr&ascending=false&limit=100"),
+      () => fetch("https://gamma-api.polymarket.com/markets?closed=false&active=true&order=volume24hr&ascending=false&limit=300"),
       { label: "poly-gamma" },
     ),
   ]);

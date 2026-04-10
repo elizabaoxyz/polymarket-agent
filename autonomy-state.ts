@@ -76,7 +76,9 @@ export type AutonomyState = {
   pendingBuys: Set<string>;
   /** Markets the LLM skipped — don't re-analyze for SKIPPED_MARKET_COOLDOWN_MS */
   skippedMarkets: Map<string, number>;
-};
+  /** Tokens permanently stuck (< 5 shares on Polymarket CLOB) — never retry */
+  stuckDust: Set<string>;
+}
 
 // --- State factory ---
 
@@ -99,6 +101,7 @@ export function createState(platform: AutonomyPlatform): AutonomyState {
     recentlySoldQuestions: new Map(),
     pendingBuys: new Set(),
     skippedMarkets: new Map(),
+    stuckDust: new Set<string>(),
     idleCycles: 0,
     depositNotified: false,
   };

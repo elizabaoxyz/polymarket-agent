@@ -251,6 +251,7 @@ export async function unifiedPortfolioReview(
     if (!key) return false;
     if (state.recentlySold.has(key)) return false;
     if (state.failedSells.has(key)) return false;
+    if (state.stuckDust.has(key)) return false;
     if (platform === "POLYMARKET" && (p.shares ?? 0) < 1) return false;
     // Dust check only for Polymarket (has curPrice). Jupiter positions don't carry price.
     if (platform === "POLYMARKET" && (p.curPrice ?? 0) < 0.01) return false;
@@ -262,9 +263,10 @@ export async function unifiedPortfolioReview(
     const raw = positions.length;
     const recentlySoldCount = positions.filter((p) => state.recentlySold.has(p.token ?? p.pubkey ?? "")).length;
     const failedCount = positions.filter((p) => state.failedSells.has(p.token ?? p.pubkey ?? "")).length;
+    const stuckCount = positions.filter((p) => state.stuckDust.has(p.token ?? p.pubkey ?? "")).length;
     const smallShares = positions.filter((p) => platform === "POLYMARKET" && (p.shares ?? 0) < 1).length;
     const dust = positions.filter((p) => platform === "POLYMARKET" && (p.curPrice ?? 0) < 0.01).length;
-    callbacks.log(`[PORTFOLIO:${platform}] No reviewable positions (raw: ${raw}, recentlySold: ${recentlySoldCount}, failedSells: ${failedCount}, tinyShares: ${smallShares}, dust: ${dust})`);
+    callbacks.log(`[PORTFOLIO:${platform}] No reviewable positions (raw: ${raw}, recentlySold: ${recentlySoldCount}, failedSells: ${failedCount}, stuckDust: ${stuckCount}, tinyShares: ${smallShares}, dust: ${dust})`);
     return;
   }
 

@@ -65,14 +65,67 @@ export async function scanPolymarketMarkets(
   callbacks: AutonomyCallbacks,
 ): Promise<ScoredMarket[]> {
   const scored: ScoredMarket[] = [];
-  const res = await withRetry(
-    () => fetch("https://clob.polymarket.com/sampling-markets"),
-    { label: "polymarket-scan" },
-  );
-  const data = await res.json();
-  const rawMarkets = (data.data ?? []).filter(
-    (x: Record<string, unknown>) => x.active && !x.closed && x.accepting_orders,
-  );
+
+  // Fetch from both sampling-markets (random 1000) and gamma-api (top by volume)
+  const [samplingRes, gammaRes] = await Promise.allSettled([
+    withRetry(() => fetch("https://clob.polymarket.com/sampling-markets"), { label: "poly-sampling" }),
+    withRetry(
+      () => fetch("https://gamma-api.polymarket.com/markets?closed=false&active=true&order=volume24hr&ascending=false&limit=100"),
+      { label: "poly-gamma" },
+    ),
+  ]);
+
+  const allMarkets: Record<string, unknown>[] = [];
+  const seenQuestions = new Set<string>();
+
+  // Parse sampling-markets
+  if (samplingRes.status === "fulfilled") {
+    const data = await samplingRes.value.json();
+    for (const m of (data.data ?? []).filter(
+      (x: Record<string, unknown>) => x.active && !x.closed && x.accepting_orders,
+    )) {
+      const q = String(m.question ?? "");
+      if (!seenQuestions.has(q)) { allMarkets.push(m); seenQuestions.add(q); }
+    }
+  }
+
+  // Parse gamma-api markets (different format)
+  if (gammaRes.status === "fulfilled") {
+    const gammaData = await gammaRes.value.json();
+    for (const g of Array.isArray(gammaData) ? gammaData : []) {
+      const q = String(g.question ?? "");
+      if (seenQuestions.has(q)) continue;
+      // Convert gamma format to sampling format
+      const clobTokenIds = g.clobTokenIds ?? g.clob_token_ids ?? [];
+      const tokens: Array<{ outcome: string; price: string; token_id: string }> = [];
+      if (g.outcomes && g.outcomePrices) {
+        const outcomes = String(g.outcomes).split(",");
+        const prices = String(g.outcomePrices).split(",");
+        const ids = clobTokenIds.length > 0 ? String(clobTokenIds).split(",") : [];
+        for (let i = 0; i < outcomes.length; i++) {
+          tokens.push({
+            outcome: outcomes[i]!.trim(),
+            price: prices[i]?.trim() ?? "0.5",
+            token_id: ids[i]?.trim() ?? "",
+          });
+        }
+      }
+      if (tokens.length === 0) continue;
+      allMarkets.push({
+        question: q,
+        tokens,
+        active: g.active ?? true,
+        closed: g.closed ?? false,
+        accepting_orders: g.accepting_orders ?? true,
+        end_date_iso: g.endDate ?? g.end_date_iso,
+        volume: g.volume ?? g.volume24hr ?? 0,
+        condition_id: g.conditionId ?? g.condition_id,
+      });
+      seenQuestions.add(q);
+    }
+  }
+
+  const rawMarkets = allMarkets;
   let skipOwned = 0, skipRecent = 0, skipSold = 0, skipPending = 0, skipPrice = 0, skipDays = 0, skipVolume = 0, skipNoYes = 0;
   for (const m of rawMarkets) {
     const yes = (m.tokens ?? []).find((t: Record<string, unknown>) => t.outcome === "Yes");

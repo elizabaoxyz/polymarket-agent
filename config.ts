@@ -25,7 +25,7 @@ export const MIN_BET_SIZE_USD = envFloat("MIN_BET_SIZE_USD", 3);
 
 /** Minimum bet size in USD for Jupiter (lower — Jupiter has split USDC/JupUSD balances) */
 export const MIN_BET_SIZE_JUP = envFloat("MIN_BET_SIZE_JUP", 1.5);
-export const MAX_BET_SIZE_USD = envFloat("MAX_BET_SIZE_USD", 8);
+export const MAX_BET_SIZE_USD = envFloat("MAX_BET_SIZE_USD", 20);
 export const BASE_BET_SIZE_USD = envFloat("BASE_BET_SIZE_USD", 3);
 
 // --- Sell thresholds ---
@@ -125,6 +125,51 @@ export const SKIPPED_MARKET_COOLDOWN_MS = envInt("SKIPPED_MARKET_COOLDOWN_MS", 3
 export const MIN_POLY_VOLUME = envFloat("MIN_POLY_VOLUME", 50);
 export const MIN_JUP_VOLUME = envFloat("MIN_JUP_VOLUME", 1);
 
+// --- Kelly criterion sizing ---
+
+/** Maximum fraction of balance to risk on a single trade (Kelly cap) */
+export const KELLY_MAX_FRACTION = envFloat("KELLY_MAX_FRACTION", 0.15);
+
+/** Kelly multiplier: 0.5 = half-Kelly (recommended), 1.0 = full Kelly */
+export const KELLY_FRACTION_MULTIPLIER = envFloat("KELLY_FRACTION_MULTIPLIER", 0.5);
+
+// --- Multi-buy ---
+
+/** Maximum number of buys per platform per autonomy cycle */
+export const MAX_BUYS_PER_CYCLE = envInt("MAX_BUYS_PER_CYCLE", 2);
+
+/** Minimum edge required for second buy in a cycle (higher bar) */
+export const SECOND_BUY_MIN_EDGE = envFloat("SECOND_BUY_MIN_EDGE", 0.15);
+
+/** Minimum confidence for second buy in a cycle */
+export const SECOND_BUY_MIN_CONFIDENCE = envFloat("SECOND_BUY_MIN_CONFIDENCE", 0.70);
+
+// --- Price-based exit rules ---
+
+/** Auto-sell when position price exceeds this (terrible risk/reward) */
+export const PRICE_CEILING_SELL = envFloat("PRICE_CEILING_SELL", 0.85);
+
+/** Sell if price > this AND position age > 2 days */
+export const HIGH_PRICE_SELL = envFloat("HIGH_PRICE_SELL", 0.75);
+
+/** Auto-sell dead positions below this price */
+export const DEAD_POSITION_PRICE = envFloat("DEAD_POSITION_PRICE", 0.08);
+
+/** Hard stop-loss: sell if PnL drops below this % */
+export const HARD_STOP_LOSS_PCT = envFloat("HARD_STOP_LOSS_PCT", -25);
+
+/** Trailing stop only activates above this price (avoid whipsaw at low prices) */
+export const TRAILING_STOP_MIN_PRICE = envFloat("TRAILING_STOP_MIN_PRICE", 0.65);
+
+/** Trailing stop: sell if price drops this % from peak price */
+export const TRAILING_STOP_DROP_PCT = envFloat("TRAILING_STOP_DROP_PCT", 12);
+
+/** Capital pressure: sell weakest positions when balance < this AND positions > threshold */
+export const CAPITAL_PRESSURE_MIN_BALANCE = envFloat("CAPITAL_PRESSURE_MIN_BALANCE", 5);
+
+/** Capital pressure: trigger when position count exceeds this */
+export const CAPITAL_PRESSURE_MAX_POSITIONS = envInt("CAPITAL_PRESSURE_MAX_POSITIONS", 15);
+
 // --- Smart position sizing ---
 
 /**
@@ -177,6 +222,48 @@ export function calcBetSize(
 
   // Cap at 8% of balance
   fraction = Math.min(fraction, 0.08);
+
+  const size = balance * fraction;
+  return Math.max(minBet, Math.min(MAX_BET_SIZE_USD, size));
+}
+
+/**
+ * Fractional Kelly position sizing for binary prediction markets.
+ *
+ * Kelly formula for binary outcome: f* = (p - marketPrice) / (1 - marketPrice)
+ * where p = estimated true probability, marketPrice = cost of YES share.
+ *
+ * We use half-Kelly (multiply by 0.5) which preserves ~75% of growth rate
+ * while drastically reducing drawdown risk.
+ *
+ * Confidence acts as a multiplier: low confidence = closer to minimum bet.
+ */
+export function calcKellyBetSize(params: {
+  estimatedProb: number;
+  marketPrice: number;
+  confidence: number;
+  balance: number;
+  minBet?: number;
+}): number {
+  const { estimatedProb, marketPrice, confidence, balance } = params;
+  const minBet = params.minBet ?? MIN_BET_SIZE_USD;
+
+  // Kelly fraction: edge / odds
+  // For binary: (trueProb - marketPrice) / (1 - marketPrice)
+  const edge = estimatedProb - marketPrice;
+  if (edge <= 0) return minBet;
+
+  const kellyFraction = edge / (1 - marketPrice);
+
+  // Half-Kelly (or whatever KELLY_FRACTION_MULTIPLIER is set to)
+  let fraction = kellyFraction * KELLY_FRACTION_MULTIPLIER;
+
+  // Scale by confidence: confidence of 0.6 reduces bet, 1.0 keeps full Kelly
+  const confMultiplier = Math.max(0.5, Math.min(1.0, confidence));
+  fraction *= confMultiplier;
+
+  // Hard cap: never risk more than KELLY_MAX_FRACTION of balance
+  fraction = Math.min(fraction, KELLY_MAX_FRACTION);
 
   const size = balance * fraction;
   return Math.max(minBet, Math.min(MAX_BET_SIZE_USD, size));

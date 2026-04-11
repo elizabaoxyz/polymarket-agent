@@ -118,7 +118,7 @@ export const JUP_PRICE_MAX = envFloat("JUP_PRICE_MAX", 0.90);
 /** Cooldown in ms before re-analyzing a market the LLM already skipped */
 export const SKIPPED_MARKET_COOLDOWN_MS = envInt("SKIPPED_MARKET_COOLDOWN_MS", 3_600_000);
 export const MIN_POLY_VOLUME = envFloat("MIN_POLY_VOLUME", 5000);
-export const MIN_JUP_VOLUME = envFloat("MIN_JUP_VOLUME", 1);
+export const MIN_JUP_VOLUME = envFloat("MIN_JUP_VOLUME", 500);
 
 // --- Kelly criterion sizing ---
 

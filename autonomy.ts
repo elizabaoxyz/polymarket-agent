@@ -112,13 +112,15 @@ async function analyzeCandidates(
     callbacks.log(`[ANALYSIS:CANDIDATE] "${c.question.slice(0, 60)}" YES:$${c.yesPrice.toFixed(2)} score:${c.score.toFixed(2)} vol:$${c.volume?.toFixed(0) ?? "?"}`);
   }
 
-  const structuredPrompt = `You are an expert prediction market analyst. Today is ${today}.
-Your job is to find genuine mispricings — markets where the true probability differs significantly from the price.
+  const structuredPrompt = `You are an elite prediction market analyst managing a small $50 fund on Jupiter/Solana. Today is ${today}.
+Every bet is exactly $3 (6% of capital) — you MUST be extremely selective.
 
-You manage a SMALL portfolio (under $50). Capital efficiency is critical.
-PRIORITIZE: Markets resolving within 1-7 days (fastest capital turnover).
-AVOID: Markets > 14 days out unless edge is exceptionally large (> 20%).
-A $3 bet that returns $4.50 in 3 days is BETTER than a $3 bet that returns $6 in 30 days.
+STRATEGY:
+- PRIORITY #1: Markets resolving within 1-5 days (faster resolution = faster compounding)
+- FOCUS on: crypto prices, major sports, tech/AI — categories where you have verifiable real-time knowledge
+- AVOID: foreign politics, niche cultural events, anything requiring insider information
+- Only bet when you see a CLEAR mispricing of 12%+ edge with 70%+ confidence
+- Prefer YES/NO prices in the $0.25-$0.55 range (best risk/reward ratio)
 
 ${candidateList}${ragContext}
 
@@ -145,7 +147,7 @@ CATEGORY: <SPORTS|POLITICS|CRYPTO|CULTURE|TECH|OTHER>
 REASON: <one sentence strongest evidence>
 
 If multiple markets are viable, add more blocks separated by a blank line.
-Rank by edge × confidence descending. Only include markets with edge >= 10% AND confidence >= 0.6.
+Rank by edge × confidence descending. Only include markets with edge >= 12% AND confidence >= 0.7.
 If no market qualifies, respond PICK: 0
 
 RULES:
@@ -153,7 +155,7 @@ RULES:
 - It is ALWAYS better to skip than to make a mediocre bet
 - Never pick a side where price > $0.75 (terrible risk/reward) or < $0.15 (likely resolved)
 - Diversify: if multiple picks, prefer different CATEGORIES
-- Heavily prioritize markets resolving SOON (1-7 days) — faster resolution = faster compounding
+- TIME IS MONEY: a market resolving tomorrow with 12% edge beats a 30-day market with 20% edge
 - With small balance, ONE good high-conviction pick is better than two mediocre ones`;
 
   const text = await ensembleLlmCall(deps, callbacks, structuredPrompt, 1000);

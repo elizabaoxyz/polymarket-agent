@@ -13,6 +13,7 @@ import {
   MAX_TRADE_HISTORY,
   DAILY_SPEND_LIMIT_USD,
   SKIPPED_MARKET_COOLDOWN_MS,
+  SAME_MARKET_COOLDOWN_MS,
 } from "./config";
 import type { AgentRuntime } from "@elizaos/core";
 
@@ -173,7 +174,7 @@ export function recordSpend(state: AutonomyState, amount: number): void {
 export function isRecentlyTraded(state: AutonomyState, question: string): boolean {
   const q = question.toLowerCase();
   return state.tradeHistory.some(
-    (h) => h.question.toLowerCase() === q && Date.now() - h.time < 86_400_000, // SAME_MARKET_COOLDOWN_MS
+    (h) => h.question.toLowerCase() === q && Date.now() - h.time < SAME_MARKET_COOLDOWN_MS,
   );
 }
 

@@ -20,21 +20,21 @@ function envFloat(key: string, fallback: number): number {
 // --- Trading limits ---
 
 export const MAX_SHARES_PER_ORDER = envInt("MAX_SHARES_PER_ORDER", 500);
-export const MAX_POSITIONS = envInt("MAX_POSITIONS", 12);
+export const MAX_POSITIONS = envInt("MAX_POSITIONS", 16);
 export const MIN_BET_SIZE_USD = envFloat("MIN_BET_SIZE_USD", 3);
 
-/** Minimum bet size in USD for Jupiter (lower — Jupiter has split USDC/JupUSD balances) */
-export const MIN_BET_SIZE_JUP = envFloat("MIN_BET_SIZE_JUP", 1.5);
-export const MAX_BET_SIZE_USD = envFloat("MAX_BET_SIZE_USD", 8);
+/** Minimum bet size in USD for Jupiter — flat $3 bets */
+export const MIN_BET_SIZE_JUP = envFloat("MIN_BET_SIZE_JUP", 3);
+export const MAX_BET_SIZE_USD = envFloat("MAX_BET_SIZE_USD", 3);
 export const BASE_BET_SIZE_USD = envFloat("BASE_BET_SIZE_USD", 3);
 
 // --- Sell thresholds ---
 
-export const SELL_LOSS_THRESHOLD_NORMAL = envFloat("SELL_LOSS_THRESHOLD_NORMAL", -10);
+export const SELL_LOSS_THRESHOLD_NORMAL = envFloat("SELL_LOSS_THRESHOLD_NORMAL", -20);
 export const SELL_LOSS_THRESHOLD_AGGRESSIVE = envFloat("SELL_LOSS_THRESHOLD_AGGRESSIVE", -5);
-export const SELL_PROFIT_THRESHOLD_NORMAL = envFloat("SELL_PROFIT_THRESHOLD_NORMAL", 18);
-export const SELL_PROFIT_THRESHOLD_AGGRESSIVE = envFloat("SELL_PROFIT_THRESHOLD_AGGRESSIVE", 5);
-export const LOW_BALANCE_THRESHOLD = envFloat("LOW_BALANCE_THRESHOLD", 3);
+export const SELL_PROFIT_THRESHOLD_NORMAL = envFloat("SELL_PROFIT_THRESHOLD_NORMAL", 20);
+export const SELL_PROFIT_THRESHOLD_AGGRESSIVE = envFloat("SELL_PROFIT_THRESHOLD_AGGRESSIVE", 10);
+export const LOW_BALANCE_THRESHOLD = envFloat("LOW_BALANCE_THRESHOLD", 5);
 
 // --- Timing ---
 
@@ -43,7 +43,7 @@ export const HEARTBEAT_INTERVAL_MS = envInt("HEARTBEAT_INTERVAL_MS", 10_000);
 export const FAILED_SELL_COOLDOWN_MS = envInt("FAILED_SELL_COOLDOWN_MS", 1_800_000);
 export const FAILED_BUY_COOLDOWN_MS = envInt("FAILED_BUY_COOLDOWN_MS", 1_800_000);
 export const POSITION_MIN_AGE_MS = envInt("POSITION_MIN_AGE_MS", 14_400_000);
-export const SAME_MARKET_COOLDOWN_MS = envInt("SAME_MARKET_COOLDOWN_MS", 86_400_000);
+export const SAME_MARKET_COOLDOWN_MS = envInt("SAME_MARKET_COOLDOWN_MS", 604_800_000);
 export const MAX_TRADE_HISTORY = envInt("MAX_TRADE_HISTORY", 100);
 
 // --- Market scoring weights ---
@@ -53,14 +53,14 @@ export const SCORE_MIDPOINT_WEIGHT = envFloat("SCORE_MIDPOINT_WEIGHT", 0.15);
 export const SCORE_TIME_WEIGHT = envFloat("SCORE_TIME_WEIGHT", 0.20);
 export const SCORE_VOLUME_WEIGHT = envFloat("SCORE_VOLUME_WEIGHT", 0.20);
 
-/** Markets resolving within this many days get a quick-flip bonus */
+/** Markets resolving within this many days get a quick-flip bonus (tighter for $50 fund) */
 export const QUICK_FLIP_MAX_DAYS = envFloat("QUICK_FLIP_MAX_DAYS", 5);
 
 /** Score bonus for quick-flip markets */
 export const QUICK_FLIP_BONUS = envFloat("QUICK_FLIP_BONUS", 0.35);
 
-/** Maximum days until market resolution to consider */
-export const MARKET_MAX_DAYS = envFloat("MARKET_MAX_DAYS", 60);
+/** Maximum days until market resolution to consider (2 weeks max for quick profit) */
+export const MARKET_MAX_DAYS = envFloat("MARKET_MAX_DAYS", 14);
 
 export const SCORE_PRICE_SWEET_SPOT_WEIGHT = envFloat("SCORE_PRICE_SWEET_SPOT_WEIGHT", 0.15);
 export const SCORE_MOMENTUM_WEIGHT = envFloat("SCORE_MOMENTUM_WEIGHT", 0.10);
@@ -76,7 +76,7 @@ export const LLM_KNOWLEDGE_BONUS = envFloat("LLM_KNOWLEDGE_BONUS", 0.35);
 export const MIN_EDGE_THRESHOLD = envFloat("MIN_EDGE_THRESHOLD", 0.12);
 
 /** Minimum LLM confidence (0-1) to enter a trade. */
-export const MIN_CONFIDENCE_THRESHOLD = envFloat("MIN_CONFIDENCE_THRESHOLD", 0.65);
+export const MIN_CONFIDENCE_THRESHOLD = envFloat("MIN_CONFIDENCE_THRESHOLD", 0.70);
 
 // --- Price sweet spot ---
 
@@ -95,7 +95,7 @@ export const RETRY_BASE_DELAY_MS = envInt("RETRY_BASE_DELAY_MS", 1000);
 
 // --- Spending limits ---
 
-export const DAILY_SPEND_LIMIT_USD = envFloat("DAILY_SPEND_LIMIT_USD", 0);
+export const DAILY_SPEND_LIMIT_USD = envFloat("DAILY_SPEND_LIMIT_USD", 50);
 
 // --- Heartbeat ---
 
@@ -118,20 +118,20 @@ export const JUP_PRICE_MAX = envFloat("JUP_PRICE_MAX", 0.90);
 /** Cooldown in ms before re-analyzing a market the LLM already skipped */
 export const SKIPPED_MARKET_COOLDOWN_MS = envInt("SKIPPED_MARKET_COOLDOWN_MS", 3_600_000);
 export const MIN_POLY_VOLUME = envFloat("MIN_POLY_VOLUME", 1500);
-export const MIN_JUP_VOLUME = envFloat("MIN_JUP_VOLUME", 50);
+export const MIN_JUP_VOLUME = envFloat("MIN_JUP_VOLUME", 100);
 
 // --- Kelly criterion sizing ---
 
-/** Maximum fraction of balance to risk on a single trade (Kelly cap) */
-export const KELLY_MAX_FRACTION = envFloat("KELLY_MAX_FRACTION", 0.10);
+/** Maximum fraction of balance to risk on a single trade (Kelly cap) — 6% of $50 = $3 */
+export const KELLY_MAX_FRACTION = envFloat("KELLY_MAX_FRACTION", 0.06);
 
-/** Kelly multiplier: 0.5 = half-Kelly (recommended), 1.0 = full Kelly */
-export const KELLY_FRACTION_MULTIPLIER = envFloat("KELLY_FRACTION_MULTIPLIER", 0.5);
+/** Kelly multiplier: 1.0 = full Kelly (min=max=$3 anyway, no undersizing) */
+export const KELLY_FRACTION_MULTIPLIER = envFloat("KELLY_FRACTION_MULTIPLIER", 1.0);
 
 // --- Multi-buy ---
 
-/** Maximum number of buys per platform per autonomy cycle */
-export const MAX_BUYS_PER_CYCLE = envInt("MAX_BUYS_PER_CYCLE", 2);
+/** Maximum number of buys per platform per autonomy cycle — one careful pick */
+export const MAX_BUYS_PER_CYCLE = envInt("MAX_BUYS_PER_CYCLE", 1);
 
 /** Minimum edge required for second buy in a cycle (higher bar) */
 export const SECOND_BUY_MIN_EDGE = envFloat("SECOND_BUY_MIN_EDGE", 0.15);
@@ -263,3 +263,8 @@ export function calcKellyBetSize(params: {
   const size = balance * fraction;
   return Math.max(minBet, Math.min(MAX_BET_SIZE_USD, size));
 }
+
+// --- Platform selection ---
+
+/** Default autonomy platform — set via AUTONOMY_PLATFORM env (both | polymarket | jupiter) */
+export const AUTONOMY_PLATFORM = (process.env.AUTONOMY_PLATFORM?.trim() || "both") as "both" | "polymarket" | "jupiter";

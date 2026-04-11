@@ -335,15 +335,16 @@ export async function scanJupiterMarkets(
         jupDaysLeft = (closeTime * 1000 - Date.now()) / 86_400_000;
         if (jupDaysLeft > MARKET_MAX_DAYS) continue;
       }
-      // Quick flip scoring: same logic as Polymarket
+      // Quick flip scoring: AGGRESSIVE — time-to-resolution is the #1 factor
       let jupTimeScore: number;
-      if (jupDaysLeft <= QUICK_FLIP_MAX_DAYS) {
-        const distFrom3 = Math.abs(jupDaysLeft - 3);
-        jupTimeScore = Math.max(0.6, 1 - distFrom3 / 5);
+      if (jupDaysLeft <= 3) {
+        jupTimeScore = 1.0; // 1-3 days: maximum score
+      } else if (jupDaysLeft <= QUICK_FLIP_MAX_DAYS) {
+        jupTimeScore = Math.max(0.7, 1 - (jupDaysLeft - 3) / 5); // 3-5 days: still great
       } else if (jupDaysLeft <= 14) {
-        jupTimeScore = Math.max(0.2, 0.6 - (jupDaysLeft - QUICK_FLIP_MAX_DAYS) / 14);
+        jupTimeScore = Math.max(0.2, 0.7 - (jupDaysLeft - QUICK_FLIP_MAX_DAYS) / 14);
       } else {
-        jupTimeScore = Math.max(0, 0.2 - (jupDaysLeft - 14) / 76);
+        jupTimeScore = 0; // >14 days: skip entirely
       }
 
       const effectiveNp = np > 0 ? np : 1 - yp;
@@ -362,8 +363,8 @@ export async function scanJupiterMarkets(
         const distFrom40 = Math.abs(yp - 0.40);
         priceSweetSpot = Math.max(0, 1 - distFrom40 / 0.20);
       }
-      // Quick flip bonus
-      const quickFlipBonus = jupDaysLeft <= QUICK_FLIP_MAX_DAYS ? QUICK_FLIP_BONUS : 0;
+      // Quick flip bonus: aggressive — 1-3 days get huge bonus
+      const quickFlipBonus = jupDaysLeft <= 3 ? 0.40 : jupDaysLeft <= QUICK_FLIP_MAX_DAYS ? 0.25 : 0;
       const q = `${event.metadata?.title} — ${m.metadata?.title}`;
       // LLM knowledge bonus
       const knowledgeBonus = llmKnowledgeBonus(q) * LLM_KNOWLEDGE_BONUS;

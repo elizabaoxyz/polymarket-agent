@@ -46,7 +46,7 @@ import { connectorsPlugin } from "./plugins/connectors/index";
 import { ConnectorsService } from "./plugins/connectors/service";
 import { CONNECTORS_SERVICE_TYPE } from "./plugins/connectors/types";
 
-import { WS_AUTH_TOKEN } from "./config";
+import { WS_AUTH_TOKEN, AUTONOMY_PLATFORM } from "./config";
 import { AsyncMutex } from "./mutex";
 import { getPortfolioStatus } from "./portfolio";
 import { startAutonomy, type AutonomyHandle, type AutonomyPlatform } from "./autonomy";
@@ -350,7 +350,7 @@ async function main() {
         if (msg.type === "start_autonomy" || msg.type === "start_autonomy_polymarket" || msg.type === "start_autonomy_jupiter") {
           const platform: AutonomyPlatform =
             msg.type === "start_autonomy_polymarket" ? "polymarket" :
-            msg.type === "start_autonomy_jupiter" ? "jupiter" : "both";
+            msg.type === "start_autonomy_jupiter" ? "jupiter" : AUTONOMY_PLATFORM;
 
           if (autonomyHandle?.isRunning) {
             // If same platform, just confirm. If different, stop and restart.

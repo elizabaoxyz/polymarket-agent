@@ -67,11 +67,16 @@ export async function scanPolymarketMarkets(
   const scored: ScoredMarket[] = [];
 
   // Fetch from both sampling-markets (random 1000) and gamma-api (top by volume)
-  const [samplingRes, gammaRes] = await Promise.allSettled([
+  // Fetch from 3 sources in parallel: sampling (random), gamma by volume, gamma by soonest end
+  const [samplingRes, gammaVolRes, gammaEndRes] = await Promise.allSettled([
     withRetry(() => fetch("https://clob.polymarket.com/sampling-markets"), { label: "poly-sampling" }),
     withRetry(
       () => fetch("https://gamma-api.polymarket.com/markets?closed=false&active=true&order=volume24hr&ascending=false&limit=300"),
-      { label: "poly-gamma" },
+      { label: "poly-gamma-vol" },
+    ),
+    withRetry(
+      () => fetch("https://gamma-api.polymarket.com/markets?closed=false&active=true&order=end_date&ascending=true&limit=300"),
+      { label: "poly-gamma-end" },
     ),
   ]);
 
@@ -89,8 +94,10 @@ export async function scanPolymarketMarkets(
     }
   }
 
-  // Parse gamma-api markets (different format — fields are JSON-encoded strings)
-  if (gammaRes.status === "fulfilled") {
+  // Parse gamma-api markets (both volume-sorted and end-date-sorted)
+  const gammaSources = [gammaVolRes, gammaEndRes];
+  for (const gammaRes of gammaSources) {
+    if (gammaRes.status !== "fulfilled") continue;
     const gammaData = await gammaRes.value.json();
     for (const g of Array.isArray(gammaData) ? gammaData : []) {
       const q = String(g.question ?? "");

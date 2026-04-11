@@ -190,7 +190,8 @@ export async function directPolymarketBuy(
     }
 
     // Sanity check: abort if CLOB price is much worse than scanner expected
-    if (expectedPrice && expectedPrice > 0 && price > expectedPrice * 1.5) {
+    // Relaxed to 2x — gamma-api prices lag CLOB, especially on volatile markets
+    if (expectedPrice && expectedPrice > 0 && price > expectedPrice * 2.0) {
       callbacks.log(`[BUY:POLYMARKET] ❌ CLOB price $${price.toFixed(2)} is ${Math.round((price / expectedPrice - 1) * 100)}% worse than expected $${expectedPrice.toFixed(2)} — stale data, aborting`);
       state.skippedMarkets.set(question.toLowerCase(), Date.now());
       return false;

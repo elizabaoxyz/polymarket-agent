@@ -59,8 +59,8 @@ export const QUICK_FLIP_MAX_DAYS = envFloat("QUICK_FLIP_MAX_DAYS", 5);
 /** Score bonus for quick-flip markets */
 export const QUICK_FLIP_BONUS = envFloat("QUICK_FLIP_BONUS", 0.35);
 
-/** Maximum days until market resolution to consider (2 weeks max for quick profit) */
-export const MARKET_MAX_DAYS = envFloat("MARKET_MAX_DAYS", 14);
+/** Maximum days until market resolution to consider (30 days — scoring penalizes longer ones) */
+export const MARKET_MAX_DAYS = envFloat("MARKET_MAX_DAYS", 30);
 
 export const SCORE_PRICE_SWEET_SPOT_WEIGHT = envFloat("SCORE_PRICE_SWEET_SPOT_WEIGHT", 0.15);
 export const SCORE_MOMENTUM_WEIGHT = envFloat("SCORE_MOMENTUM_WEIGHT", 0.10);
@@ -118,7 +118,7 @@ export const JUP_PRICE_MAX = envFloat("JUP_PRICE_MAX", 0.90);
 /** Cooldown in ms before re-analyzing a market the LLM already skipped */
 export const SKIPPED_MARKET_COOLDOWN_MS = envInt("SKIPPED_MARKET_COOLDOWN_MS", 3_600_000);
 export const MIN_POLY_VOLUME = envFloat("MIN_POLY_VOLUME", 1500);
-export const MIN_JUP_VOLUME = envFloat("MIN_JUP_VOLUME", 100);
+export const MIN_JUP_VOLUME = envFloat("MIN_JUP_VOLUME", 50);
 
 // --- Kelly criterion sizing ---
 

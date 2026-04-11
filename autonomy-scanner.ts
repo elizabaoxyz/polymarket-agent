@@ -319,7 +319,7 @@ export async function scanJupiterMarkets(
     { label: "jupiter-scan" },
   );
   const evData = await res.json();
-  let _jupDbgTotal = 0, _jupDbgPrice = 0, _jupDbgVol = 0, _jupDbgOwned = 0;
+  let _jupDbgTotal = 0, _jupDbgPrice = 0, _jupDbgVol = 0, _jupDbgOwned = 0, _jupDbgDays = 0;
   for (const event of (evData.data ?? [])) {
     for (const m of (event.markets ?? []).filter(
       (x: Record<string, unknown>) => x.status === "open",
@@ -333,7 +333,7 @@ export async function scanJupiterMarkets(
       let jupDaysLeft = 365;
       if (closeTime > 0) {
         jupDaysLeft = (closeTime * 1000 - Date.now()) / 86_400_000;
-        if (jupDaysLeft > MARKET_MAX_DAYS) continue;
+        if (jupDaysLeft > MARKET_MAX_DAYS) { _jupDbgDays++; continue; }
       }
       // Quick flip scoring: AGGRESSIVE — time-to-resolution is the #1 factor
       let jupTimeScore: number;
@@ -418,6 +418,6 @@ export async function scanJupiterMarkets(
 
   // Attach debug info as non-enumerable property
   (jupScored as unknown as { _debug?: string })._debug =
-    `${_jupDbgTotal} scanned, filtered: price=${_jupDbgPrice}, volume=${_jupDbgVol}, owned=${_jupDbgOwned}, passed=${jupScored.length}`;
+    `${_jupDbgTotal} scanned, filtered: price=${_jupDbgPrice}, days=${_jupDbgDays}, volume=${_jupDbgVol}, owned=${_jupDbgOwned}, passed=${jupScored.length}`;
   return jupScored;
 }

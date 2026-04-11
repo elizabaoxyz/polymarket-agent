@@ -107,6 +107,9 @@ async function analyzeCandidates(
     .join("\n\n");
 
   callbacks.log(`[ANALYSIS] Analyzing top ${candidates.length} markets (ensemble)...`);
+  for (const c of candidates) {
+    callbacks.log(`[ANALYSIS:CANDIDATE] "${c.question.slice(0, 60)}" YES:$${c.yesPrice.toFixed(2)} score:${c.score.toFixed(2)} vol:$${c.volume?.toFixed(0) ?? "?"}`);
+  }
 
   const structuredPrompt = `You are an expert prediction market analyst. Today is ${today}.
 Your job is to find genuine mispricings — markets where the true probability differs significantly from the price.

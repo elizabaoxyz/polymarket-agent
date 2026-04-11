@@ -68,7 +68,7 @@ export const SCORE_DEPTH_WEIGHT = envFloat("SCORE_DEPTH_WEIGHT", 0.10);
 export const RAG_SIMILARITY_WEIGHT = envFloat("RAG_SIMILARITY_WEIGHT", 0.10);
 
 /** Bonus for markets in categories where LLMs have real knowledge (crypto, major sports, US politics, tech) */
-export const LLM_KNOWLEDGE_BONUS = envFloat("LLM_KNOWLEDGE_BONUS", 0.20);
+export const LLM_KNOWLEDGE_BONUS = envFloat("LLM_KNOWLEDGE_BONUS", 0.35);
 
 // --- Edge thresholds ---
 
@@ -117,7 +117,7 @@ export const JUP_PRICE_MAX = envFloat("JUP_PRICE_MAX", 0.90);
 
 /** Cooldown in ms before re-analyzing a market the LLM already skipped */
 export const SKIPPED_MARKET_COOLDOWN_MS = envInt("SKIPPED_MARKET_COOLDOWN_MS", 3_600_000);
-export const MIN_POLY_VOLUME = envFloat("MIN_POLY_VOLUME", 50);
+export const MIN_POLY_VOLUME = envFloat("MIN_POLY_VOLUME", 5000);
 export const MIN_JUP_VOLUME = envFloat("MIN_JUP_VOLUME", 1);
 
 // --- Kelly criterion sizing ---

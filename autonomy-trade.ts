@@ -108,6 +108,7 @@ export async function directPolymarketBuy(
   betSize: number,
   availableBalance?: number,
   knownTokenId?: string,
+  expectedPrice?: number,
 ): Promise<boolean> {
   try {
     const extSvc = (await deps.runtime.getServiceLoadPromise(
@@ -118,13 +119,39 @@ export async function directPolymarketBuy(
       return false;
     }
 
-    // Use known token ID from scanner if available, otherwise search
+    // Resolve the correct token for the side we want to buy.
+    // knownTokenId from scanner is always the YES token — if buying NO, we need to
+    // search for the market to find the NO token.
     let tokenId: string;
     let midPrice: number;
-    if (knownTokenId) {
+    if (knownTokenId && side === "BUY" || knownTokenId && side === "YES") {
+      // YES side: use the known YES token directly
       tokenId = knownTokenId;
-      // Get price from order book
       midPrice = 0.5;
+      try {
+        const book = await extSvc.clob!.getOrderBook(tokenId);
+        const bestAsk = book.asks.length > 0 ? parseFloat(book.asks[0]!.price) : null;
+        const bestBid = book.bids.length > 0 ? parseFloat(book.bids[0]!.price) : null;
+        if (bestAsk !== null && bestBid !== null) midPrice = Math.round(((bestAsk + bestBid) / 2) * 100) / 100;
+        else if (bestAsk !== null) midPrice = bestAsk;
+        else if (bestBid !== null) midPrice = bestBid;
+      } catch {}
+    } else if (knownTokenId && side === "NO") {
+      // NO side: search for the market to get the NO token ID
+      // (knownTokenId is the YES token — can't use it for NO)
+      const markets = await extSvc.clob!.searchMarkets(question);
+      if (markets.length === 0) {
+        callbacks.log(`[BUY:POLYMARKET] ❌ No market found for NO side: "${question.slice(0, 50)}"`);
+        return false;
+      }
+      const market = markets[0]!;
+      const noToken = market.tokens.find((t) => t.outcome.toLowerCase() === "no");
+      if (!noToken) {
+        callbacks.log(`[BUY:POLYMARKET] ❌ No NO token for "${market.question?.slice(0, 50)}"`);
+        return false;
+      }
+      tokenId = noToken.token_id;
+      midPrice = noToken.price;
       try {
         const book = await extSvc.clob!.getOrderBook(tokenId);
         const bestAsk = book.asks.length > 0 ? parseFloat(book.asks[0]!.price) : null;
@@ -170,6 +197,13 @@ export async function directPolymarketBuy(
     let price = midPrice;
     if (price < 0.01 || price > 0.99) {
       callbacks.log(`[BUY:POLYMARKET] ❌ Price $${price.toFixed(4)} out of range`);
+      return false;
+    }
+
+    // Sanity check: abort if CLOB price is much worse than scanner expected
+    if (expectedPrice && expectedPrice > 0 && price > expectedPrice * 1.5) {
+      callbacks.log(`[BUY:POLYMARKET] ❌ CLOB price $${price.toFixed(2)} is ${Math.round((price / expectedPrice - 1) * 100)}% worse than expected $${expectedPrice.toFixed(2)} — stale data, aborting`);
+      state.skippedMarkets.set(question.toLowerCase(), Date.now());
       return false;
     }
 

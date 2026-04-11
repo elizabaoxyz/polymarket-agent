@@ -60,9 +60,6 @@ import { indexAndEnrich } from "./autonomy-rag";
 import { directPolymarketBuy, directJupiterBuy } from "./autonomy-trade";
 import {
   collectPositions,
-  polymarketSellPhase,
-  reviewAllPositions,
-  jupiterSellClaimPhase,
   unifiedPortfolioReview,
   claimJupiterPositions,
 } from "./autonomy-sell";

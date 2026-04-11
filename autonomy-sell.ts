@@ -5,19 +5,23 @@
 
 import { JupiterPredictionService, JUPITER_SERVICE_TYPE } from "./plugins/jupiter-prediction/service";
 import type { AutonomyDeps, AutonomyCallbacks, AutonomyState } from "./autonomy-state";
-import { recordTrade } from "./autonomy-state";
+import { recordTrade, updatePeakPrice, getDropFromPeak, trackPositionAge, getPositionAgeDays, pruneStaleTracking } from "./autonomy-state";
 import {
-  SELL_LOSS_THRESHOLD_AGGRESSIVE,
-  SELL_PROFIT_THRESHOLD_AGGRESSIVE,
-  TRAILING_STOP_ACTIVATE_PCT,
-  TRAILING_STOP_DRAWDOWN_PCT,
+  PRICE_CEILING_SELL,
+  HIGH_PRICE_SELL,
+  DEAD_POSITION_PRICE,
+  HARD_STOP_LOSS_PCT,
+  TRAILING_STOP_MIN_PRICE,
+  TRAILING_STOP_DROP_PCT,
+  CAPITAL_PRESSURE_MIN_BALANCE,
+  CAPITAL_PRESSURE_MAX_POSITIONS,
 } from "./config";
 import { withRetry } from "./retry";
 import { getSolanaKeypair } from "./solana-wallet";
 import { directPolymarketSell } from "./autonomy-trade";
 import { directLlmCall } from "./autonomy-llm";
-import { fetchPolyPriceHistory, computePriceTrend, formatIntelForPrompt } from "./market-intel";
-import type { PriceTrend, MarketIntel } from "./market-intel";
+import { fetchPolyPriceHistory, computePriceTrend } from "./market-intel";
+import type { PriceTrend } from "./market-intel";
 
 // --- Position collection types ---
 
@@ -238,14 +242,12 @@ export async function unifiedPortfolioReview(
   balance: number,
   lowBalance: boolean,
 ): Promise<void> {
-  // In low-balance (sell-only) mode: clear failedSells cache so we retry everything
   if (lowBalance) {
     const before = state.failedSells.size;
     state.failedSells.clear();
     if (before > 0) callbacks.log(`[PORTFOLIO:${platform}] Cleared ${before} failed-sell entries (recovery mode)`);
   }
 
-  // Filter to reviewable positions
   const reviewable = positions.filter((p) => {
     const key = p.token ?? p.pubkey ?? "";
     if (!key) return false;
@@ -253,24 +255,32 @@ export async function unifiedPortfolioReview(
     if (state.failedSells.has(key)) return false;
     if (state.stuckDust.has(key)) return false;
     if (platform === "POLYMARKET" && (p.shares ?? 0) < 1) return false;
-    // Dust check only for Polymarket (has curPrice). Jupiter positions don't carry price.
     if (platform === "POLYMARKET" && (p.curPrice ?? 0) < 0.01) return false;
     return true;
   });
 
   if (reviewable.length === 0) {
-    // Extra diagnostic: why nothing reviewable?
     const raw = positions.length;
     const recentlySoldCount = positions.filter((p) => state.recentlySold.has(p.token ?? p.pubkey ?? "")).length;
     const failedCount = positions.filter((p) => state.failedSells.has(p.token ?? p.pubkey ?? "")).length;
     const stuckCount = positions.filter((p) => state.stuckDust.has(p.token ?? p.pubkey ?? "")).length;
-    const smallShares = positions.filter((p) => platform === "POLYMARKET" && (p.shares ?? 0) < 1).length;
-    const dust = positions.filter((p) => platform === "POLYMARKET" && (p.curPrice ?? 0) < 0.01).length;
-    callbacks.log(`[PORTFOLIO:${platform}] No reviewable positions (raw: ${raw}, recentlySold: ${recentlySoldCount}, failedSells: ${failedCount}, stuckDust: ${stuckCount}, tinyShares: ${smallShares}, dust: ${dust})`);
+    callbacks.log(`[PORTFOLIO:${platform}] No reviewable positions (raw: ${raw}, sold: ${recentlySoldCount}, failed: ${failedCount}, stuck: ${stuckCount})`);
     return;
   }
 
-  // === Step 1: Fetch price trends (needed for auto-sell + LLM review) ===
+  // === Track peak prices + position ages for all positions ===
+  const activeKeys = new Set<string>();
+  for (const p of reviewable) {
+    const key = p.token ?? p.pubkey ?? "";
+    activeKeys.add(key);
+    if (p.curPrice !== undefined && p.curPrice > 0) {
+      updatePeakPrice(state, key, p.curPrice);
+    }
+    trackPositionAge(state, key);
+  }
+  pruneStaleTracking(state, activeKeys);
+
+  // === Fetch price trends (Polymarket only — Jupiter lacks history API) ===
   const trendMap = new Map<string, PriceTrend>();
   if (platform === "POLYMARKET") {
     const trendFetches = reviewable.slice(0, 10).map(async (p) => {
@@ -284,67 +294,89 @@ export async function unifiedPortfolioReview(
     });
     await Promise.allSettled(trendFetches);
   }
-  // TODO: Add Jupiter price trend fetch when API supports it
 
-  // === Step 2: Auto-sell hard rules (no LLM needed) ===
+  // === Price-based auto-sell rules (no LLM needed) ===
+  const autoSellSet = new Set<ReviewablePosition>();
 
-  // Hard stop-loss: -20% → sell immediately
-  const stopLossTargets = reviewable.filter((p) => p.pnl <= -20);
-
-  // Trailing stop: position > +15% AND 24h trend dropping > 3% → lock in profits
-  const trailingStopTargets = reviewable.filter((p) => {
-    if (p.pnl >= TRAILING_STOP_ACTIVATE_PCT) {
-      const trend = trendMap.get(p.token ?? "");
-      if (trend && trend.direction === "down" && trend.change24h !== null && trend.change24h < -3) {
-        return true;
-      }
-    }
-    return false;
-  });
-
-  // Near-expiry: if price > 0.85, the market is almost resolved → take guaranteed profit
-  const nearExpiryTargets = reviewable.filter((p) => {
+  for (const p of reviewable) {
+    const key = p.token ?? p.pubkey ?? "";
     const price = p.curPrice ?? 0;
-    return price >= 0.85 && p.pnl > 5;
-  });
+    const pnl = p.pnl ?? 0;
+    const age = getPositionAgeDays(state, key);
+    const trend = trendMap.get(key);
+    const dropFromPeak = getDropFromPeak(state, key, price);
 
-  const allAutoSell = new Set([...stopLossTargets, ...trailingStopTargets, ...nearExpiryTargets]);
+    let reason = "";
 
-  for (const pos of allAutoSell) {
-    const key = pos.token ?? pos.pubkey ?? "";
-    if (state.recentlySold.has(key) || state.failedSells.has(key)) continue;
-    let reason: string;
-    if (pos.pnl <= -20) reason = "auto-stop-loss";
-    else if ((pos.curPrice ?? 0) >= 0.85 && pos.pnl > 5) reason = "near-expiry-take-profit";
-    else reason = "trailing-stop-lock";
-    await executeSell(deps, callbacks, state, pos, platform, reason);
+    // Rule 1: Price ceiling — max 18% upside, 85% downside
+    if (price >= PRICE_CEILING_SELL && pnl > 0) {
+      reason = `price-ceiling ($${price.toFixed(2)} >= $${PRICE_CEILING_SELL})`;
+    }
+    // Rule 2: High price + stale — upside thinning, capital better elsewhere
+    else if (price >= HIGH_PRICE_SELL && age > 2) {
+      reason = `high-price-stale ($${price.toFixed(2)}, ${age.toFixed(1)}d old)`;
+    }
+    // Rule 3: High price + falling trend
+    else if (price >= TRAILING_STOP_MIN_PRICE && trend?.direction === "down") {
+      reason = `high-price-falling ($${price.toFixed(2)}, trend=${trend.direction})`;
+    }
+    // Rule 4: Dead position — thesis was wrong
+    else if (price > 0 && price < DEAD_POSITION_PRICE) {
+      reason = `dead-position ($${price.toFixed(2)} < $${DEAD_POSITION_PRICE})`;
+    }
+    // Rule 5: Hard stop-loss on PnL
+    else if (pnl <= HARD_STOP_LOSS_PCT) {
+      reason = `hard-stop-loss (${pnl.toFixed(0)}% <= ${HARD_STOP_LOSS_PCT}%)`;
+    }
+    // Rule 6: Trailing stop — only above min price, drops from peak
+    else if (price >= TRAILING_STOP_MIN_PRICE && dropFromPeak >= TRAILING_STOP_DROP_PCT) {
+      reason = `trailing-stop (peak $${state.peakPrice.get(key)?.toFixed(2)}, now $${price.toFixed(2)}, drop ${dropFromPeak.toFixed(1)}%)`;
+    }
+
+    if (reason) {
+      autoSellSet.add(p);
+      await executeSell(deps, callbacks, state, p, platform, reason);
+    }
   }
 
-  // === Step 3: LLM review of remaining positions ===
-  const autoSoldKeys = new Set([...allAutoSell].map((p) => p.token ?? p.pubkey ?? ""));
-  const llmReviewable = reviewable.filter((p) => !autoSoldKeys.has(p.token ?? p.pubkey ?? ""));
+  // === Capital pressure: sell weakest positions when balance critical ===
+  if (balance < CAPITAL_PRESSURE_MIN_BALANCE && reviewable.length > CAPITAL_PRESSURE_MAX_POSITIONS) {
+    const unsold = reviewable.filter((p) => !autoSellSet.has(p));
+    const sorted = [...unsold].sort((a, b) => (a.pnl ?? 0) - (b.pnl ?? 0));
+    const toSell = sorted.slice(0, 3);
+    callbacks.log(`[PORTFOLIO:${platform}] CAPITAL PRESSURE — selling ${toSell.length} weakest positions`);
+    for (const p of toSell) {
+      autoSellSet.add(p);
+      const sign = (p.pnl ?? 0) >= 0 ? "+" : "";
+      await executeSell(deps, callbacks, state, p, platform, `capital-pressure (${sign}${(p.pnl ?? 0).toFixed(0)}%)`);
+    }
+  }
 
-  if (llmReviewable.length === 0) return;
-
-  // If balance is critically low, LIQUIDATE EVERYTHING — sell all positions to recover capital
+  // === Low balance recovery: liquidate everything ===
   if (lowBalance) {
-    const sorted = [...llmReviewable].sort((a, b) => a.pnl - b.pnl);
-    callbacks.log(`[PORTFOLIO:${platform}] LOW BALANCE RECOVERY — liquidating all ${sorted.length} positions`);
-    for (const pos of sorted) {
-      const sign = pos.pnl >= 0 ? "+" : "";
-      const reason = pos.pnl < 0 ? `recovery-cut-loss (${sign}${pos.pnl.toFixed(0)}%)` : `recovery-take-profit (${sign}${pos.pnl.toFixed(0)}%)`;
-      await executeSell(deps, callbacks, state, pos, platform, reason);
+    const unsold = reviewable.filter((p) => !autoSellSet.has(p));
+    if (unsold.length > 0) {
+      const sorted = [...unsold].sort((a, b) => (a.pnl ?? 0) - (b.pnl ?? 0));
+      callbacks.log(`[PORTFOLIO:${platform}] LOW BALANCE RECOVERY — liquidating ${sorted.length} positions`);
+      for (const p of sorted) {
+        const sign = (p.pnl ?? 0) >= 0 ? "+" : "";
+        await executeSell(deps, callbacks, state, p, platform, `recovery (${sign}${(p.pnl ?? 0).toFixed(0)}%)`);
+      }
     }
     return;
   }
 
-  // Build position list for LLM with trend context
-  const sortedForReview = [...llmReviewable].sort((a, b) => b.pnl - a.pnl).slice(0, 12);
+  // === LLM review for ambiguous positions only ===
+  const llmReviewable = reviewable.filter((p) => !autoSellSet.has(p));
+  if (llmReviewable.length === 0) return;
+
+  const sortedForReview = [...llmReviewable].sort((a, b) => (b.pnl ?? 0) - (a.pnl ?? 0)).slice(0, 12);
   const llmPositionList = sortedForReview
     .map((p, i) => {
       const dir = p.isYes !== undefined ? (p.isYes ? "YES" : "NO") : "";
       const qty = p.shares ?? p.contracts ?? "?";
-      const sign = p.pnl >= 0 ? "+" : "";
+      const sign = (p.pnl ?? 0) >= 0 ? "+" : "";
+      const age = getPositionAgeDays(state, p.token ?? p.pubkey ?? "");
       let trendStr = "";
       const trend = trendMap.get(p.token ?? "");
       if (trend) {
@@ -353,38 +385,33 @@ export async function unifiedPortfolioReview(
         if (trend.change24h !== null) parts.push(`24h: ${trend.change24h > 0 ? "+" : ""}${trend.change24h.toFixed(1)}%`);
         trendStr = ` | trend: ${trend.direction} (${parts.join(", ")})`;
       }
-      return `${i + 1}. "${p.title}" — PnL: ${sign}${p.pnl.toFixed(0)}%, ${dir} ${qty} units, price: $${(p.curPrice ?? 0).toFixed(2)}${trendStr}`;
+      return `${i + 1}. "${p.title}" — PnL: ${sign}${(p.pnl ?? 0).toFixed(0)}%, ${dir} ${qty} units, price: $${(p.curPrice ?? 0).toFixed(2)}, age: ${age.toFixed(1)}d${trendStr}`;
     })
     .join("\n");
 
-  callbacks.log(`[PORTFOLIO:${platform}] LLM reviewing ${llmReviewable.length} positions with trend data...`);
+  callbacks.log(`[PORTFOLIO:${platform}] LLM reviewing ${sortedForReview.length} ambiguous positions...`);
   const reviewText = await directLlmCall(
     deps,
     callbacks,
     `You are a disciplined prediction market portfolio manager. Today is ${new Date().toISOString().split("T")[0]}.
 
-Your #1 goal: PROTECT CAPITAL and MAXIMIZE PROFITS. Every round-trip trade costs 3-5% in spread.
+BINARY MARKET RULES — these markets pay $1 or $0. Current PRICE determines risk/reward, not your entry cost.
 
-SELL RULES (follow strictly):
-- PnL < -15%: SELL — the thesis is broken, cut losses.
-- PnL -15% to -5% with DOWNWARD trend: SELL — getting worse, cut now.
-- PnL -5% to 0%: HOLD — within normal noise, spread costs make selling unprofitable.
-- PnL 0% to +10%: HOLD — gains are too small to justify selling after spread costs.
-- PnL +10% to +30% with DOWNWARD trend: SELL — lock in profits before they evaporate.
-- PnL +10% to +30% with UPWARD trend: HOLD — let winners run.
-- PnL > +30%: SELL — take the money. No prediction market position gains forever.
+SELL RULES (price-based — this is what matters in binary markets):
+- Price > $0.75: SELL — max 33% upside, 75% downside. Terrible risk/reward.
+- Price > $0.65 with DOWNWARD trend: SELL — momentum fading, lock in gains.
+- Price < $0.15: SELL — thesis is likely wrong. Salvage remaining value.
+- PnL < -15% with DOWNWARD trend: SELL — getting worse, cut losses.
+- PnL -5% to +10%: HOLD — within noise, spread costs make selling unprofitable.
+- PnL > +10% with UPWARD trend: HOLD — let winners run.
 
-CRITICAL RULES:
-- Do NOT sell anything with PnL between -5% and +10%. The spread eats your profit.
-- Do NOT hold losers hoping for a miracle. If it's -15% and falling, SELL.
-- If a market resolves within 48 hours and is profitable, SELL — take guaranteed money.
-- Trend data is your most important signal. DOWN trend on a winner = SELL.
+CRITICAL: The PRICE is more important than PnL%. A position at $0.70 has 43% max upside regardless of what you paid.
 
 Positions:
 ${llmPositionList}
 
 Respond with one line per position:
-<number>: SELL or HOLD — <reason citing PnL and trend data>`,
+<number>: SELL or HOLD — <reason citing price and trend>`,
   );
 
   if (reviewText.length === 0) return;
@@ -400,47 +427,3 @@ Respond with one line per position:
   }
 }
 
-// --- Legacy exports for backward compat with autonomy.ts ---
-// These just delegate to the unified pipeline.
-
-export async function polymarketSellPhase(
-  deps: AutonomyDeps,
-  callbacks: AutonomyCallbacks,
-  state: AutonomyState,
-  _sellTargets: PolySellTarget[],
-  _allSellable: PolySellTarget[],
-  polyBalance: number,
-  lowBalance: boolean,
-  _sellLossThreshold: number,
-): Promise<void> {
-  // No-op: unifiedPortfolioReview handles everything now
-  // This is kept as a placeholder since autonomy.ts still calls it
-  void _sellTargets; void _allSellable; void polyBalance; void lowBalance; void _sellLossThreshold;
-  void deps; void callbacks; void state;
-}
-
-export async function reviewAllPositions(
-  deps: AutonomyDeps,
-  callbacks: AutonomyCallbacks,
-  state: AutonomyState,
-  platform: "POLYMARKET" | "JUPITER",
-  positions: ReviewablePosition[],
-): Promise<void> {
-  // No-op: unifiedPortfolioReview handles everything now
-  void deps; void callbacks; void state; void platform; void positions;
-}
-
-export async function jupiterSellClaimPhase(
-  deps: AutonomyDeps,
-  callbacks: AutonomyCallbacks,
-  state: AutonomyState,
-  _jupSellTargets: JupSellTarget[],
-  _jupClaimable: JupClaimTarget[],
-  solBalance: number,
-  lowSolBalance: boolean,
-  _sellLossThreshold: number,
-): Promise<void> {
-  // Only handle claims here — the unified pipeline handles sells
-  await claimJupiterPositions(deps, callbacks, state, _jupClaimable);
-  void _jupSellTargets; void solBalance; void lowSolBalance; void _sellLossThreshold;
-}

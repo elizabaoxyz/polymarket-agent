@@ -365,9 +365,13 @@ async function runAutonomyCycle(
           const candidates = scored.slice(0, 5);
           const analyses = await analyzeCandidates(deps, callbacks, candidates, ragContext);
 
-          // Mark all analyzed candidates so next cycle picks fresh ones
+          // Mark unpicked candidates as recently-analyzed so next cycle tries fresh ones
+          // Picked markets stay available (edge may persist if trade failed)
+          const pickedQuestions = new Set(analyses.map((a) => a.pick.question.toLowerCase()));
           for (const c of candidates) {
-            state.recentlyAnalyzed.set(c.question.toLowerCase(), Date.now());
+            if (!pickedQuestions.has(c.question.toLowerCase())) {
+              state.recentlyAnalyzed.set(c.question.toLowerCase(), Date.now());
+            }
           }
 
           let buyCount = 0;
@@ -499,9 +503,12 @@ async function runAutonomyCycle(
           const candidates = jupScored.slice(0, 5);
           const analyses = await analyzeCandidates(deps, callbacks, candidates, ragContext);
 
-          // Mark all analyzed candidates so next cycle picks fresh ones
+          // Mark unpicked candidates as recently-analyzed so next cycle tries fresh ones
+          const pickedQuestions = new Set(analyses.map((a) => a.pick.question.toLowerCase()));
           for (const c of candidates) {
-            state.recentlyAnalyzed.set(c.question.toLowerCase(), Date.now());
+            if (!pickedQuestions.has(c.question.toLowerCase())) {
+              state.recentlyAnalyzed.set(c.question.toLowerCase(), Date.now());
+            }
           }
 
           if (analyses.length === 0) {

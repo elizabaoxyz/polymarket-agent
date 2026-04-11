@@ -155,9 +155,9 @@ export function housekeep(state: AutonomyState): void {
     if (now - ts >= SKIPPED_MARKET_COOLDOWN_MS) state.skippedMarkets.delete(key);
   }
 
-  // Recently analyzed markets: 30-minute cooldown forces rotation to new candidates
+  // Recently analyzed markets: 10-minute cooldown forces rotation to new candidates
   for (const [key, ts] of state.recentlyAnalyzed) {
-    if (now - ts >= 30 * 60_000) state.recentlyAnalyzed.delete(key);
+    if (now - ts >= 10 * 60_000) state.recentlyAnalyzed.delete(key);
   }
 }
 

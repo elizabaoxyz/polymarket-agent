@@ -140,7 +140,7 @@ export class PolymarketExtService {
       price: params.price,
       side: params.side,
       size: params.size,
-      feeRateBps: 0,
+      feeRateBps: 1000,
       nonce: 0,
     });
 

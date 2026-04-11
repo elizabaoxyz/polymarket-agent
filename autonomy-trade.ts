@@ -109,6 +109,7 @@ export async function directPolymarketBuy(
   availableBalance?: number,
   knownTokenId?: string,
   expectedPrice?: number,
+  knownNoTokenId?: string,
 ): Promise<boolean> {
   try {
     const extSvc = (await deps.runtime.getServiceLoadPromise(
@@ -136,22 +137,10 @@ export async function directPolymarketBuy(
         else if (bestAsk !== null) midPrice = bestAsk;
         else if (bestBid !== null) midPrice = bestBid;
       } catch {}
-    } else if (knownTokenId && side === "NO") {
-      // NO side: search for the market to get the NO token ID
-      // (knownTokenId is the YES token — can't use it for NO)
-      const markets = await extSvc.clob!.searchMarkets(question);
-      if (markets.length === 0) {
-        callbacks.log(`[BUY:POLYMARKET] ❌ No market found for NO side: "${question.slice(0, 50)}"`);
-        return false;
-      }
-      const market = markets[0]!;
-      const noToken = market.tokens.find((t) => t.outcome.toLowerCase() === "no");
-      if (!noToken) {
-        callbacks.log(`[BUY:POLYMARKET] ❌ No NO token for "${market.question?.slice(0, 50)}"`);
-        return false;
-      }
-      tokenId = noToken.token_id;
-      midPrice = noToken.price;
+    } else if (side === "NO" && knownNoTokenId) {
+      // NO side: use the known NO token directly (from scanner)
+      tokenId = knownNoTokenId;
+      midPrice = 0.5;
       try {
         const book = await extSvc.clob!.getOrderBook(tokenId);
         const bestAsk = book.asks.length > 0 ? parseFloat(book.asks[0]!.price) : null;

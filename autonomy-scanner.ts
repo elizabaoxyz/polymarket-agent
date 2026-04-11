@@ -45,6 +45,7 @@ export type ScoredMarket = {
   volume: number;
   daysLeft: number;
   tokenId: string;
+  noTokenId: string;
   conditionId: string | undefined;
   intel: MarketIntel | null;
 };
@@ -224,6 +225,7 @@ export async function scanPolymarketMarkets(
     const volumeScore = Math.min(1, volume / 5000);
 
     const tokenId = String(yes.token_id ?? "");
+    const noTokenId = no ? String(no.token_id ?? "") : "";
     const conditionId = m.condition_id ? String(m.condition_id) : undefined;
 
     const score =
@@ -246,7 +248,7 @@ export async function scanPolymarketMarkets(
     const knowledgeBonus = llmKnowledgeBonus(q) * LLM_KNOWLEDGE_BONUS;
     const adjustedScore = score + priceSweetSpot * SCORE_PRICE_SWEET_SPOT_WEIGHT + quickFlipBonus + knowledgeBonus;
 
-    scored.push({ question: q, yesPrice: yp, score: adjustedScore, volume, daysLeft, tokenId, conditionId, intel: null });
+    scored.push({ question: q, yesPrice: yp, score: adjustedScore, volume, daysLeft, tokenId, noTokenId, conditionId, intel: null });
   }
   scored.sort((a, b) => b.score - a.score);
   if (scored.length === 0) {

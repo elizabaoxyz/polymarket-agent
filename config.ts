@@ -105,7 +105,7 @@ export const HEARTBEAT_MAX_FAILURES = envInt("HEARTBEAT_MAX_FAILURES", 5);
 
 export const MIN_DEPTH_USD = envFloat("MIN_DEPTH_USD", 200);
 export const CONTRARIAN_BONUS = envFloat("CONTRARIAN_BONUS", 0.15);
-export const MIN_REWARD_RATIO = envFloat("MIN_REWARD_RATIO", 1.0);
+export const MIN_REWARD_RATIO = envFloat("MIN_REWARD_RATIO", 0.5);
 
 /** Price range for Polymarket markets to be considered */
 export const POLY_PRICE_MIN = envFloat("POLY_PRICE_MIN", 0.15);

@@ -36,14 +36,6 @@ export const SELL_PROFIT_THRESHOLD_NORMAL = envFloat("SELL_PROFIT_THRESHOLD_NORM
 export const SELL_PROFIT_THRESHOLD_AGGRESSIVE = envFloat("SELL_PROFIT_THRESHOLD_AGGRESSIVE", 12);
 export const LOW_BALANCE_THRESHOLD = envFloat("LOW_BALANCE_THRESHOLD", 3);
 
-// --- Trailing stop ---
-
-/** Once a position reaches +TRAILING_STOP_ACTIVATE_PCT profit, activate trailing stop */
-export const TRAILING_STOP_ACTIVATE_PCT = envFloat("TRAILING_STOP_ACTIVATE_PCT", 15);
-
-/** Trailing stop: sell if price drops TRAILING_STOP_DRAWdown_PCT from peak profit */
-export const TRAILING_STOP_DRAWDOWN_PCT = envFloat("TRAILING_STOP_DRAWDOWN_PCT", 8);
-
 // --- Timing ---
 
 export const AUTONOMY_INTERVAL_MS = envInt("AUTONOMY_INTERVAL_MS", 300_000);

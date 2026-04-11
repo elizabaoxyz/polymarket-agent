@@ -322,15 +322,51 @@ export async function ensembleLlmCall(
     callbacks.log(`[LLM:ENSEMBLE] OpenAI failed: ${(resultB.reason as Error).message ?? "unknown"}`);
   }
 
-  // If both returned results, merge them
+  // If both returned results, merge all picks
   if (textA && textB) {
-    const merged = mergeEnsembleResults(textA, textB);
-    if (merged) {
-      callbacks.log(`[LLM:ENSEMBLE] Consensus: ${merged.side} | est=${merged.estimate.toFixed(2)} | edge=${merged.edge.toFixed(2)} | conf=${merged.confidence.toFixed(2)}`);
-      return `PICK: ${merged.pickNum}\nSIDE: ${merged.side}\nESTIMATE: ${merged.estimate.toFixed(3)}\nEDGE: ${merged.edge.toFixed(3)}\nCONFIDENCE: ${merged.confidence.toFixed(3)}\nCATEGORY: ${merged.category}\nREASON: ${merged.reason}`;
+    // Parse all picks from each provider
+    const parseAll = (text: string): ParsedLlmPick[] => {
+      const blocks = text.split(/\n\s*\n/).filter(b => /PICK:/i.test(b));
+      const toParse = blocks.length > 0 ? blocks : [text];
+      return toParse.map(b => parseLlmResponse(b)).filter((p): p is ParsedLlmPick => p !== null);
+    };
+
+    const picksA = parseAll(textA);
+    const picksB = parseAll(textB);
+
+    // If both have picks but disagree on first pick's direction → no consensus
+    if (picksA.length > 0 && picksB.length > 0 && picksA[0]!.side !== picksB[0]!.side) {
+      callbacks.log(`[LLM:ENSEMBLE] No consensus — providers disagree on direction. Skipping.`);
+      return "PICK: 0";
     }
-    callbacks.log(`[LLM:ENSEMBLE] No consensus — models disagree. Skipping.`);
-    return "PICK: 0";
+
+    // Merge matching picks (by pickNum + same side), include extras from A
+    const merged: ParsedLlmPick[] = [];
+    for (const a of picksA) {
+      const b = picksB.find(p => p.pickNum === a.pickNum && p.side === a.side);
+      if (b) {
+        merged.push({
+          ...a,
+          estimate: (a.estimate + b.estimate) / 2,
+          edge: (a.edge + b.edge) / 2,
+          confidence: (a.confidence + b.confidence) / 2,
+          reason: `[ensemble] ${a.reason}`,
+        });
+      } else {
+        merged.push({ ...a, confidence: a.confidence * 0.9, reason: `[single] ${a.reason}` });
+      }
+    }
+
+    if (merged.length === 0) {
+      callbacks.log(`[LLM:ENSEMBLE] No consensus — no valid picks from either provider.`);
+      return "PICK: 0";
+    }
+
+    callbacks.log(`[LLM:ENSEMBLE] Consensus on ${merged.length} pick(s): ${merged.map(p => `${p.side} #${p.pickNum}`).join(", ")}`);
+
+    return merged.map(p =>
+      `PICK: ${p.pickNum}\nSIDE: ${p.side}\nESTIMATE: ${p.estimate.toFixed(3)}\nEDGE: ${p.edge.toFixed(3)}\nCONFIDENCE: ${p.confidence.toFixed(3)}\nCATEGORY: ${p.category}\nREASON: ${p.reason}`
+    ).join("\n\n");
   }
 
   // If only one succeeded, use it

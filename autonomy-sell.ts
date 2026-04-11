@@ -309,7 +309,7 @@ export async function unifiedPortfolioReview(
     let reason = "";
 
     // Rule 1: Price ceiling — max 18% upside, 85% downside
-    if (price >= PRICE_CEILING_SELL && pnl > 0) {
+    if (price >= PRICE_CEILING_SELL) {
       reason = `price-ceiling ($${price.toFixed(2)} >= $${PRICE_CEILING_SELL})`;
     }
     // Rule 2: High price + stale — upside thinning, capital better elsewhere
@@ -418,7 +418,7 @@ Respond with one line per position:
   callbacks.log(`[PORTFOLIO:${platform}] ${reviewText.slice(0, 300)}`);
 
   for (let i = 0; i < sortedForReview.length; i++) {
-    const sellPattern = new RegExp(`${i + 1}[:\\s]*SELL`, "i");
+    const sellPattern = new RegExp(`(?:^|\\n)${i + 1}[:\\s]*SELL`, "im");
     if (!sellPattern.test(reviewText)) continue;
     const pos = sortedForReview[i]!;
     const key = pos.token ?? pos.pubkey ?? "";

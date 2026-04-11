@@ -24,7 +24,6 @@ import {
   HEARTBEAT_MAX_FAILURES,
   MIN_REWARD_RATIO,
   MIN_BET_SIZE_JUP,
-  calcBetSize,
   calcKellyBetSize,
   MAX_BUYS_PER_CYCLE,
   SECOND_BUY_MIN_EDGE,
@@ -376,8 +375,9 @@ async function runAutonomyCycle(
               continue;
             }
 
+            const kellyProb = analysis.side === "YES" ? analysis.estimatedProb : 1 - analysis.estimatedProb;
             const betSize = calcKellyBetSize({
-              estimatedProb: analysis.estimatedProb,
+              estimatedProb: kellyProb,
               marketPrice,
               confidence: analysis.confidence,
               balance: remainingBalance,
@@ -504,8 +504,9 @@ async function runAutonomyCycle(
                 continue;
               }
 
+              const kellyProb = analysis.side === "YES" ? analysis.estimatedProb : 1 - analysis.estimatedProb;
               const betSize = calcKellyBetSize({
-                estimatedProb: analysis.estimatedProb,
+                estimatedProb: kellyProb,
                 marketPrice: jupMarketPrice,
                 confidence: analysis.confidence,
                 balance: remainingBalance,

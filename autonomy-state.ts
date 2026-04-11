@@ -202,6 +202,43 @@ export function trackPositionAge(state: AutonomyState, key: string): void {
   }
 }
 
+/**
+ * Seed state from Polymarket trade history on startup.
+ * Fetches recent trades from the Data API so the agent doesn't re-buy
+ * markets it recently sold, even after a redeploy clears in-memory state.
+ */
+export async function seedStateFromTradeHistory(state: AutonomyState): Promise<void> {
+  const funder = process.env.POLYMARKET_FUNDER_ADDRESS?.trim();
+  if (!funder) return;
+
+  try {
+    const res = await fetch(`https://data-api.polymarket.com/trades?user=${funder}&limit=50`);
+    if (!res.ok) return;
+    type TradeApi = { title?: string; side?: string; type?: string; timestamp?: number; price?: number; amount?: number };
+    const trades = (await res.json()) as TradeApi[];
+
+    const now = Date.now();
+    for (const t of trades) {
+      const title = t.title?.toLowerCase();
+      if (!title) continue;
+      const ts = (t.timestamp ?? 0) * 1000;
+      // Only care about trades in the last 24h
+      if (now - ts > 86_400_000) continue;
+
+      if (t.type === "sell" || t.side === "SELL") {
+        state.recentlySoldQuestions.set(title, ts);
+      }
+      state.tradeHistory.push({
+        question: t.title ?? "",
+        platform: "POLYMARKET",
+        time: ts,
+        price: t.price ?? 0,
+        amount: t.amount ?? 0,
+      });
+    }
+  } catch {}
+}
+
 /** Get position age in days. Returns 0 if not tracked. */
 export function getPositionAgeDays(state: AutonomyState, key: string): number {
   const firstSeen = state.positionFirstSeen.get(key);

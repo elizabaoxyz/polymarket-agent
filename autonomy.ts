@@ -55,6 +55,7 @@ import {
   housekeep,
   canSpend,
   recordTrade,
+  seedStateFromTradeHistory,
 } from "./autonomy-state";
 
 import { directLlmCall, ensembleLlmCall } from "./autonomy-llm";
@@ -220,6 +221,21 @@ async function runAutonomyCycle(
   const cycleStart = Date.now();
   state.cycleCount++;
   housekeep(state);
+
+  // On first cycle, seed state from Polymarket trade history so we don't
+  // re-buy markets we recently sold (survives redeploys)
+  if (state.cycleCount === 1) {
+    try {
+      await seedStateFromTradeHistory(state);
+      if (state.recentlySoldQuestions.size > 0) {
+        callbacks.log(`[AUTONOMY] Seeded ${state.recentlySoldQuestions.size} recently-sold markets from trade history`);
+      }
+      if (state.tradeHistory.length > 0) {
+        callbacks.log(`[AUTONOMY] Seeded ${state.tradeHistory.length} recent trades from history`);
+      }
+    } catch {}
+  }
+
   try {
     callbacks.send({ type: "thinking", active: true });
   } catch {}

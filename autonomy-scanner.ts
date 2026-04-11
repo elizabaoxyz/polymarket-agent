@@ -62,28 +62,33 @@ export type JupMarket = {
  * Score how well an LLM can analyze this market.
  * Markets about crypto prices, major US politics, big sports, and tech
  * get a bonus because LLMs have real knowledge there.
- * Niche foreign politics, obscure primaries, and vague questions get no bonus.
+ * Foreign elections and niche politics get penalized.
  */
 function llmKnowledgeBonus(question: string): number {
   const q = question.toLowerCase();
 
+  // Penalize foreign elections FIRST (before the "presidential" match catches them)
+  if (/\b(peru|peruvian|hungary|hungarian|eurovision|bolivia|ecuador|colombia|paraguay|chile|brazil|mexico|kenya|nigeria|philippines|indonesia)\b/.test(q)) return -0.5;
+
   // Crypto: LLMs can check current prices vs targets
-  if (/\b(btc|bitcoin|eth|ethereum|sol|solana|crypto|token|defi)\b/.test(q)) return 1.0;
-
-  // Major sports with available data
-  if (/\b(nba|nfl|mlb|nhl|premier league|champions league|world cup|super bowl|stanley cup|world series)\b/.test(q)) return 0.8;
-
-  // US presidential / major federal politics
-  if (/\b(president|presidential|congress|senate|house of rep|supreme court|fed rate|federal reserve)\b/.test(q)) return 0.7;
+  if (/\b(btc|bitcoin|eth|ethereum|sol|solana|crypto|token|defi|stablecoin)\b/.test(q)) return 1.0;
 
   // Tech / AI / major companies
-  if (/\b(apple|google|meta|microsoft|openai|nvidia|tesla|spacex|ai |artificial intelligence)\b/.test(q)) return 0.9;
+  if (/\b(apple|google|meta|microsoft|openai|nvidia|tesla|spacex|ai |artificial intelligence|iphone|android)\b/.test(q)) return 0.9;
 
-  // Major global events
-  if (/\b(war|nato|eu |european union|china|russia|ukraine|israel|iran)\b/.test(q)) return 0.6;
+  // Major sports with available data
+  if (/\b(nba|nfl|mlb|nhl|premier league|champions league|world cup|super bowl|stanley cup|world series|formula 1|f1 |ufc |boxing)\b/.test(q)) return 0.8;
 
-  // Niche: state primaries, foreign elections, obscure nominations → no bonus
-  if (/\b(primary|nominee|nomination|gubernatorial|governor)\b/.test(q) && !/\bpresident/.test(q)) return -0.3;
+  // US presidential / major US federal politics only
+  if (/\b(us |u\.s\.|united states|american).*(president|congress|senate)/.test(q)) return 0.7;
+  if (/\b(trump|biden|desantis|newsom|harris|democrat|republican).*(president|election|2028|2026)/.test(q)) return 0.7;
+
+  // Major global events with clear data
+  if (/\b(war|nato|ceasefire|israel|iran|ukraine|russia|tariff|trade war)\b/.test(q)) return 0.5;
+
+  // Niche: state primaries, foreign elections, obscure nominations → penalize
+  if (/\b(primary|nominee|nomination|gubernatorial|governor)\b/.test(q)) return -0.3;
+  if (/\b(prime minister|parliament|coalition)\b/.test(q)) return -0.3;
 
   return 0;
 }

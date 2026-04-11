@@ -364,14 +364,17 @@ async function runAutonomyCycle(
 
             if (marketPrice > 0.75) {
               callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ${analysis.side} at $${marketPrice.toFixed(2)} terrible risk/reward`);
+              state.skippedMarkets.set(analysis.pick.question.toLowerCase(), Date.now());
               continue;
             }
             if (marketPrice < 0.15) {
               callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ${analysis.side} at $${marketPrice.toFixed(2)} too cheap`);
+              state.skippedMarkets.set(analysis.pick.question.toLowerCase(), Date.now());
               continue;
             }
             if (polyRewardRatio < MIN_REWARD_RATIO) {
               callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ratio ${polyRewardRatio.toFixed(1)}:1 below minimum`);
+              state.skippedMarkets.set(analysis.pick.question.toLowerCase(), Date.now());
               continue;
             }
 
@@ -493,14 +496,17 @@ async function runAutonomyCycle(
 
               if (jupMarketPrice > 0.75) {
                 callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — terrible risk/reward`);
+                state.skippedMarkets.set(pick.question.toLowerCase(), Date.now());
                 continue;
               }
               if (jupMarketPrice < 0.15) {
                 callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — too cheap`);
+                state.skippedMarkets.set(pick.question.toLowerCase(), Date.now());
                 continue;
               }
               if (jupRewardRatio < MIN_REWARD_RATIO) {
                 callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — ratio below minimum`);
+                state.skippedMarkets.set(pick.question.toLowerCase(), Date.now());
                 continue;
               }
 

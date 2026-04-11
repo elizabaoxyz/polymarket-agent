@@ -362,9 +362,15 @@ export async function scanJupiterMarkets(
       const marketTitle = (m.metadata?.title ?? "").toLowerCase();
       const eventTitle = (event.metadata?.title ?? "").toLowerCase();
       if (ownedTitles.has(marketTitle) || ownedTitles.has(`${eventTitle} — ${marketTitle}`)) { _jupDbgOwned++; continue; }
+      // Same-event dedup: if we own ANY market in this event, skip all others
+      if (eventTitle && [...ownedTitles].some(t => t.includes(eventTitle) || eventTitle.includes(t))) { _jupDbgOwned++; continue; }
       if (isRecentlyTraded(state, q)) continue;
+      // Also check if any market in same event was recently traded
+      if (eventTitle && state.tradeHistory.some(h => h.question.toLowerCase().includes(eventTitle) && Date.now() - h.time < 86_400_000)) continue;
       if (state.recentlySoldQuestions.has(q.toLowerCase())) continue;
       if (state.pendingBuys.has(q.toLowerCase())) continue;
+      // Check if any market in same event is pending buy
+      if (eventTitle && [...state.pendingBuys].some(p => p.includes(eventTitle))) continue;
       if (!isFailCooledDown(state.failedBuys, m.marketId, FAILED_BUY_COOLDOWN_MS)) continue;
       if (state.skippedMarkets.has(q.toLowerCase())) continue;
       jupScored.push({ question: q, marketId: m.marketId, yesPrice: yp, score: adjustedScore, volume, intel: null });

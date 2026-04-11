@@ -178,7 +178,7 @@ export async function scanPolymarketMarkets(
 
   const rawMarkets = allMarkets;
   callbacks.log(`[INTEL:POLY] Fetched ${rawMarkets.length} markets (sampling+gamma)`);
-  let skipOwned = 0, skipRecent = 0, skipSold = 0, skipPending = 0, skipPrice = 0, skipDays = 0, skipVolume = 0, skipNoYes = 0;
+  let skipOwned = 0, skipRecent = 0, skipSold = 0, skipPending = 0, skipPrice = 0, skipDays = 0, skipVolume = 0, skipNoYes = 0, skipAnalyzed = 0;
   for (const m of rawMarkets) {
     const tokens = (m.tokens ?? []) as Array<{ outcome: string; price: string; token_id: string }>;
     const yes = tokens.find((t) => t.outcome === "Yes");
@@ -192,6 +192,8 @@ export async function scanPolymarketMarkets(
     if (isRecentlyTraded(state, q)) { skipRecent++; continue; }
     if (state.recentlySoldQuestions.has(q.toLowerCase())) { skipSold++; continue; }
     if (state.pendingBuys.has(q.toLowerCase())) { skipPending++; continue; }
+    if (state.recentlyAnalyzed.has(q.toLowerCase())) { skipAnalyzed++; continue; }
+    if (state.skippedMarkets.has(q.toLowerCase())) continue;
 
     const spread = Math.abs(np - yp);
     const midpoint = (yp + np) / 2;
@@ -252,7 +254,7 @@ export async function scanPolymarketMarkets(
   }
   scored.sort((a, b) => b.score - a.score);
   if (scored.length === 0) {
-    callbacks.log(`[INTEL:POLY] 0 markets passed (total: ${rawMarkets.length}, noYes: ${skipNoYes}, owned: ${skipOwned}, recent: ${skipRecent}, sold: ${skipSold}, pending: ${skipPending}, price: ${skipPrice}, days: ${skipDays}, volume: ${skipVolume})`);
+    callbacks.log(`[INTEL:POLY] 0 markets passed (total: ${rawMarkets.length}, noYes: ${skipNoYes}, owned: ${skipOwned}, recent: ${skipRecent}, sold: ${skipSold}, pending: ${skipPending}, analyzed: ${skipAnalyzed}, price: ${skipPrice}, days: ${skipDays}, volume: ${skipVolume})`);
   }
 
   // Gather market intelligence for top candidates (parallel, capped at 5)

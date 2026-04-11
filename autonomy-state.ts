@@ -76,6 +76,8 @@ export type AutonomyState = {
   pendingBuys: Set<string>;
   /** Markets the LLM skipped — don't re-analyze for SKIPPED_MARKET_COOLDOWN_MS */
   skippedMarkets: Map<string, number>;
+  /** Markets recently sent to LLM for analysis — force rotation to new candidates */
+  recentlyAnalyzed: Map<string, number>;
   /** Tokens permanently stuck (< 5 shares on Polymarket CLOB) — never retry */
   stuckDust: Set<string>;
   /** Peak observed price per position — for trailing stops */
@@ -105,6 +107,7 @@ export function createState(platform: AutonomyPlatform): AutonomyState {
     recentlySoldQuestions: new Map(),
     pendingBuys: new Set(),
     skippedMarkets: new Map(),
+    recentlyAnalyzed: new Map(),
     stuckDust: new Set<string>(),
     peakPrice: new Map(),
     positionFirstSeen: new Map(),
@@ -150,6 +153,11 @@ export function housekeep(state: AutonomyState): void {
 
   for (const [key, ts] of state.skippedMarkets) {
     if (now - ts >= SKIPPED_MARKET_COOLDOWN_MS) state.skippedMarkets.delete(key);
+  }
+
+  // Recently analyzed markets: 30-minute cooldown forces rotation to new candidates
+  for (const [key, ts] of state.recentlyAnalyzed) {
+    if (now - ts >= 30 * 60_000) state.recentlyAnalyzed.delete(key);
   }
 }
 

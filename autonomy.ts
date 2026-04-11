@@ -364,6 +364,12 @@ async function runAutonomyCycle(
         if (scored.length > 0) {
           const candidates = scored.slice(0, 5);
           const analyses = await analyzeCandidates(deps, callbacks, candidates, ragContext);
+
+          // Mark all analyzed candidates so next cycle picks fresh ones
+          for (const c of candidates) {
+            state.recentlyAnalyzed.set(c.question.toLowerCase(), Date.now());
+          }
+
           let buyCount = 0;
           let remainingBalance = polyBalance;
 
@@ -492,6 +498,11 @@ async function runAutonomyCycle(
         if (jupScored.length > 0) {
           const candidates = jupScored.slice(0, 5);
           const analyses = await analyzeCandidates(deps, callbacks, candidates, ragContext);
+
+          // Mark all analyzed candidates so next cycle picks fresh ones
+          for (const c of candidates) {
+            state.recentlyAnalyzed.set(c.question.toLowerCase(), Date.now());
+          }
 
           if (analyses.length === 0) {
             for (const c of candidates) {

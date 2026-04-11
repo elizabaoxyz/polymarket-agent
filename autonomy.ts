@@ -25,6 +25,10 @@ import {
   MIN_REWARD_RATIO,
   MIN_BET_SIZE_JUP,
   calcBetSize,
+  calcKellyBetSize,
+  MAX_BUYS_PER_CYCLE,
+  SECOND_BUY_MIN_EDGE,
+  SECOND_BUY_MIN_CONFIDENCE,
 } from "./config";
 import { getSolanaKeypair, getCachedSolanaBalanceBreakdown } from "./solana-wallet";
 import { getPortfolioStatus } from "./portfolio";
@@ -54,7 +58,7 @@ import {
   recordTrade,
 } from "./autonomy-state";
 
-import { directLlmCall } from "./autonomy-llm";
+import { directLlmCall, ensembleLlmCall } from "./autonomy-llm";
 import { scanPolymarketMarkets, scanJupiterMarkets, type ScoredMarket, type JupMarket } from "./autonomy-scanner";
 import { indexAndEnrich } from "./autonomy-rag";
 import { directPolymarketBuy, directJupiterBuy } from "./autonomy-trade";
@@ -81,7 +85,7 @@ async function analyzeCandidates(
   callbacks: AutonomyCallbacks,
   candidates: Array<{ question: string; yesPrice: number; score: number; volume?: number; daysLeft?: number; intel?: import("./market-intel").MarketIntel | null }>,
   ragContext: string,
-): Promise<AnalysisResult | null> {
+): Promise<AnalysisResult[]> {
   const { formatIntelForPrompt } = await import("./market-intel");
   const { MIN_EDGE_THRESHOLD, MIN_CONFIDENCE_THRESHOLD } = await import("./config");
 
@@ -103,7 +107,7 @@ async function analyzeCandidates(
     })
     .join("\n\n");
 
-  callbacks.log(`[ANALYSIS] Analyzing top ${candidates.length} markets...`);
+  callbacks.log(`[ANALYSIS] Analyzing top ${candidates.length} markets (ensemble)...`);
 
   const structuredPrompt = `You are an expert prediction market analyst. Today is ${today}.
 Your job is to find genuine mispricings — markets where the true probability differs significantly from the price.
@@ -114,110 +118,94 @@ ${candidateList}${ragContext}
 
 For each market, work through these steps mentally:
 
-STEP 1 — CATEGORIZE the market type:
-  • SPORTS: game/match outcomes → check injuries, form, home advantage, recent results
-  • POLITICS: elections, policy → check polls, fundamentals, incumbency advantage
-  • CRYPTO: price targets, events → check current price vs target, time horizon
-  • CULTURE: awards, pop culture → check betting odds, expert consensus
-  • SCIENCE/TECH: product launches, discoveries → check track record, announcements
-
-STEP 2 — DECOMPOSE the probability using the base rate + adjustment method:
-  • Start with the base rate (what % of similar events resolved YES historically?)
-  • Adjust up/down based on specific evidence for THIS instance
-  • Consider: what would need to happen for YES to win? How likely is each step?
-
-STEP 3 — CALCULATE your edge:
-  • Your estimated true probability MINUS the market price (for YES)
-  • Or market price MINUS your estimate (for NO)
-  • Only bet if edge ≥ 10% — this covers the bid-ask spread and uncertainty
-
-STEP 4 — CHECK risk/reward:
-  • Ratio = (1 - price) / price. A $0.40 bet has 1.5:1 ratio (win $1.50 for every $1 risked)
-  • Minimum ratio 1.0:1 (50/50). Prefer 1.5:1 or better.
-  • Price sweet spot: $0.25–$0.55 offers the best risk/reward balance.
-
-STEP 5 — ASSESS your confidence:
-  • HIGH (0.8–1.0): Clear factual basis, limited uncertainty (e.g., "team X is favored by 7 points")
-  • MEDIUM (0.5–0.8): Some evidence but significant unknowns
-  • LOW (0.0–0.5): Mostly speculation, far-future events, vague wording
-  • Do NOT bet with LOW confidence.
+STEP 1 — CATEGORIZE: SPORTS | POLITICS | CRYPTO | CULTURE | TECH | OTHER
+STEP 2 — DECOMPOSE probability: base rate + adjustments for this specific instance
+STEP 3 — CALCULATE edge: your estimate MINUS market price (for your chosen side)
+STEP 4 — CHECK risk/reward: ratio = (1 - price) / price. Minimum 1.0:1.
+STEP 5 — CONFIDENCE: 0.0-1.0. HIGH(0.8+)=clear facts. MED(0.5-0.8)=some unknowns. LOW(<0.5)=speculation.
 
 === OUTPUT FORMAT ===
 
-Respond with EXACTLY these 6 lines:
+Rank ALL viable markets. For each, output a PICK block (up to 3 markets):
 
-PICK: <number or 0 to SKIP all>
+PICK: <market number, or 0 to SKIP all>
 SIDE: YES or NO
-ESTIMATE: <your estimated true probability 0.00–1.00 for YES>
-EDGE: <your calculated edge 0.00–0.50>
-CONFIDENCE: <0.0–1.0>
+ESTIMATE: <true probability 0.00-1.00 for YES>
+EDGE: <calculated edge 0.00-0.50>
+CONFIDENCE: <0.0-1.0>
 CATEGORY: <SPORTS|POLITICS|CRYPTO|CULTURE|TECH|OTHER>
-REASON: <one sentence with the strongest evidence for your estimate>
+REASON: <one sentence strongest evidence>
+
+If multiple markets are viable, add more blocks separated by a blank line.
+Rank by edge × confidence descending. Only include markets with edge >= 10% AND confidence >= 0.6.
+If no market qualifies, respond PICK: 0
 
 RULES:
-- Pick the market with the BIGGEST edge AND highest confidence, not just the first one that looks OK
-- If no market has edge ≥ 10% AND confidence ≥ 0.6, respond PICK: 0 to SKIP
+- Rank by BIGGEST edge AND highest confidence
 - It is ALWAYS better to skip than to make a mediocre bet
-- Never pick a side where the price is above $0.75 (terrible risk/reward) or below $0.15 (likely resolved)`
+- Never pick a side where price > $0.75 (terrible risk/reward) or < $0.15 (likely resolved)
+- Diversify: if multiple picks, prefer different CATEGORIES`;
 
-  const text = await directLlmCall(deps, callbacks, structuredPrompt, 800);
+  const text = await ensembleLlmCall(deps, callbacks, structuredPrompt, 1000);
 
-  if (text.length > 0) {
-    callbacks.log(`[ANALYSIS] LLM: "${text.slice(0, 200)}"`);
-
-    const pickMatch = /PICK:\s*(\d+)/i.exec(text);
-    const sideMatch = /SIDE:\s*(YES|NO)/i.exec(text);
-    const estimateMatch = /ESTIMATE:\s*([\d.]+)/i.exec(text);
-    const edgeMatch = /EDGE:\s*([\d.]+)/i.exec(text);
-    const confidenceMatch = /CONFIDENCE:\s*([\d.]+)/i.exec(text);
-    const categoryMatch = /CATEGORY:\s*(\w+)/i.exec(text);
-    const reasonMatch = /REASON:\s*(.+)/i.exec(text);
-
-    if (sideMatch) {
-      const pickNum = pickMatch ? Number.parseInt(pickMatch[1]!) : 1;
-      if (pickNum === 0) {
-        callbacks.log(`[ANALYSIS] LLM chose SKIP — no high-conviction picks`);
-        return null;
-      }
-
-      const pickIdx = Math.min(pickNum - 1, candidates.length - 1);
-      const pick = candidates[Math.max(0, pickIdx)]!;
-      const side = sideMatch[1]!.toUpperCase();
-      const edge = edgeMatch ? Math.min(0.5, Number.parseFloat(edgeMatch[1]!)) : 0.10;
-      const confidence = confidenceMatch ? Math.min(1.0, Number.parseFloat(confidenceMatch[1]!)) : 0.5;
-      const estimatedProb = estimateMatch ? Number.parseFloat(estimateMatch[1]!) : pick.yesPrice;
-      const category = categoryMatch ? categoryMatch[1]!.toUpperCase() : "OTHER";
-      const reason = reasonMatch ? reasonMatch[1]!.trim() : "";
-
-      // --- Hard edge and confidence checks ---
-      if (edge < MIN_EDGE_THRESHOLD) {
-        callbacks.log(`[ANALYSIS] ❌ Edge ${edge.toFixed(2)} below minimum ${MIN_EDGE_THRESHOLD} — skipping "${pick.question.slice(0, 50)}"`);
-        return null;
-      }
-      if (confidence < MIN_CONFIDENCE_THRESHOLD) {
-        callbacks.log(`[ANALYSIS] ❌ Confidence ${confidence.toFixed(2)} below minimum ${MIN_CONFIDENCE_THRESHOLD} — skipping "${pick.question.slice(0, 50)}"`);
-        return null;
-      }
-
-      callbacks.log(`[ANALYSIS] ✅ ${category} | ${side} | edge=${edge.toFixed(2)} | conf=${confidence.toFixed(2)} | est=${estimatedProb.toFixed(2)} | "${reason.slice(0, 80)}"`);
-
-      return { pick, side, reason, edge, confidence, category, estimatedProb };
-    }
-
-    // Try unstructured parse
-    const yesNo = /\b(YES|NO)\b/i.exec(text);
-    if (yesNo) {
-      return { pick: candidates[0]!, side: yesNo[1]!.toUpperCase(), reason: text.slice(0, 100), edge: 0.10, confidence: 0.5, category: "OTHER", estimatedProb: candidates[0]!.yesPrice };
-    }
-
-    callbacks.log(`[ANALYSIS] Could not parse LLM response`);
-  } else {
+  if (text.length === 0) {
     callbacks.log(`[ANALYSIS] LLM returned empty`);
+    return [];
   }
 
-  // NO fallback heuristic — skipping is always better than a random bet
-  callbacks.log(`[ANALYSIS] Skipping — no valid LLM analysis produced`);
-  return null;
+  callbacks.log(`[ANALYSIS] LLM: "${text.slice(0, 300)}"`);
+
+  // Parse multiple PICK blocks
+  const results: AnalysisResult[] = [];
+  const blocks = text.split(/\n\s*\n/).filter((b) => /PICK:/i.test(b));
+  const blocksToProcess = blocks.length > 0 ? blocks : [text];
+
+  for (const block of blocksToProcess) {
+    const pickMatch = /PICK:\s*(\d+)/i.exec(block);
+    const sideMatch = /SIDE:\s*(YES|NO)/i.exec(block);
+    const estimateMatch = /ESTIMATE:\s*([\d.]+)/i.exec(block);
+    const edgeMatch = /EDGE:\s*([\d.]+)/i.exec(block);
+    const confidenceMatch = /CONFIDENCE:\s*([\d.]+)/i.exec(block);
+    const categoryMatch = /CATEGORY:\s*(\w+)/i.exec(block);
+    const reasonMatch = /REASON:\s*(.+)/i.exec(block);
+
+    if (!sideMatch) continue;
+
+    const pickNum = pickMatch ? Number.parseInt(pickMatch[1]!) : 0;
+    if (pickNum === 0) continue;
+
+    const pickIdx = Math.min(pickNum - 1, candidates.length - 1);
+    const pick = candidates[Math.max(0, pickIdx)]!;
+    const side = sideMatch[1]!.toUpperCase();
+    const edge = edgeMatch ? Math.min(0.5, Number.parseFloat(edgeMatch[1]!)) : 0.10;
+    const confidence = confidenceMatch ? Math.min(1.0, Number.parseFloat(confidenceMatch[1]!)) : 0.5;
+    const estimatedProb = estimateMatch ? Number.parseFloat(estimateMatch[1]!) : pick.yesPrice;
+    const category = categoryMatch ? categoryMatch[1]!.toUpperCase() : "OTHER";
+    const reason = reasonMatch ? reasonMatch[1]!.trim() : "";
+
+    if (edge < MIN_EDGE_THRESHOLD) {
+      callbacks.log(`[ANALYSIS] ❌ Edge ${edge.toFixed(2)} below minimum ${MIN_EDGE_THRESHOLD} — skipping "${pick.question.slice(0, 50)}"`);
+      continue;
+    }
+    if (confidence < MIN_CONFIDENCE_THRESHOLD) {
+      callbacks.log(`[ANALYSIS] ❌ Confidence ${confidence.toFixed(2)} below minimum ${MIN_CONFIDENCE_THRESHOLD} — skipping "${pick.question.slice(0, 50)}"`);
+      continue;
+    }
+
+    callbacks.log(`[ANALYSIS] ✅ #${results.length + 1} ${category} | ${side} | edge=${edge.toFixed(2)} | conf=${confidence.toFixed(2)} | est=${estimatedProb.toFixed(2)} | "${reason.slice(0, 80)}"`);
+
+    results.push({ pick, side, reason, edge, confidence, category, estimatedProb });
+  }
+
+  if (results.length === 0) {
+    const yesNo = /\b(YES|NO)\b/i.exec(text);
+    if (yesNo) {
+      return [{ pick: candidates[0]!, side: yesNo[1]!.toUpperCase(), reason: text.slice(0, 100), edge: 0.10, confidence: 0.5, category: "OTHER", estimatedProb: candidates[0]!.yesPrice }];
+    }
+    callbacks.log(`[ANALYSIS] Skipping — no valid picks produced`);
+  }
+
+  return results;
 }
 
 // --- Main autonomy cycle ---
@@ -349,30 +337,77 @@ async function runAutonomyCycle(
 
         if (scored.length > 0) {
           const candidates = scored.slice(0, 5);
-          const analysis = await analyzeCandidates(deps, callbacks, candidates, ragContext);
-          if (analysis) {
+          const analyses = await analyzeCandidates(deps, callbacks, candidates, ragContext);
+          let buyCount = 0;
+          let remainingBalance = polyBalance;
+
+          for (let ai = 0; ai < analyses.length && buyCount < MAX_BUYS_PER_CYCLE; ai++) {
+            const analysis = analyses[ai]!;
+
+            // Second+ buy requires higher bar
+            if (buyCount > 0) {
+              if (analysis.edge < SECOND_BUY_MIN_EDGE) {
+                callbacks.log(`[POLYMARKET] Pick #${ai + 1} edge ${analysis.edge.toFixed(2)} below second-buy minimum ${SECOND_BUY_MIN_EDGE} — stopping`);
+                break;
+              }
+              if (analysis.confidence < SECOND_BUY_MIN_CONFIDENCE) {
+                callbacks.log(`[POLYMARKET] Pick #${ai + 1} confidence ${analysis.confidence.toFixed(2)} below second-buy minimum — stopping`);
+                break;
+              }
+              if (ai > 0 && analyses[ai - 1]?.category === analysis.category) {
+                callbacks.log(`[POLYMARKET] Pick #${ai + 1} same category (${analysis.category}) as previous — skipping for diversification`);
+                continue;
+              }
+            }
+
             const marketPrice = analysis.side === "YES" ? analysis.pick.yesPrice : 1 - analysis.pick.yesPrice;
             const polyRewardRatio = marketPrice > 0 ? (1 - marketPrice) / marketPrice : 0;
+
             if (marketPrice > 0.75) {
-              callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ${analysis.side} at $${marketPrice.toFixed(2)} is terrible risk/reward (ratio ${polyRewardRatio.toFixed(1)}:1)`);
-            } else if (marketPrice < 0.15) {
-              callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ${analysis.side} at $${marketPrice.toFixed(2)} too cheap / likely resolved`);
-            } else if (polyRewardRatio < MIN_REWARD_RATIO) {
-              callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ratio ${polyRewardRatio.toFixed(1)}:1 below minimum ${MIN_REWARD_RATIO}:1`);
+              callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ${analysis.side} at $${marketPrice.toFixed(2)} terrible risk/reward`);
+              continue;
+            }
+            if (marketPrice < 0.15) {
+              callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ${analysis.side} at $${marketPrice.toFixed(2)} too cheap`);
+              continue;
+            }
+            if (polyRewardRatio < MIN_REWARD_RATIO) {
+              callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ratio ${polyRewardRatio.toFixed(1)}:1 below minimum`);
+              continue;
+            }
+
+            const betSize = calcKellyBetSize({
+              estimatedProb: analysis.estimatedProb,
+              marketPrice,
+              confidence: analysis.confidence,
+              balance: remainingBalance,
+            });
+
+            if (!canSpend(state, betSize)) {
+              callbacks.log(`[POLYMARKET] Daily spend limit reached — skipping buy`);
+              break;
+            }
+
+            if (remainingBalance < betSize) {
+              callbacks.log(`[POLYMARKET] Insufficient balance ($${remainingBalance.toFixed(2)}) for $${betSize.toFixed(2)} bet — stopping`);
+              break;
+            }
+
+            callbacks.log(`[BUY:POLYMARKET] #${buyCount + 1} "${analysis.pick.question}" (${analysis.side}:$${marketPrice.toFixed(2)}, kelly:$${betSize.toFixed(2)}, edge:${analysis.edge.toFixed(2)}, conf:${analysis.confidence.toFixed(2)}, est:${analysis.estimatedProb.toFixed(2)})`);
+            state.pendingBuys.add(analysis.pick.question.toLowerCase());
+            const bought = await directPolymarketBuy(deps, callbacks, state, analysis.pick.question, analysis.side, betSize, remainingBalance, (analysis.pick as ScoredMarket).tokenId);
+            if (bought) {
+              recordTrade(state, { question: analysis.pick.question, platform: "POLYMARKET", time: Date.now(), price: analysis.pick.yesPrice, amount: betSize });
+              remainingBalance -= betSize;
+              buyCount++;
             } else {
-              const betSize = calcBetSize(analysis.pick.score, polyBalance, undefined, marketPrice, analysis.edge, analysis.confidence);
-              if (!canSpend(state, betSize)) {
-                callbacks.log(`[POLYMARKET] Daily spend limit reached ($${state.dailySpend.toFixed(2)}/$${DAILY_SPEND_LIMIT_USD.toFixed(2)}) — skipping buy`);
-              } else {
-                callbacks.log(`[BUY:POLYMARKET] "${analysis.pick.question}" (${analysis.side}:$${marketPrice.toFixed(2)}, score:${analysis.pick.score.toFixed(2)}, edge:${analysis.edge.toFixed(2)}, conf:${analysis.confidence.toFixed(2)}, size:$${betSize.toFixed(2)}, ${(analysis.pick as ScoredMarket).daysLeft?.toFixed(0) ?? "?"}d left)`);
-                state.pendingBuys.add(analysis.pick.question.toLowerCase());
-                const bought = await directPolymarketBuy(deps, callbacks, state, analysis.pick.question, analysis.side, betSize, polyBalance, (analysis.pick as ScoredMarket).tokenId);
-                if (bought) {
-                  recordTrade(state, { question: analysis.pick.question, platform: "POLYMARKET", time: Date.now(), price: analysis.pick.yesPrice, amount: betSize });
-                } else {
-                  state.failedBuys.set(analysis.pick.question, Date.now());
-                }
-              }
+              state.failedBuys.set(analysis.pick.question, Date.now());
+            }
+          }
+
+          if (analyses.length === 0) {
+            for (const c of candidates) {
+              state.skippedMarkets.set(c.question.toLowerCase(), Date.now());
             }
           }
         } else {
@@ -426,38 +461,71 @@ async function runAutonomyCycle(
 
         if (jupScored.length > 0) {
           const candidates = jupScored.slice(0, 5);
-          const analysis = await analyzeCandidates(deps, callbacks, candidates, ragContext);
-          if (!analysis) {
-            // Record skipped markets to avoid re-analyzing them for 1 hour
+          const analyses = await analyzeCandidates(deps, callbacks, candidates, ragContext);
+
+          if (analyses.length === 0) {
             for (const c of candidates) {
               state.skippedMarkets.set(c.question.toLowerCase(), Date.now());
             }
             callbacks.log("[JUPITER] No high-conviction pick — skipping buy this cycle");
           } else {
-            const pick = analysis.pick;
-            const side = analysis.side;
-            const jupMarketPrice = side === "YES" ? pick.yesPrice : 1 - pick.yesPrice;
-            const jupRewardRatio = jupMarketPrice > 0 ? (1 - jupMarketPrice) / jupMarketPrice : 0;
-            if (jupMarketPrice > 0.75) {
-              callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — ${side} at $${jupMarketPrice.toFixed(2)} is terrible risk/reward (ratio ${jupRewardRatio.toFixed(1)}:1)`);
-            } else if (jupMarketPrice < 0.15) {
-              callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — ${side} at $${jupMarketPrice.toFixed(2)} too cheap / likely resolved`);
-            } else if (jupRewardRatio < MIN_REWARD_RATIO) {
-              callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — ratio ${jupRewardRatio.toFixed(1)}:1 below minimum ${MIN_REWARD_RATIO}:1`);
-            } else {
-              const betSize = calcBetSize(pick.score, solBalance, MIN_BET_SIZE_JUP, jupMarketPrice, analysis.edge, analysis.confidence);
-              if (!canSpend(state, betSize)) {
-                callbacks.log(`[JUPITER] Daily spend limit reached ($${state.dailySpend.toFixed(2)}/$${DAILY_SPEND_LIMIT_USD.toFixed(2)}) — skipping buy`);
-              } else {
-                callbacks.log(`[BUY:JUPITER] "${pick.question}" (${side}:$${jupMarketPrice.toFixed(2)}, score:${pick.score.toFixed(2)}, edge:${analysis.edge.toFixed(2)}, conf:${analysis.confidence.toFixed(2)}, size:$${betSize.toFixed(2)}, vol:$${(pick as JupMarket).volume?.toFixed(0) ?? "0"})`);
-                state.pendingBuys.add(pick.question.toLowerCase());
-                const bought = await directJupiterBuy(deps, callbacks, state, (pick as JupMarket).marketId, side, betSize, pick.question, solBalance, solUsdcBalance, solJupUsdBalance);
-                if (bought) {
-                  recordTrade(state, { question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice, amount: betSize });
-                } else if (candidates.length > 1) {
-                  callbacks.log(`[BUY:JUPITER] Primary pick failed — skipping fallback (quality over quantity)`);
-                  state.failedBuys.set((pick as JupMarket).marketId, Date.now());
+            let buyCount = 0;
+            let remainingBalance = solBalance;
+
+            for (let ai = 0; ai < analyses.length && buyCount < MAX_BUYS_PER_CYCLE; ai++) {
+              const analysis = analyses[ai]!;
+              const pick = analysis.pick;
+              const side = analysis.side;
+
+              if (buyCount > 0) {
+                if (analysis.edge < SECOND_BUY_MIN_EDGE || analysis.confidence < SECOND_BUY_MIN_CONFIDENCE) {
+                  callbacks.log(`[JUPITER] Pick #${ai + 1} below second-buy threshold — stopping`);
+                  break;
                 }
+                if (ai > 0 && analyses[ai - 1]?.category === analysis.category) {
+                  callbacks.log(`[JUPITER] Pick #${ai + 1} same category — skipping`);
+                  continue;
+                }
+              }
+
+              const jupMarketPrice = side === "YES" ? pick.yesPrice : 1 - pick.yesPrice;
+              const jupRewardRatio = jupMarketPrice > 0 ? (1 - jupMarketPrice) / jupMarketPrice : 0;
+
+              if (jupMarketPrice > 0.75) {
+                callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — terrible risk/reward`);
+                continue;
+              }
+              if (jupMarketPrice < 0.15) {
+                callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — too cheap`);
+                continue;
+              }
+              if (jupRewardRatio < MIN_REWARD_RATIO) {
+                callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — ratio below minimum`);
+                continue;
+              }
+
+              const betSize = calcKellyBetSize({
+                estimatedProb: analysis.estimatedProb,
+                marketPrice: jupMarketPrice,
+                confidence: analysis.confidence,
+                balance: remainingBalance,
+                minBet: MIN_BET_SIZE_JUP,
+              });
+
+              if (!canSpend(state, betSize)) {
+                callbacks.log(`[JUPITER] Daily spend limit reached — stopping`);
+                break;
+              }
+
+              callbacks.log(`[BUY:JUPITER] #${buyCount + 1} "${pick.question}" (${side}:$${jupMarketPrice.toFixed(2)}, kelly:$${betSize.toFixed(2)}, edge:${analysis.edge.toFixed(2)}, conf:${analysis.confidence.toFixed(2)}, est:${analysis.estimatedProb.toFixed(2)})`);
+              state.pendingBuys.add(pick.question.toLowerCase());
+              const bought = await directJupiterBuy(deps, callbacks, state, (pick as JupMarket).marketId, side, betSize, pick.question, remainingBalance, solUsdcBalance, solJupUsdBalance);
+              if (bought) {
+                recordTrade(state, { question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice, amount: betSize });
+                remainingBalance -= betSize;
+                buyCount++;
+              } else {
+                state.failedBuys.set((pick as JupMarket).marketId, Date.now());
               }
             }
           }

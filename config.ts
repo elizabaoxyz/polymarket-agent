@@ -20,25 +20,25 @@ function envFloat(key: string, fallback: number): number {
 // --- Trading limits ---
 
 export const MAX_SHARES_PER_ORDER = envInt("MAX_SHARES_PER_ORDER", 500);
-export const MAX_POSITIONS = envInt("MAX_POSITIONS", 50);
+export const MAX_POSITIONS = envInt("MAX_POSITIONS", 12);
 export const MIN_BET_SIZE_USD = envFloat("MIN_BET_SIZE_USD", 3);
 
 /** Minimum bet size in USD for Jupiter (lower — Jupiter has split USDC/JupUSD balances) */
 export const MIN_BET_SIZE_JUP = envFloat("MIN_BET_SIZE_JUP", 1.5);
-export const MAX_BET_SIZE_USD = envFloat("MAX_BET_SIZE_USD", 20);
+export const MAX_BET_SIZE_USD = envFloat("MAX_BET_SIZE_USD", 8);
 export const BASE_BET_SIZE_USD = envFloat("BASE_BET_SIZE_USD", 3);
 
 // --- Sell thresholds ---
 
-export const SELL_LOSS_THRESHOLD_NORMAL = envFloat("SELL_LOSS_THRESHOLD_NORMAL", -15);
-export const SELL_LOSS_THRESHOLD_AGGRESSIVE = envFloat("SELL_LOSS_THRESHOLD_AGGRESSIVE", -8);
-export const SELL_PROFIT_THRESHOLD_NORMAL = envFloat("SELL_PROFIT_THRESHOLD_NORMAL", 30);
-export const SELL_PROFIT_THRESHOLD_AGGRESSIVE = envFloat("SELL_PROFIT_THRESHOLD_AGGRESSIVE", 12);
+export const SELL_LOSS_THRESHOLD_NORMAL = envFloat("SELL_LOSS_THRESHOLD_NORMAL", -10);
+export const SELL_LOSS_THRESHOLD_AGGRESSIVE = envFloat("SELL_LOSS_THRESHOLD_AGGRESSIVE", -5);
+export const SELL_PROFIT_THRESHOLD_NORMAL = envFloat("SELL_PROFIT_THRESHOLD_NORMAL", 18);
+export const SELL_PROFIT_THRESHOLD_AGGRESSIVE = envFloat("SELL_PROFIT_THRESHOLD_AGGRESSIVE", 5);
 export const LOW_BALANCE_THRESHOLD = envFloat("LOW_BALANCE_THRESHOLD", 3);
 
 // --- Timing ---
 
-export const AUTONOMY_INTERVAL_MS = envInt("AUTONOMY_INTERVAL_MS", 60_000);
+export const AUTONOMY_INTERVAL_MS = envInt("AUTONOMY_INTERVAL_MS", 45_000);
 export const HEARTBEAT_INTERVAL_MS = envInt("HEARTBEAT_INTERVAL_MS", 10_000);
 export const FAILED_SELL_COOLDOWN_MS = envInt("FAILED_SELL_COOLDOWN_MS", 1_800_000);
 export const FAILED_BUY_COOLDOWN_MS = envInt("FAILED_BUY_COOLDOWN_MS", 1_800_000);
@@ -54,13 +54,13 @@ export const SCORE_TIME_WEIGHT = envFloat("SCORE_TIME_WEIGHT", 0.20);
 export const SCORE_VOLUME_WEIGHT = envFloat("SCORE_VOLUME_WEIGHT", 0.20);
 
 /** Markets resolving within this many days get a quick-flip bonus */
-export const QUICK_FLIP_MAX_DAYS = envFloat("QUICK_FLIP_MAX_DAYS", 7);
+export const QUICK_FLIP_MAX_DAYS = envFloat("QUICK_FLIP_MAX_DAYS", 5);
 
 /** Score bonus for quick-flip markets */
-export const QUICK_FLIP_BONUS = envFloat("QUICK_FLIP_BONUS", 0.25);
+export const QUICK_FLIP_BONUS = envFloat("QUICK_FLIP_BONUS", 0.35);
 
 /** Maximum days until market resolution to consider */
-export const MARKET_MAX_DAYS = envFloat("MARKET_MAX_DAYS", 90);
+export const MARKET_MAX_DAYS = envFloat("MARKET_MAX_DAYS", 30);
 
 export const SCORE_PRICE_SWEET_SPOT_WEIGHT = envFloat("SCORE_PRICE_SWEET_SPOT_WEIGHT", 0.15);
 export const SCORE_MOMENTUM_WEIGHT = envFloat("SCORE_MOMENTUM_WEIGHT", 0.10);
@@ -73,10 +73,10 @@ export const LLM_KNOWLEDGE_BONUS = envFloat("LLM_KNOWLEDGE_BONUS", 0.35);
 // --- Edge thresholds ---
 
 /** Minimum LLM-reported edge (0-1) to enter a trade. Below this = skip. */
-export const MIN_EDGE_THRESHOLD = envFloat("MIN_EDGE_THRESHOLD", 0.08);
+export const MIN_EDGE_THRESHOLD = envFloat("MIN_EDGE_THRESHOLD", 0.12);
 
 /** Minimum LLM confidence (0-1) to enter a trade. */
-export const MIN_CONFIDENCE_THRESHOLD = envFloat("MIN_CONFIDENCE_THRESHOLD", 0.6);
+export const MIN_CONFIDENCE_THRESHOLD = envFloat("MIN_CONFIDENCE_THRESHOLD", 0.65);
 
 // --- Price sweet spot ---
 
@@ -123,7 +123,7 @@ export const MIN_JUP_VOLUME = envFloat("MIN_JUP_VOLUME", 50);
 // --- Kelly criterion sizing ---
 
 /** Maximum fraction of balance to risk on a single trade (Kelly cap) */
-export const KELLY_MAX_FRACTION = envFloat("KELLY_MAX_FRACTION", 0.15);
+export const KELLY_MAX_FRACTION = envFloat("KELLY_MAX_FRACTION", 0.10);
 
 /** Kelly multiplier: 0.5 = half-Kelly (recommended), 1.0 = full Kelly */
 export const KELLY_FRACTION_MULTIPLIER = envFloat("KELLY_FRACTION_MULTIPLIER", 0.5);
@@ -145,25 +145,25 @@ export const SECOND_BUY_MIN_CONFIDENCE = envFloat("SECOND_BUY_MIN_CONFIDENCE", 0
 export const PRICE_CEILING_SELL = envFloat("PRICE_CEILING_SELL", 0.85);
 
 /** Sell if price > this AND position age > 2 days */
-export const HIGH_PRICE_SELL = envFloat("HIGH_PRICE_SELL", 0.75);
+export const HIGH_PRICE_SELL = envFloat("HIGH_PRICE_SELL", 0.70);
 
 /** Auto-sell dead positions below this price */
-export const DEAD_POSITION_PRICE = envFloat("DEAD_POSITION_PRICE", 0.08);
+export const DEAD_POSITION_PRICE = envFloat("DEAD_POSITION_PRICE", 0.10);
 
 /** Hard stop-loss: sell if PnL drops below this % */
-export const HARD_STOP_LOSS_PCT = envFloat("HARD_STOP_LOSS_PCT", -25);
+export const HARD_STOP_LOSS_PCT = envFloat("HARD_STOP_LOSS_PCT", -18);
 
 /** Trailing stop only activates above this price (avoid whipsaw at low prices) */
-export const TRAILING_STOP_MIN_PRICE = envFloat("TRAILING_STOP_MIN_PRICE", 0.65);
+export const TRAILING_STOP_MIN_PRICE = envFloat("TRAILING_STOP_MIN_PRICE", 0.55);
 
 /** Trailing stop: sell if price drops this % from peak price */
-export const TRAILING_STOP_DROP_PCT = envFloat("TRAILING_STOP_DROP_PCT", 12);
+export const TRAILING_STOP_DROP_PCT = envFloat("TRAILING_STOP_DROP_PCT", 8);
 
 /** Capital pressure: sell weakest positions when balance < this AND positions > threshold */
 export const CAPITAL_PRESSURE_MIN_BALANCE = envFloat("CAPITAL_PRESSURE_MIN_BALANCE", 5);
 
 /** Capital pressure: trigger when position count exceeds this */
-export const CAPITAL_PRESSURE_MAX_POSITIONS = envInt("CAPITAL_PRESSURE_MAX_POSITIONS", 15);
+export const CAPITAL_PRESSURE_MAX_POSITIONS = envInt("CAPITAL_PRESSURE_MAX_POSITIONS", 8);
 
 // --- Smart position sizing ---
 

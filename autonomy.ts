@@ -115,6 +115,11 @@ async function analyzeCandidates(
   const structuredPrompt = `You are an expert prediction market analyst. Today is ${today}.
 Your job is to find genuine mispricings — markets where the true probability differs significantly from the price.
 
+You manage a SMALL portfolio (under $50). Capital efficiency is critical.
+PRIORITIZE: Markets resolving within 1-7 days (fastest capital turnover).
+AVOID: Markets > 14 days out unless edge is exceptionally large (> 20%).
+A $3 bet that returns $4.50 in 3 days is BETTER than a $3 bet that returns $6 in 30 days.
+
 ${candidateList}${ragContext}
 
 === ANALYSIS FRAMEWORK ===
@@ -147,7 +152,9 @@ RULES:
 - Rank by BIGGEST edge AND highest confidence
 - It is ALWAYS better to skip than to make a mediocre bet
 - Never pick a side where price > $0.75 (terrible risk/reward) or < $0.15 (likely resolved)
-- Diversify: if multiple picks, prefer different CATEGORIES`;
+- Diversify: if multiple picks, prefer different CATEGORIES
+- Heavily prioritize markets resolving SOON (1-7 days) — faster resolution = faster compounding
+- With small balance, ONE good high-conviction pick is better than two mediocre ones`;
 
   const text = await ensembleLlmCall(deps, callbacks, structuredPrompt, 1000);
 
@@ -449,7 +456,7 @@ async function runAutonomyCycle(
       // Unified sell+review for all Jupiter positions
       await unifiedPortfolioReview(
         deps, callbacks, state, "JUPITER",
-        jupAllPositions.map((p) => ({ pubkey: p.pubkey, title: p.title, pnl: p.pnl, isYes: p.isYes, contracts: p.contracts })),
+        jupAllPositions.map((p) => ({ pubkey: p.pubkey, title: p.title, pnl: p.pnl, isYes: p.isYes, contracts: p.contracts, curPrice: p.curPrice })),
         solBalance, lowSolBalance,
       );
 

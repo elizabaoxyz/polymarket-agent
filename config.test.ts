@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { calcKellyBetSize } from "./config";
 
 describe("calcKellyBetSize", () => {
-  test("high edge + high confidence → aggressive sizing", () => {
+  test("high edge + high confidence → aggressive sizing (capped at MAX_BET)", () => {
     // estimatedProb=0.60, marketPrice=0.40 → kelly=(0.60-0.40)/(1-0.40)=0.333, half=0.167
-    // balance=100 → $16.67, clamped to MAX_BET=20 → $16.67
+    // Capped by KELLY_MAX_FRACTION=0.10 → $10, then capped by MAX_BET=8 → $8
     const size = calcKellyBetSize({ estimatedProb: 0.60, marketPrice: 0.40, confidence: 0.85, balance: 100 });
-    expect(size).toBeGreaterThanOrEqual(10);
-    expect(size).toBeLessThanOrEqual(20);
+    expect(size).toBeGreaterThanOrEqual(5);
+    expect(size).toBeLessThanOrEqual(8);
   });
 
   test("small edge → small bet", () => {
@@ -29,19 +29,20 @@ describe("calcKellyBetSize", () => {
   });
 
   test("low confidence scales down", () => {
-    const highConf = calcKellyBetSize({ estimatedProb: 0.60, marketPrice: 0.40, confidence: 0.90, balance: 100 });
-    const lowConf = calcKellyBetSize({ estimatedProb: 0.60, marketPrice: 0.40, confidence: 0.60, balance: 100 });
+    // With MAX_BET=8, both may hit the cap at balance=100. Use lower balance to see the difference.
+    const highConf = calcKellyBetSize({ estimatedProb: 0.60, marketPrice: 0.40, confidence: 0.90, balance: 50 });
+    const lowConf = calcKellyBetSize({ estimatedProb: 0.60, marketPrice: 0.40, confidence: 0.60, balance: 50 });
     expect(highConf).toBeGreaterThan(lowConf);
   });
 
-  test("respects balance cap of 15%", () => {
+  test("respects balance cap of 10%", () => {
     const size = calcKellyBetSize({ estimatedProb: 0.95, marketPrice: 0.10, confidence: 1.0, balance: 100 });
-    expect(size).toBeLessThanOrEqual(15);
+    expect(size).toBeLessThanOrEqual(10);
   });
 
-  test("respects MAX_BET_SIZE_USD=20", () => {
+  test("respects MAX_BET_SIZE_USD=8", () => {
     const size = calcKellyBetSize({ estimatedProb: 0.95, marketPrice: 0.10, confidence: 1.0, balance: 500 });
-    expect(size).toBeLessThanOrEqual(20);
+    expect(size).toBeLessThanOrEqual(8);
   });
 
   test("Jupiter minBet override", () => {

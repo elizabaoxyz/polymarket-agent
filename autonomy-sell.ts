@@ -112,7 +112,7 @@ export async function collectPositions(
           marketId: string; pubkey: string; isYes: boolean; contracts: string;
           pnlUsdPercent: number; eventMetadata?: { title?: string };
           marketMetadata?: { title?: string }; claimable?: boolean; claimed?: boolean;
-          payoutUsd?: number;
+          payoutUsd?: number; markPriceUsd?: string;
         };
         for (const pos of ((await posRes.json()) as { data?: JupPosApi[] }).data ?? []) {
           const title = pos.eventMetadata?.title ?? pos.marketId ?? "";
@@ -127,6 +127,7 @@ export async function collectPositions(
             continue;
           }
           const pnl = pos.pnlUsdPercent ?? 0;
+          const markPrice = Number(pos.markPriceUsd ?? "0") / 1_000_000;
           if (pos.pubkey) {
             jupAllPositions.push({
               marketId: pos.marketId,
@@ -135,6 +136,7 @@ export async function collectPositions(
               pnl,
               isYes: pos.isYes ?? true,
               contracts: pos.contracts ?? "0",
+              curPrice: markPrice,
             });
           }
           if (
@@ -333,6 +335,10 @@ export async function unifiedPortfolioReview(
     // Rule 6: Trailing stop — only above min price, drops from peak
     else if (price >= TRAILING_STOP_MIN_PRICE && dropFromPeak >= TRAILING_STOP_DROP_PCT) {
       reason = `trailing-stop (peak $${state.peakPrice.get(key)?.toFixed(2)}, now $${price.toFixed(2)}, drop ${dropFromPeak.toFixed(1)}%)`;
+    }
+    // Rule 7: Stale position — no significant movement for 3+ days, capital is trapped
+    else if (age > 3 && price >= 0.30 && price <= 0.70 && Math.abs(pnl) < 5) {
+      reason = `stale-position (${age.toFixed(1)}d old, ${pnl >= 0 ? "+" : ""}${pnl.toFixed(0)}% PnL, price $${price.toFixed(2)} — capital trapped)`;
     }
 
     if (reason) {

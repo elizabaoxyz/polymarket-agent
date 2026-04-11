@@ -25,6 +25,7 @@ import {
   QUICK_FLIP_MAX_DAYS,
   QUICK_FLIP_BONUS,
   MARKET_MAX_DAYS,
+  LLM_KNOWLEDGE_BONUS,
 } from "./config";
 import type { AutonomyState, AutonomyCallbacks } from "./autonomy-state";
 import { isRecentlyTraded, isFailCooledDown } from "./autonomy-state";
@@ -56,6 +57,36 @@ export type JupMarket = {
   volume: number;
   intel: MarketIntel | null;
 };
+
+/**
+ * Score how well an LLM can analyze this market.
+ * Markets about crypto prices, major US politics, big sports, and tech
+ * get a bonus because LLMs have real knowledge there.
+ * Niche foreign politics, obscure primaries, and vague questions get no bonus.
+ */
+function llmKnowledgeBonus(question: string): number {
+  const q = question.toLowerCase();
+
+  // Crypto: LLMs can check current prices vs targets
+  if (/\b(btc|bitcoin|eth|ethereum|sol|solana|crypto|token|defi)\b/.test(q)) return 1.0;
+
+  // Major sports with available data
+  if (/\b(nba|nfl|mlb|nhl|premier league|champions league|world cup|super bowl|stanley cup|world series)\b/.test(q)) return 0.8;
+
+  // US presidential / major federal politics
+  if (/\b(president|presidential|congress|senate|house of rep|supreme court|fed rate|federal reserve)\b/.test(q)) return 0.7;
+
+  // Tech / AI / major companies
+  if (/\b(apple|google|meta|microsoft|openai|nvidia|tesla|spacex|ai |artificial intelligence)\b/.test(q)) return 0.9;
+
+  // Major global events
+  if (/\b(war|nato|eu |european union|china|russia|ukraine|israel|iran)\b/.test(q)) return 0.6;
+
+  // Niche: state primaries, foreign elections, obscure nominations → no bonus
+  if (/\b(primary|nominee|nomination|gubernatorial|governor)\b/.test(q) && !/\bpresident/.test(q)) return -0.3;
+
+  return 0;
+}
 
 // --- Polymarket scanner ---
 
@@ -206,7 +237,9 @@ export async function scanPolymarketMarkets(
     }
     // Quick flip bonus: short-duration markets get extra score
     const quickFlipBonus = daysLeft <= QUICK_FLIP_MAX_DAYS ? QUICK_FLIP_BONUS : 0;
-    const adjustedScore = score + priceSweetSpot * SCORE_PRICE_SWEET_SPOT_WEIGHT + quickFlipBonus;
+    // LLM knowledge bonus: boost markets in categories where LLMs have real edge
+    const knowledgeBonus = llmKnowledgeBonus(q) * LLM_KNOWLEDGE_BONUS;
+    const adjustedScore = score + priceSweetSpot * SCORE_PRICE_SWEET_SPOT_WEIGHT + quickFlipBonus + knowledgeBonus;
 
     scored.push({ question: q, yesPrice: yp, score: adjustedScore, volume, daysLeft, tokenId, conditionId, intel: null });
   }
@@ -322,9 +355,10 @@ export async function scanJupiterMarkets(
       }
       // Quick flip bonus
       const quickFlipBonus = jupDaysLeft <= QUICK_FLIP_MAX_DAYS ? QUICK_FLIP_BONUS : 0;
-      const adjustedScore = score + priceSweetSpot * SCORE_PRICE_SWEET_SPOT_WEIGHT + quickFlipBonus;
-
       const q = `${event.metadata?.title} — ${m.metadata?.title}`;
+      // LLM knowledge bonus
+      const knowledgeBonus = llmKnowledgeBonus(q) * LLM_KNOWLEDGE_BONUS;
+      const adjustedScore = score + priceSweetSpot * SCORE_PRICE_SWEET_SPOT_WEIGHT + quickFlipBonus + knowledgeBonus;
       const marketTitle = (m.metadata?.title ?? "").toLowerCase();
       const eventTitle = (event.metadata?.title ?? "").toLowerCase();
       if (ownedTitles.has(marketTitle) || ownedTitles.has(`${eventTitle} — ${marketTitle}`)) { _jupDbgOwned++; continue; }

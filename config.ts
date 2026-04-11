@@ -67,10 +67,13 @@ export const SCORE_MOMENTUM_WEIGHT = envFloat("SCORE_MOMENTUM_WEIGHT", 0.10);
 export const SCORE_DEPTH_WEIGHT = envFloat("SCORE_DEPTH_WEIGHT", 0.10);
 export const RAG_SIMILARITY_WEIGHT = envFloat("RAG_SIMILARITY_WEIGHT", 0.10);
 
+/** Bonus for markets in categories where LLMs have real knowledge (crypto, major sports, US politics, tech) */
+export const LLM_KNOWLEDGE_BONUS = envFloat("LLM_KNOWLEDGE_BONUS", 0.20);
+
 // --- Edge thresholds ---
 
 /** Minimum LLM-reported edge (0-1) to enter a trade. Below this = skip. */
-export const MIN_EDGE_THRESHOLD = envFloat("MIN_EDGE_THRESHOLD", 0.10);
+export const MIN_EDGE_THRESHOLD = envFloat("MIN_EDGE_THRESHOLD", 0.08);
 
 /** Minimum LLM confidence (0-1) to enter a trade. */
 export const MIN_CONFIDENCE_THRESHOLD = envFloat("MIN_CONFIDENCE_THRESHOLD", 0.6);

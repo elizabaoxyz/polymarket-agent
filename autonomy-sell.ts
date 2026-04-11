@@ -256,6 +256,8 @@ export async function unifiedPortfolioReview(
     if (state.stuckDust.has(key)) return false;
     if (platform === "POLYMARKET" && (p.shares ?? 0) < 1) return false;
     if (platform === "POLYMARKET" && (p.curPrice ?? 0) < 0.01) return false;
+    // Jupiter positions with no price data ($0.00) can't be evaluated — skip LLM review
+    if (platform === "JUPITER" && (p.curPrice === undefined || p.curPrice === 0)) return false;
     return true;
   });
 

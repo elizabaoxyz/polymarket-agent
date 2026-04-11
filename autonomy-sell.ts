@@ -78,13 +78,13 @@ export async function collectPositions(
           curPrice: number; redeemable?: boolean;
         };
         for (const pos of (await posRes.json()) as PolyPosApi[]) {
-          if (pos.title) ownedTitles.add(pos.title.toLowerCase());
           const pnl = pos.percentPnl ?? 0;
           const price = pos.curPrice ?? 0;
-          // Skip only truly dead/empty positions — keep everything else for review
+          // Skip truly dead/empty positions — don't count them toward position limit
           if (pos.redeemable) continue;
           if (price < 0.01) continue;
           if ((pos.size ?? 0) < 1) continue;
+          if (pos.title) ownedTitles.add(pos.title.toLowerCase());
           polyAllSellable.push({ token: pos.asset, shares: pos.size, title: pos.title ?? "", pnl, curPrice: price });
           if (pnl < sellLossThreshold || pnl > sellProfitThreshold) {
             polySellTargets.push({ token: pos.asset, shares: pos.size, title: pos.title ?? "", pnl, curPrice: price });

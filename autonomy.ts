@@ -329,9 +329,10 @@ async function runAutonomyCycle(
     const { ownedTitles, polySellTargets, polyAllSellable, jupSellTargets, jupAllPositions, jupClaimable } =
       await collectPositions(state, sellLossThreshold, sellProfitThreshold);
 
-    const positionsFull = ownedTitles.size >= MAX_POSITIONS;
+    const activePositions = ownedTitles.size - state.stuckDust.size;
+    const positionsFull = activePositions >= MAX_POSITIONS;
     if (positionsFull) {
-      callbacks.log(`[AUTONOMY] ${ownedTitles.size}/${MAX_POSITIONS} positions — sell-only`);
+      callbacks.log(`[AUTONOMY] ${activePositions}/${MAX_POSITIONS} positions — sell-only${state.stuckDust.size > 0 ? ` (${state.stuckDust.size} stuck dust excluded)` : ""}`);
     }
 
     const runPoly = state.platform === "both" || state.platform === "polymarket";
@@ -603,7 +604,7 @@ async function runAutonomyCycle(
     const spendInfo = DAILY_SPEND_LIMIT_USD > 0 ? ` | spent: $${state.dailySpend.toFixed(2)}/$${DAILY_SPEND_LIMIT_USD.toFixed(2)}` : "";
     const idleInfo = state.idleCycles > 0 ? ` | idle: ${state.idleCycles} cycles` : "";
     callbacks.log(
-      `[AUTONOMY] x402: ${x402Payments} payments | positions: ${ownedTitles.size}/${MAX_POSITIONS} | poly: $${polyBalance.toFixed(2)} | sol: $${solBalance.toFixed(2)}${spendInfo}${idleInfo}`,
+      `[AUTONOMY] x402: ${x402Payments} payments | positions: ${activePositions}/${MAX_POSITIONS}${state.stuckDust.size > 0 ? ` (+${state.stuckDust.size} dust)` : ""} | poly: $${polyBalance.toFixed(2)} | sol: $${solBalance.toFixed(2)}${spendInfo}${idleInfo}`,
     );
     callbacks.log(`[AUTONOMY] Cycle #${state.cycleCount} complete in ${cycleDuration}s`);
   } catch (err) {

@@ -30,6 +30,12 @@ export type JupSellTarget = { marketId: string; pubkey: string; title: string; p
 export type JupClaimTarget = { pubkey: string; title: string; payout: number };
 export type JupPositionInfo = { marketId: string; pubkey: string; title: string; pnl: number; isYes: boolean; contracts: string; curPrice?: number };
 
+/** Minimum shares to be tradeable on Polymarket CLOB. */
+const MIN_CLOB_SHARES = 5;
+
+/** Price below which a position is effectively dead (can't sell, won't recover). */
+const DEAD_PRICE_THRESHOLD = 0.03;
+
 // --- Unified position type for review ---
 
 type ReviewablePosition = {
@@ -56,8 +62,11 @@ export async function collectPositions(
   jupSellTargets: JupSellTarget[];
   jupAllPositions: JupPositionInfo[];
   jupClaimable: JupClaimTarget[];
+  /** Positions that can't be sold (below CLOB min shares or dead price) — don't count toward limit */
+  untradeableKeys: Set<string>;
 }> {
   const ownedTitles = new Set<string>();
+  const untradeableKeys = new Set<string>();
   const polySellTargets: PolySellTarget[] = [];
   const polyAllSellable: PolySellTarget[] = [];
   const jupSellTargets: JupSellTarget[] = [];
@@ -85,6 +94,10 @@ export async function collectPositions(
           if (price < 0.01) continue;
           if ((pos.size ?? 0) < 1) continue;
           if (pos.title) ownedTitles.add(pos.title.toLowerCase());
+          // Track positions that can't be sold — don't count toward position limit
+          if (pos.size < MIN_CLOB_SHARES || price < DEAD_PRICE_THRESHOLD) {
+            untradeableKeys.add(pos.asset);
+          }
           polyAllSellable.push({ token: pos.asset, shares: pos.size, title: pos.title ?? "", pnl, curPrice: price });
           if (pnl < sellLossThreshold || pnl > sellProfitThreshold) {
             polySellTargets.push({ token: pos.asset, shares: pos.size, title: pos.title ?? "", pnl, curPrice: price });
@@ -139,6 +152,10 @@ export async function collectPositions(
               curPrice: markPrice,
             });
           }
+          // Track Jupiter positions with dead prices as untradeable
+          if (pos.pubkey && (markPrice < DEAD_PRICE_THRESHOLD)) {
+            untradeableKeys.add(pos.pubkey);
+          }
           if (
             (pnl < sellLossThreshold || pnl > sellProfitThreshold) &&
             pos.pubkey &&
@@ -157,7 +174,7 @@ export async function collectPositions(
     }
   } catch {}
 
-  return { ownedTitles, polySellTargets, polyAllSellable, jupSellTargets, jupAllPositions, jupClaimable };
+  return { ownedTitles, polySellTargets, polyAllSellable, jupSellTargets, jupAllPositions, jupClaimable, untradeableKeys };
 }
 
 // --- Execute a sell on either platform ---

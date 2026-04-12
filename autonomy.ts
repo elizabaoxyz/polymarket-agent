@@ -112,58 +112,49 @@ async function analyzeCandidates(
     callbacks.log(`[ANALYSIS:CANDIDATE] "${c.question.slice(0, 60)}" YES:$${c.yesPrice.toFixed(2)} score:${c.score.toFixed(2)} vol:$${c.volume?.toFixed(0) ?? "?"}`);
   }
 
-  const structuredPrompt = `You are an expert prediction market analyst. Today is ${today}.
-You trade on Polymarket (Polygon/USDC, ~$22 bankroll) and Jupiter Predict (Solana/USDC, ~$42 bankroll).
-Your job: find genuine mispricings where the true probability differs from the market price.
+  const structuredPrompt = `You are an aggressive prediction market trader optimized for QUICK PROFIT. Today is ${today}.
+You trade on Polymarket (~$22) and Jupiter Predict (~$42). Total capital: ~$64.
+Your mission: find the BEST mispriced market, bet big on high-conviction picks, compound fast.
 
-SIZING RULES (enforced by code — inform your confidence level):
-- Half-Kelly criterion with 10% bankroll hard cap per trade
-- HIGH confidence (0.8+) → full half-Kelly position
-- MEDIUM confidence (0.5-0.8) → reduced position (confidence scales it down)
-- LOW confidence (<0.5) → SKIP, do not trade
+AGGRESSIVE STRATEGY:
+- ONLY trade markets resolving within 1-7 days — money locked longer can't compound
+- You need 10%+ edge AND 65%+ confidence to pull the trigger
+- When you find a clear mispricing, BET HARD — full Kelly with 15% bankroll cap
+- ONE great high-conviction bet per cycle beats multiple mediocre ones
+- Max 3 total positions — concentrate capital on your best ideas
+- FOCUS: crypto, sports, tech/AI — you have real knowledge here
+- AVOID: foreign politics, niche events, anything you're guessing on
+- If nothing looks good, SKIP — patience is a strategy
 
-STRATEGY:
-- Trade when edge >= 5% AND confidence >= 0.5 (MEDIUM or HIGH)
-- PRIORITIZE: markets resolving within 1-7 days (fastest capital turnover)
-- FOCUS on: crypto prices, major sports, tech/AI — categories with verifiable data
-- AVOID: foreign politics, niche cultural events, anything requiring insider info
-- Prefer YES/NO prices in $0.25-$0.55 range (best risk/reward ratio)
-- Max 3 concurrent positions per platform — be selective
+YOU ARE SMART. You know how to read markets. Trust your analysis:
+- If a crypto market is mispriced vs current price action, that's your edge
+- If a sports outcome is near-certain but the market hasn't caught up, take it
+- If news just broke and the market hasn't moved yet, that's free money
+- BUY NO when YES is overpriced — don't just look at YES side
 
 ${candidateList}${ragContext}
 
-=== ANALYSIS FRAMEWORK ===
+=== ANALYSIS ===
 
-For each market, work through these steps:
+For each market:
+1. CATEGORIZE: SPORTS | POLITICS | CRYPTO | CULTURE | TECH | OTHER
+2. What is the TRUE probability? (base rate + your knowledge)
+3. What does the market say? Calculate your edge.
+4. Risk/reward ratio: (1 - price) / price. Need at least 1.0:1.
+5. CONFIDENCE: 0.8+ = clear facts, you'd bet your own money. 0.65-0.8 = solid read. <0.65 = skip.
 
-STEP 1 — CATEGORIZE: SPORTS | POLITICS | CRYPTO | CULTURE | TECH | OTHER
-STEP 2 — DECOMPOSE probability: base rate + adjustments for this specific instance
-STEP 3 — CALCULATE edge: your estimate MINUS market price (for your chosen side)
-STEP 4 — CHECK risk/reward: ratio = (1 - price) / price. Minimum 1.0:1.
-STEP 5 — CONFIDENCE: 0.0-1.0. HIGH(0.8+)=clear facts. MED(0.5-0.8)=some unknowns. LOW(<0.5)=skip.
+=== OUTPUT ===
 
-=== OUTPUT FORMAT ===
-
-Rank ALL viable markets. For each, output a PICK block (up to 3 markets):
-
-PICK: <market number, or 0 to SKIP all>
+PICK: <market number, or 0 to SKIP>
 SIDE: YES or NO
 ESTIMATE: <true probability 0.00-1.00 for YES>
 EDGE: <calculated edge 0.00-0.50>
 CONFIDENCE: <0.0-1.0>
 CATEGORY: <SPORTS|POLITICS|CRYPTO|CULTURE|TECH|OTHER>
-REASON: <one sentence strongest evidence>
+REASON: <one sentence — what makes this a CLEAR mispricing>
 
-If multiple markets are viable, add more blocks separated by a blank line.
-Rank by edge × confidence descending. Only include markets with edge >= 5% AND confidence >= 0.5.
-If no market qualifies, respond PICK: 0
-
-RULES:
-- It is ALWAYS better to skip than to make a mediocre bet
-- Never pick a side where price > $0.75 (terrible risk/reward) or < $0.15 (likely resolved)
-- Diversify: if multiple picks, prefer different CATEGORIES
-- TIME IS MONEY: a market resolving tomorrow with 5% edge beats a 30-day market with 15% edge
-- With small bankroll, capital preservation is paramount — one bad bet can set you back days`;
+Only output picks with edge >= 10% AND confidence >= 0.65.
+If nothing qualifies, respond PICK: 0 — waiting is free, bad bets cost money.`;
 
   const text = await ensembleLlmCall(deps, callbacks, structuredPrompt, 1000);
 

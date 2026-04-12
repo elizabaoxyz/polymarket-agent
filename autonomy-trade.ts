@@ -53,14 +53,16 @@ export async function directPolymarketSell(
     }
 
     if (price < 0.01 || price > 0.99) {
-      callbacks.log(`[SELL:POLYMARKET] ❌ "${title}" — price $${price.toFixed(4)} out of range, market closed/illiquid`);
+      callbacks.log(`[SELL:POLYMARKET] ❌ "${title}" — price $${price.toFixed(4)} out of range, market closed/illiquid → marking as stuck`);
       state.failedSells.set(token, Date.now());
+      state.stuckDust.add(token);
       return false;
     }
 
     if (price < 0.03) {
-      callbacks.log(`[SELL:POLYMARKET] ❌ "${title}" — price $${price.toFixed(4)}, near-zero, skipping`);
+      callbacks.log(`[SELL:POLYMARKET] ❌ "${title}" — price $${price.toFixed(4)}, near-zero → marking as stuck`);
       state.failedSells.set(token, Date.now());
+      state.stuckDust.add(token);
       return false;
     }
 

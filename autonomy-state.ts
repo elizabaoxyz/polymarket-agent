@@ -79,7 +79,7 @@ export type AutonomyState = {
   skippedMarkets: Map<string, number>;
   /** Markets recently sent to LLM for analysis — force rotation to new candidates */
   recentlyAnalyzed: Map<string, number>;
-  /** Tokens permanently stuck (< 5 shares on Polymarket CLOB) — never retry */
+  /** Tokens permanently stuck (< 5 shares, illiquid, or dead markets) — excluded from position count */
   stuckDust: Set<string>;
   /** Peak observed price per position — for trailing stops */
   peakPrice: Map<string, number>;

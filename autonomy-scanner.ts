@@ -26,6 +26,7 @@ import {
   QUICK_FLIP_BONUS,
   MARKET_MAX_DAYS,
   LLM_KNOWLEDGE_BONUS,
+  MIN_DAYS_LEFT,
 } from "./config";
 import type { AutonomyState, AutonomyCallbacks } from "./autonomy-state";
 import { isRecentlyTraded, isFailCooledDown } from "./autonomy-state";
@@ -205,7 +206,7 @@ export async function scanPolymarketMarkets(
     if (endDate) {
       daysLeft = Math.max(0, (new Date(endDate as string).getTime() - Date.now()) / 86400000);
       if (daysLeft > MARKET_MAX_DAYS) { skipDays++; continue; }
-      if (daysLeft < 0.5) { skipDays++; continue; } // already expired or resolving
+      if (daysLeft < MIN_DAYS_LEFT) { skipDays++; continue; } // too close to resolution
     }
     // Quick flip: score SHORT duration higher — faster resolution = faster compounding
     // Peak score at 3 days, decays as market gets longer

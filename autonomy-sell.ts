@@ -130,10 +130,14 @@ export async function collectPositions(
           if (pos.redeemable) continue;
           if (price < 0.01) continue;
           if ((pos.size ?? 0) < 1) continue;
-          if (pos.title) ownedTitles.add(pos.title.toLowerCase());
           // Track positions that can't be sold — don't count toward position limit
           if (pos.size < MIN_CLOB_SHARES || price < DEAD_PRICE_THRESHOLD) {
             untradeableKeys.add(pos.asset);
+            // Don't add untradeable positions to ownedTitles — they shouldn't block
+            // buying new positions in the same event (especially on Jupiter where the
+            // market pool is tiny and event-level dedup would block everything)
+          } else if (pos.title) {
+            ownedTitles.add(pos.title.toLowerCase());
           }
           let daysLeft: number | undefined;
           const endDateStr =
@@ -193,7 +197,6 @@ export async function collectPositions(
         };
         for (const pos of ((await posRes.json()) as { data?: JupPosApi[] }).data ?? []) {
           const title = pos.eventMetadata?.title ?? pos.marketId ?? "";
-          if (title) ownedTitles.add(title.toLowerCase());
           if (pos.claimable === true && pos.claimed !== true && pos.pubkey) {
             const payout = Number(pos.payoutUsd ?? 0) / 1_000_000;
             jupClaimable.push({
@@ -205,6 +208,12 @@ export async function collectPositions(
           }
           const pnl = pos.pnlUsdPercent ?? 0;
           const markPrice = Number(pos.markPriceUsd ?? "0") / 1_000_000;
+          // Check untradeable BEFORE adding to ownedTitles — dead positions
+          // shouldn't block buying new positions in the same event
+          const isUntradeable = pos.pubkey && markPrice < DEAD_PRICE_THRESHOLD;
+          if (!isUntradeable && title) {
+            ownedTitles.add(title.toLowerCase());
+          }
           if (pos.pubkey) {
             jupAllPositions.push({
               marketId: pos.marketId,
@@ -217,8 +226,8 @@ export async function collectPositions(
             });
           }
           // Track Jupiter positions with dead prices as untradeable
-          if (pos.pubkey && markPrice < DEAD_PRICE_THRESHOLD) {
-            untradeableKeys.add(pos.pubkey);
+          if (isUntradeable) {
+            untradeableKeys.add(pos.pubkey!);
           }
           if (
             (pnl < sellLossThreshold || pnl > sellProfitThreshold) &&

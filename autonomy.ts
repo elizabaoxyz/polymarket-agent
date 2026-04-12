@@ -448,18 +448,23 @@ async function runAutonomyCycle(
             const marketPrice = analysis.side === "YES" ? analysis.pick.yesPrice : 1 - analysis.pick.yesPrice;
             const polyRewardRatio = marketPrice > 0 ? (1 - marketPrice) / marketPrice : 0;
 
-            if (marketPrice > 0.75) {
+            if (marketPrice > 0.90) {
               callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ${analysis.side} at $${marketPrice.toFixed(2)} terrible risk/reward`);
               state.skippedMarkets.set(analysis.pick.question.toLowerCase(), Date.now());
               continue;
             }
-            if (marketPrice < 0.15) {
+            if (marketPrice < 0.10) {
               callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ${analysis.side} at $${marketPrice.toFixed(2)} too cheap`);
               state.skippedMarkets.set(analysis.pick.question.toLowerCase(), Date.now());
               continue;
             }
-            if (polyRewardRatio < MIN_REWARD_RATIO) {
-              callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ratio ${polyRewardRatio.toFixed(1)}:1 below minimum`);
+            // Dynamic reward ratio: lower threshold for high-conviction picks.
+            // A 0.33:1 ratio (buying at $0.75) is fine at 95% confidence — expected value is huge.
+            const effectiveMinRatio = analysis.confidence >= 0.85 ? 0.25
+              : analysis.confidence >= 0.70 ? 0.40
+              : MIN_REWARD_RATIO;
+            if (polyRewardRatio < effectiveMinRatio) {
+              callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ratio ${polyRewardRatio.toFixed(2)}:1 below ${effectiveMinRatio.toFixed(2)} (conf=${analysis.confidence.toFixed(2)})`);
               state.skippedMarkets.set(analysis.pick.question.toLowerCase(), Date.now());
               continue;
             }
@@ -621,18 +626,21 @@ async function runAutonomyCycle(
               const jupMarketPrice = side === "YES" ? pick.yesPrice : 1 - pick.yesPrice;
               const jupRewardRatio = jupMarketPrice > 0 ? (1 - jupMarketPrice) / jupMarketPrice : 0;
 
-              if (jupMarketPrice > 0.75) {
+              if (jupMarketPrice > 0.90) {
                 callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — terrible risk/reward`);
                 state.skippedMarkets.set(pick.question.toLowerCase(), Date.now());
                 continue;
               }
-              if (jupMarketPrice < 0.15) {
+              if (jupMarketPrice < 0.10) {
                 callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — too cheap`);
                 state.skippedMarkets.set(pick.question.toLowerCase(), Date.now());
                 continue;
               }
-              if (jupRewardRatio < MIN_REWARD_RATIO) {
-                callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — ratio below minimum`);
+              const jupEffectiveMinRatio = analysis.confidence >= 0.85 ? 0.25
+                : analysis.confidence >= 0.70 ? 0.40
+                : MIN_REWARD_RATIO;
+              if (jupRewardRatio < jupEffectiveMinRatio) {
+                callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — ratio ${jupRewardRatio.toFixed(2)}:1 below ${jupEffectiveMinRatio.toFixed(2)} (conf=${analysis.confidence.toFixed(2)})`);
                 state.skippedMarkets.set(pick.question.toLowerCase(), Date.now());
                 continue;
               }

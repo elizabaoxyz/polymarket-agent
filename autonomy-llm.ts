@@ -8,6 +8,7 @@ import type { AgentRuntime, Content } from "@elizaos/core";
 import { createMessageMemory, stringToUuid, ChannelType } from "@elizaos/core";
 import { v4 as uuidv4 } from "uuid";
 import type { AutonomyCallbacks, AutonomyDeps } from "./autonomy-state";
+import { LLM_TEMPERATURE } from "./config";
 
 /**
  * Send a prompt through elizaOS message handler (triggers actions).
@@ -107,7 +108,7 @@ export async function callLlmDirect(prompt: string, maxTokens: number): Promise<
         body: JSON.stringify({
           model,
           max_tokens: maxTokens,
-          temperature: 0.3,
+          temperature: LLM_TEMPERATURE,
           messages: [{ role: "user", content: prompt }],
         }),
       });
@@ -145,7 +146,7 @@ export async function callLlmDirect(prompt: string, maxTokens: number): Promise<
         body: JSON.stringify({
           model,
           max_tokens: maxTokens,
-          temperature: 0.3,
+          temperature: LLM_TEMPERATURE,
           messages: [{ role: "user", content: prompt }],
         }),
       });
@@ -280,7 +281,7 @@ export async function ensembleLlmCall(
       body: JSON.stringify({
         model: anthropicModel,
         max_tokens: maxTokens,
-        temperature: 0.3,
+        temperature: LLM_TEMPERATURE,
         messages: [{ role: "user", content: prompt }],
       }),
     });
@@ -300,7 +301,7 @@ export async function ensembleLlmCall(
       body: JSON.stringify({
         model: openaiModel,
         max_tokens: maxTokens,
-        temperature: 0.3,
+        temperature: LLM_TEMPERATURE,
         messages: [{ role: "user", content: prompt }],
       }),
     });

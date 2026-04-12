@@ -223,7 +223,12 @@ export async function directPolymarketBuy(
     callbacks.log(
       `[BUY:POLYMARKET] ✅ ${statusIcon}: ${size} shares @ $${price.toFixed(2)} ($${total}) for "${question.slice(0, 60)}"${txInfo}`,
     );
-    recordSpend(state, Number(total));
+    // Only record spend for filled orders (not live/pending GTC orders)
+    if (result.status === "matched") {
+      recordSpend(state, Number(total));
+    } else {
+      callbacks.log(`[BUY:POLYMARKET] ⚠️ Order is ${statusIcon}, not FILLED — spend not recorded (will be recorded if filled later)`);
+    }
     return true;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

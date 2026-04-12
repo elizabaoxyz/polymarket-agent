@@ -5,7 +5,7 @@
 
 import { JupiterPredictionService, JUPITER_SERVICE_TYPE } from "./plugins/jupiter-prediction/service";
 import type { AutonomyDeps, AutonomyCallbacks, AutonomyState } from "./autonomy-state";
-import { recordTrade, updatePeakPrice, getDropFromPeak, trackPositionAge, getPositionAgeDays, pruneStaleTracking } from "./autonomy-state";
+import { recordTrade, updatePeakPrice, getDropFromPeak, trackPositionAge, getPositionAgeDays, pruneStaleTracking, recordJupPriceSnapshot, computeJupTrend, pruneStaleJupHistory } from "./autonomy-state";
 import {
   PRICE_CEILING_SELL,
   HIGH_PRICE_SELL,
@@ -274,6 +274,7 @@ export async function unifiedPortfolioReview(
 
   // === Track peak prices + position ages for all positions ===
   const activeKeys = new Set<string>();
+  const jupActiveKeys = new Set<string>();
   for (const p of reviewable) {
     const key = p.token ?? p.pubkey ?? "";
     activeKeys.add(key);
@@ -281,10 +282,18 @@ export async function unifiedPortfolioReview(
       updatePeakPrice(state, key, p.curPrice);
     }
     trackPositionAge(state, key);
+    // Track Jupiter price snapshots for trend computation
+    if (platform === "JUPITER" && p.pubkey && p.curPrice && p.curPrice > 0) {
+      jupActiveKeys.add(p.pubkey);
+      recordJupPriceSnapshot(state, p.pubkey, p.curPrice);
+    }
   }
   pruneStaleTracking(state, activeKeys);
+  if (platform === "JUPITER") {
+    pruneStaleJupHistory(state, jupActiveKeys);
+  }
 
-  // === Fetch price trends (Polymarket only — Jupiter lacks history API) ===
+  // === Fetch price trends (Polymarket: from API, Jupiter: from in-memory snapshots) ===
   const trendMap = new Map<string, PriceTrend>();
   if (platform === "POLYMARKET") {
     const trendFetches = reviewable.slice(0, 10).map(async (p) => {
@@ -297,6 +306,24 @@ export async function unifiedPortfolioReview(
       } catch {}
     });
     await Promise.allSettled(trendFetches);
+  }
+  // For Jupiter: use in-memory price snapshots for trend detection
+  if (platform === "JUPITER") {
+    for (const p of reviewable) {
+      if (!p.pubkey) continue;
+      const jupTrend = computeJupTrend(state, p.pubkey);
+      if (jupTrend) {
+        // Convert to PriceTrend format for uniform processing
+        trendMap.set(p.pubkey, {
+          current: p.curPrice ?? 0,
+          change1h: null,
+          change6h: null,
+          change24h: jupTrend.changePct,
+          direction: jupTrend.direction,
+          momentum: jupTrend.direction === "up" ? 0.5 : jupTrend.direction === "down" ? -0.5 : 0,
+        });
+      }
+    }
   }
 
   // === Price-based auto-sell rules (no LLM needed) ===
@@ -386,7 +413,7 @@ export async function unifiedPortfolioReview(
       const sign = (p.pnl ?? 0) >= 0 ? "+" : "";
       const age = getPositionAgeDays(state, p.token ?? p.pubkey ?? "");
       let trendStr = "";
-      const trend = trendMap.get(p.token ?? "");
+      const trend = trendMap.get(p.token ?? p.pubkey ?? "");
       if (trend) {
         const parts: string[] = [];
         if (trend.change1h !== null) parts.push(`1h: ${trend.change1h > 0 ? "+" : ""}${trend.change1h.toFixed(1)}%`);

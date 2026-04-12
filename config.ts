@@ -75,8 +75,12 @@ export const LLM_KNOWLEDGE_BONUS = envFloat("LLM_KNOWLEDGE_BONUS", 0.35);
 /** Minimum LLM-reported edge (0-1) to enter a trade. */
 export const MIN_EDGE_THRESHOLD = envFloat("MIN_EDGE_THRESHOLD", 0.05);
 
-/** Minimum LLM confidence (0-1) to enter a trade. 0.50 = slight lean is enough. */
-export const MIN_CONFIDENCE_THRESHOLD = envFloat("MIN_CONFIDENCE_THRESHOLD", 0.50);
+/** Minimum LLM confidence (0-1) to enter a trade. 0.55 = need a real lean, not a coin flip. */
+export const MIN_CONFIDENCE_THRESHOLD = envFloat("MIN_CONFIDENCE_THRESHOLD", 0.55);
+
+/** Estimated taker fee rate per trade (Polymarket ~2%, Jupiter ~1%, gas ~0.5%).
+ *  Edge is reduced by this amount before comparing to MIN_EDGE_THRESHOLD. */
+export const TAKER_FEE_RATE = envFloat("TAKER_FEE_RATE", 0.03);
 
 // --- Price sweet spot ---
 
@@ -87,6 +91,11 @@ export const PRICE_SWEET_SPOT_MAX = envFloat("PRICE_SWEET_SPOT_MAX", 0.55);
 // --- WebSocket auth ---
 
 export const WS_AUTH_TOKEN = process.env.WS_AUTH_TOKEN?.trim() || null;
+
+// --- LLM settings ---
+
+/** Temperature for trading decision LLM calls. Lower = more consistent estimates. */
+export const LLM_TEMPERATURE = envFloat("LLM_TEMPERATURE", 0.1);
 
 // --- Retry settings ---
 
@@ -122,11 +131,11 @@ export const MIN_JUP_VOLUME = envFloat("MIN_JUP_VOLUME", 10);
 
 // --- Kelly criterion sizing ---
 
-/** Maximum fraction of balance to risk on a single trade — 15% bankroll cap */
-export const KELLY_MAX_FRACTION = envFloat("KELLY_MAX_FRACTION", 0.15);
+/** Maximum fraction of balance to risk on a single trade — 10% bankroll cap */
+export const KELLY_MAX_FRACTION = envFloat("KELLY_MAX_FRACTION", 0.10);
 
-/** Kelly multiplier: 1.0 = full Kelly for aggressive quick-profit */
-export const KELLY_FRACTION_MULTIPLIER = envFloat("KELLY_FRACTION_MULTIPLIER", 1.0);
+/** Kelly multiplier: 0.5 = half-Kelly for safety (preserves ~75% growth, drastically reduces drawdown) */
+export const KELLY_FRACTION_MULTIPLIER = envFloat("KELLY_FRACTION_MULTIPLIER", 0.5);
 
 // --- Multi-buy ---
 
@@ -138,6 +147,17 @@ export const SECOND_BUY_MIN_EDGE = envFloat("SECOND_BUY_MIN_EDGE", 0.15);
 
 /** Minimum confidence for second buy in a cycle */
 export const SECOND_BUY_MIN_CONFIDENCE = envFloat("SECOND_BUY_MIN_CONFIDENCE", 0.70);
+
+// --- Circuit breaker ---
+
+/** Hard loss circuit breaker: pause all trading if cumulative P&L drops below this % of starting balance.
+ *  Set to 0 to disable. */
+export const CIRCUIT_BREAKER_LOSS_PCT = envFloat("CIRCUIT_BREAKER_LOSS_PCT", -30);
+
+// --- Stuck dust re-evaluation ---
+
+/** Re-check stuck dust positions every 24h to see if they've recovered. */
+export const STUCK_DUST_REEVAL_MS = envInt("STUCK_DUST_REEVAL_MS", 86_400_000);
 
 // --- Price-based exit rules ---
 

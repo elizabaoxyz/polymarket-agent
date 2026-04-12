@@ -14,6 +14,8 @@ import {
   DAILY_SPEND_LIMIT_USD,
   SKIPPED_MARKET_COOLDOWN_MS,
   SAME_MARKET_COOLDOWN_MS,
+  CIRCUIT_BREAKER_LOSS_PCT,
+  STUCK_DUST_REEVAL_MS,
 } from "./config";
 import type { AgentRuntime } from "@elizaos/core";
 
@@ -85,6 +87,14 @@ export type AutonomyState = {
   peakPrice: Map<string, number>;
   /** First time a position was seen — for time-based exits */
   positionFirstSeen: Map<string, number>;
+  /** Starting balance snapshot — for circuit breaker loss detection */
+  startingBalance: { poly: number; sol: number; recorded: boolean };
+  /** Circuit breaker tripped — all trading paused */
+  circuitBreakerTripped: boolean;
+  /** Last time stuck dust was re-evaluated */
+  lastStuckDustReeval: number;
+  /** Jupiter price history: pubkey → array of {time, price} for trend computation */
+  jupPriceHistory: Map<string, Array<{ time: number; price: number }>>;
 }
 
 // --- State factory ---
@@ -114,6 +124,10 @@ export function createState(platform: AutonomyPlatform): AutonomyState {
     positionFirstSeen: new Map(),
     idleCycles: 0,
     depositNotified: false,
+    startingBalance: { poly: -1, sol: -1, recorded: false },
+    circuitBreakerTripped: false,
+    lastStuckDustReeval: 0,
+    jupPriceHistory: new Map(),
   };
 }
 
@@ -265,5 +279,97 @@ export function pruneStaleTracking(state: AutonomyState, activeKeys: Set<string>
   }
   for (const key of state.positionFirstSeen.keys()) {
     if (!activeKeys.has(key)) state.positionFirstSeen.delete(key);
+  }
+}
+
+/**
+ * Record starting balances for circuit breaker.
+ * Only records on first call — subsequent calls are no-ops.
+ */
+export function recordStartingBalances(state: AutonomyState, poly: number, sol: number): void {
+  if (state.startingBalance.recorded) return;
+  state.startingBalance = { poly, sol, recorded: true };
+}
+
+/**
+ * Check if the circuit breaker should trip.
+ * Compares current balances against starting balances.
+ * Returns true if cumulative loss exceeds CIRCUIT_BREAKER_LOSS_PCT.
+ */
+export function checkCircuitBreaker(state: AutonomyState, poly: number, sol: number): boolean {
+  if (CIRCUIT_BREAKER_LOSS_PCT >= 0) return false; // disabled
+  if (!state.startingBalance.recorded) return false;
+
+  const startTotal = state.startingBalance.poly + state.startingBalance.sol;
+  if (startTotal <= 0) return false;
+
+  const currentTotal = poly + sol;
+  const lossPct = ((currentTotal - startTotal) / startTotal) * 100;
+
+  if (lossPct <= CIRCUIT_BREAKER_LOSS_PCT && !state.circuitBreakerTripped) {
+    state.circuitBreakerTripped = true;
+    return true;
+  }
+
+  // Auto-reset: if balance recovers above threshold, clear the breaker
+  if (lossPct > CIRCUIT_BREAKER_LOSS_PCT + 5 && state.circuitBreakerTripped) {
+    state.circuitBreakerTripped = false;
+  }
+
+  return state.circuitBreakerTripped;
+}
+
+/**
+ * Re-evaluate stuck dust positions — clear them periodically so they get re-priced.
+ * Returns the number of entries cleared.
+ */
+export function reevaluateStuckDust(state: AutonomyState): number {
+  if (Date.now() - state.lastStuckDustReeval < STUCK_DUST_REEVAL_MS) return 0;
+  if (state.stuckDust.size === 0) return 0;
+
+  const cleared = state.stuckDust.size;
+  state.stuckDust.clear();
+  state.lastStuckDustReeval = Date.now();
+  return cleared;
+}
+
+/**
+ * Record a Jupiter position price snapshot for trend tracking.
+ * Keeps at most 24 data points per position (24 hours at 1 cycle/minute).
+ */
+export function recordJupPriceSnapshot(state: AutonomyState, pubkey: string, price: number): void {
+  let history = state.jupPriceHistory.get(pubkey);
+  if (!history) {
+    history = [];
+    state.jupPriceHistory.set(pubkey, history);
+  }
+  history.push({ time: Date.now(), price });
+  // Keep last 24 data points
+  while (history.length > 24) history.shift();
+}
+
+/**
+ * Compute a simple price trend from Jupiter position price history.
+ * Returns null if not enough data.
+ */
+export function computeJupTrend(state: AutonomyState, pubkey: string): { direction: "up" | "down" | "flat"; changePct: number } | null {
+  const history = state.jupPriceHistory.get(pubkey);
+  if (!history || history.length < 3) return null;
+
+  const oldest = history[0]!.price;
+  const newest = history[history.length - 1]!.price;
+  if (oldest <= 0) return null;
+
+  const changePct = ((newest - oldest) / oldest) * 100;
+  const direction = changePct > 3 ? "up" : changePct < -3 ? "down" : "flat";
+  return { direction, changePct };
+}
+
+/**
+ * Prune Jupiter price history for positions no longer held.
+ */
+export function pruneStaleJupHistory(state: AutonomyState, activePubkeys: Set<string>): void {
+  for (const key of state.jupPriceHistory.keys()) {
+    if (!activePubkeys.has(key)) state.jupPriceHistory.delete(key);
   }
 }

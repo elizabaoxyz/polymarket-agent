@@ -28,6 +28,7 @@ import {
   MAX_BUYS_PER_CYCLE,
   SECOND_BUY_MIN_EDGE,
   SECOND_BUY_MIN_CONFIDENCE,
+  CIRCUIT_BREAKER_LOSS_PCT,
 } from "./config";
 import { getSolanaKeypair, getCachedSolanaBalanceBreakdown } from "./solana-wallet";
 import { getPortfolioStatus } from "./portfolio";
@@ -56,6 +57,12 @@ import {
   canSpend,
   recordTrade,
   seedStateFromTradeHistory,
+  recordStartingBalances,
+  checkCircuitBreaker,
+  reevaluateStuckDust,
+  recordJupPriceSnapshot,
+  computeJupTrend,
+  pruneStaleJupHistory,
 } from "./autonomy-state";
 
 import { directLlmCall, ensembleLlmCall } from "./autonomy-llm";
@@ -67,6 +74,7 @@ import {
   unifiedPortfolioReview,
   claimJupiterPositions,
 } from "./autonomy-sell";
+import { TAKER_FEE_RATE } from "./config";
 
 // --- LLM analysis ---
 
@@ -115,38 +123,44 @@ async function analyzeCandidates(
   const structuredPrompt = `You are a prediction market TRADER, not an analyst. Today is ${today}.
 You trade Polymarket (~$22) and Jupiter Predict (~$42). Your job is to MAKE MONEY, not write reports.
 
-CORE RULE: You MUST pick at least one market from the candidates below unless every single one is a pure coin flip. Skipping is a LAST RESORT, not a default. Every cycle you skip is money sitting idle losing to opportunity cost.
+CORE PRINCIPLE: Only trade when you have genuine conviction. A bad trade loses more than no trade.
+Opportunity cost of idle capital is real, but the cost of wrong trades is worse.
+Skip EVERY market if none has a clear, reasoned edge.
 
 HOW TO THINK:
 - You have REAL knowledge. Crypto prices, sports matchups, geopolitical trends, tech news — USE IT.
 - Markets are set by other traders who are often wrong. Your edge comes from knowing things the crowd hasn't priced in.
-- A 55-45 situation priced at 50-50 IS an edge. Take it.
-- You don't need certainty. You need a LEAN — which side is more likely? Even 55% confidence on a well-priced market is tradeable if the edge is there.
+- A 55-45 situation priced at 50-50 IS an edge. But a 51-49 situation is NOT — skip it.
+- You don't need certainty. You need a GENUINE LEAN — which side is more likely and WHY?
 - BUY NO aggressively when YES is overpriced. Most traders only look at YES.
 - Sports: home/away, recent form, injuries, matchup history. You know this.
 - Politics: incumbency advantage, polling, structural factors. Make a call.
 - Crypto: current price action vs market target. You can estimate this.
 
 SIZING (code handles this — just be honest about your confidence):
-- Full Kelly with 15% bankroll cap. Bigger confidence = bigger bet.
+- Half-Kelly with 10% bankroll cap. Bigger confidence = bigger bet.
 - $2-$7 per trade depending on edge and confidence.
+
+FEE REALITY: Every trade costs ~3% in taker fees + gas. Your edge must exceed this to be profitable.
+An edge of 5% is really 2% after fees. Be skeptical of small edges.
 
 ${candidateList}${ragContext}
 
 === YOUR JOB ===
 
-Pick THE BEST market. For each candidate, decide: which side would you bet? How confident are you?
+Evaluate each candidate honestly. Pick ONLY if you have genuine conviction.
 
-PICK: <market number — you SHOULD pick one unless all are pure coin flips>
+For each candidate, decide: which side would you bet? How confident are you?
+
+PICK: <market number — pick ONLY if you have a genuine, reasoned edge. PICK: 0 means no trade, which is often correct>
 SIDE: YES or NO
 ESTIMATE: <your TRUE probability for YES, 0.00-1.00 — commit to a number, don't hedge>
 EDGE: <your estimate minus market price for your chosen side>
-CONFIDENCE: <0.50-1.0 — 0.50 means slight lean, 0.70 means solid read, 0.90 means near-certain>
+CONFIDENCE: <0.55-1.0 — 0.55 means genuine lean, 0.70 means solid read, 0.90 means near-certain>
 CATEGORY: <SPORTS|POLITICS|CRYPTO|CULTURE|TECH|OTHER>
 REASON: <one sentence — your strongest signal>
 
-PICK: 0 ONLY if every market is a literal coin flip with zero informational edge.
-Do NOT skip just because you're "not sure" — uncertainty is priced into confidence scores.`;
+PICK: 0 if no market has a clear edge after accounting for fees. This is NOT a failure — patience is profitable.`;
 
   const text = await ensembleLlmCall(deps, callbacks, structuredPrompt, 1000);
 
@@ -189,6 +203,14 @@ Do NOT skip just because you're "not sure" — uncertainty is priced into confid
       callbacks.log(`[ANALYSIS] ❌ Edge ${edge.toFixed(2)} below minimum ${MIN_EDGE_THRESHOLD} — skipping "${pick.question.slice(0, 50)}"`);
       continue;
     }
+
+    // Fee-adjusted edge: deduct taker fees + gas before accepting
+    const feeAdjustedEdge = edge - TAKER_FEE_RATE;
+    if (feeAdjustedEdge < 0.02) {
+      callbacks.log(`[ANALYSIS] ❌ Fee-adjusted edge ${feeAdjustedEdge.toFixed(3)} (raw ${edge.toFixed(2)} - ${TAKER_FEE_RATE} fees) too thin — skipping "${pick.question.slice(0, 50)}"`);
+      continue;
+    }
+
     if (confidence < MIN_CONFIDENCE_THRESHOLD) {
       callbacks.log(`[ANALYSIS] ❌ Confidence ${confidence.toFixed(2)} below minimum ${MIN_CONFIDENCE_THRESHOLD} — skipping "${pick.question.slice(0, 50)}"`);
       continue;
@@ -289,6 +311,23 @@ async function runAutonomyCycle(
       `[BALANCE] Polygon: $${polyBalance.toFixed(2)} | Solana: $${solBalanceTotal.toFixed(2)}${lockedInfo}`,
     );
 
+    // Record starting balances for circuit breaker (first cycle only)
+    recordStartingBalances(state, polyBalance, solBalance);
+
+    // Circuit breaker: pause all trading if cumulative loss is too large
+    if (checkCircuitBreaker(state, polyBalance, solBalance)) {
+      callbacks.log(`[CIRCUIT BREAKER] ⚠️ Trading paused — cumulative loss exceeds ${CIRCUIT_BREAKER_LOSS_PCT}%. Starting: $${(state.startingBalance.poly + state.startingBalance.sol).toFixed(2)}, Current: $${(polyBalance + solBalance).toFixed(2)}`);
+      callbacks.send({ type: "action_result", text: `⚠️ CIRCUIT BREAKER — Trading paused. Loss exceeds ${CIRCUIT_BREAKER_LOSS_PCT}%. Deposit more funds or manually resume.` });
+      // Still run sell phase to manage existing positions, but skip all buys
+    }
+    const breakerActive = state.circuitBreakerTripped;
+
+    // Re-evaluate stuck dust periodically (every 24h)
+    const dustCleared = reevaluateStuckDust(state);
+    if (dustCleared > 0) {
+      callbacks.log(`[AUTONOMY] Re-evaluated ${dustCleared} stuck dust positions — cleared for re-pricing`);
+    }
+
     // P&L tracking
     if (state.prevPolyBalance >= 0 || state.prevSolBalance >= 0) {
       const polyDelta = state.prevPolyBalance >= 0 ? polyBalance - state.prevPolyBalance : 0;
@@ -337,8 +376,9 @@ async function runAutonomyCycle(
         polyBalance, lowPolyBalance,
       );
 
-      if (positionsFull || lowPolyBalance) {
+      if (positionsFull || lowPolyBalance || breakerActive) {
         if (lowPolyBalance) callbacks.log(`[POLYMARKET] Balance $${polyBalance.toFixed(2)} — sell-only mode`);
+        if (breakerActive) callbacks.log(`[POLYMARKET] Circuit breaker active — sell-only mode`);
         return;
       }
 
@@ -455,12 +495,21 @@ async function runAutonomyCycle(
       // Unified sell+review for all Jupiter positions
       await unifiedPortfolioReview(
         deps, callbacks, state, "JUPITER",
-        jupAllPositions.map((p) => ({ pubkey: p.pubkey, title: p.title, pnl: p.pnl, isYes: p.isYes, contracts: p.contracts, curPrice: p.curPrice })),
+        jupAllPositions.map((p) => ({ pubkey: p.pubkey, title: p.title, pnl: p.pnl, isYes: p.isYes, contracts: p.contracts, ...(p.curPrice != null ? { curPrice: p.curPrice } : {}) })),
         solBalance, lowSolBalance,
       );
 
-      if (positionsFull || lowSolBalance) {
+      if (positionsFull || lowSolBalance || breakerActive) {
         if (lowSolBalance) callbacks.log(`[JUPITER] Balance $${solBalance.toFixed(2)} — sell-only mode`);
+        if (breakerActive) callbacks.log(`[JUPITER] Circuit breaker active — sell-only mode`);
+        // Still record price snapshots before returning
+        for (const p of jupAllPositions) {
+          if (p.pubkey && p.curPrice && p.curPrice > 0) {
+            recordJupPriceSnapshot(state, p.pubkey, p.curPrice);
+          }
+        }
+        const jupActiveKeys = new Set(jupAllPositions.map(p => p.pubkey).filter(Boolean) as string[]);
+        pruneStaleJupHistory(state, jupActiveKeys);
         return;
       }
 

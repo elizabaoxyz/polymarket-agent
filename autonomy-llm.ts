@@ -88,7 +88,8 @@ export async function directLlmCall(
 export async function callLlmDirect(prompt: string, maxTokens: number): Promise<string> {
   const glmKey = process.env.GLM_API_KEY?.trim();
   const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
-  const openaiKey = process.env.OPENAI_API_KEY?.trim();
+  const openaiEmbeddingsOnly = process.env.OPENAI_EMBEDDINGS_ONLY?.trim() === "true";
+  const openaiKey = openaiEmbeddingsOnly ? undefined : process.env.OPENAI_API_KEY?.trim();
 
   const maxRetries = 3;
   const baseDelay = 2000;
@@ -258,7 +259,9 @@ export async function ensembleLlmCall(
   maxTokens = 800,
 ): Promise<string> {
   const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim() || process.env.GLM_API_KEY?.trim();
-  const openaiKey = process.env.OPENAI_API_KEY?.trim();
+  // When OPENAI_EMBEDDINGS_ONLY is set, don't use OpenAI for LLM calls (only for RAG embeddings)
+  const openaiEmbeddingsOnly = process.env.OPENAI_EMBEDDINGS_ONLY?.trim() === "true";
+  const openaiKey = openaiEmbeddingsOnly ? undefined : process.env.OPENAI_API_KEY?.trim();
 
   // If only one provider, fall back to regular call
   if (!anthropicKey || !openaiKey) {

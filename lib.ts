@@ -60,7 +60,9 @@ export type EnvFile = {
   readonly values: Record<string, string>;
 };
 
-const LLM_PROVIDER_ORDER = ["openai", "anthropic", "gemini", "groq", "grok", "glm"] as const;
+// GLM before openai: when both keys are set, GLM is likely the LLM provider
+// while OPENAI_API_KEY is only for embeddings (RAG). Users can override with ELIZA_LLM_PROVIDER.
+const LLM_PROVIDER_ORDER = ["glm", "anthropic", "openai", "gemini", "groq", "grok"] as const;
 
 const LLM_PROVIDER_KEYS: Record<LlmProvider, readonly string[]> = {
   openai: ["OPENAI_API_KEY"],

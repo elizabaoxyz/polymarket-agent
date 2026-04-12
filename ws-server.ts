@@ -46,6 +46,7 @@ import { connectorsPlugin } from "./plugins/connectors/index";
 import { ConnectorsService } from "./plugins/connectors/service";
 import { CONNECTORS_SERVICE_TYPE } from "./plugins/connectors/types";
 
+import { log } from "./log";
 import { WS_AUTH_TOKEN, AUTONOMY_PLATFORM } from "./config";
 import { AsyncMutex } from "./mutex";
 import { getPortfolioStatus } from "./portfolio";
@@ -188,7 +189,7 @@ async function createRuntime() {
   try {
     ragSvc = (await runtime.getServiceLoadPromise(RAG_SERVICE_TYPE)) as unknown as RAGService | null;
     if (ragSvc?.isActive()) {
-      console.log("ws-server: RAG active — ChromaDB connected");
+      log.info("ws-server", "RAG active — ChromaDB connected");
     }
   } catch {}
 
@@ -196,7 +197,7 @@ async function createRuntime() {
   try {
     connectorsSvc = (await runtime.getServiceLoadPromise(CONNECTORS_SERVICE_TYPE)) as unknown as ConnectorsService | null;
     if (connectorsSvc?.isActive()) {
-      console.log("ws-server: Connectors active — news + search available");
+      log.info("ws-server", "Connectors active — news + search available");
     }
   } catch {}
 
@@ -215,14 +216,14 @@ async function createRuntime() {
 }
 
 async function main() {
-  console.log("ws-server: initializing runtime...");
+  log.info("ws-server", "initializing runtime...");
   const { runtime, ragSvc, connectorsSvc } = await createRuntime();
   const messageService = runtime.messageService;
   if (!messageService) {
     throw new Error("Message service not initialized");
   }
 
-  console.log("ws-server: runtime ready");
+  log.info("ws-server", "runtime ready");
 
   // Shared mutex for serializing runtime message handling
   const runtimeMutex = new AsyncMutex();
@@ -259,13 +260,13 @@ async function main() {
     },
     websocket: {
       open(ws) {
-        console.log("ws-server: client connected");
+        log.info("ws-server", "client connected");
         if (WS_AUTH_TOKEN) {
           ws.send(JSON.stringify({ type: "auth_required" }));
         }
       },
       close(ws) {
-        console.log("ws-server: client disconnected");
+        log.info("ws-server", "client disconnected");
         // Autonomy keeps running — only stops when user explicitly clicks AUTONOMY OFF
       },
       async message(ws, raw) {
@@ -286,10 +287,10 @@ async function main() {
           if (msg.token === WS_AUTH_TOKEN) {
             authenticatedClients.add(ws);
             ws.send(JSON.stringify({ type: "auth_result", success: true }));
-            console.log("ws-server: client authenticated");
+            log.info("ws-server", "client authenticated");
           } else {
             ws.send(JSON.stringify({ type: "auth_result", success: false, text: "Invalid token" }));
-            console.warn("ws-server: client auth failed");
+            log.warn("ws-server", "client auth failed");
           }
           return;
         }
@@ -361,11 +362,11 @@ async function main() {
             // Stop current autonomy to switch platform
             autonomyHandle.stop();
             autonomyHandle = null;
-            console.log(`ws-server: switching autonomy from ${autonomyHandle?.platform ?? "?"} to ${platform}`);
+            log.info("ws-server", `switching autonomy from ${autonomyHandle?.platform ?? "?"} to ${platform}`);
           }
 
           const label = platform === "both" ? "both platforms" : platform === "polymarket" ? "Polymarket only" : "Jupiter + x402 only";
-          console.log(`ws-server: autonomy started (${label})`);
+          log.info("ws-server", `autonomy started (${label})`);
           ws.send(JSON.stringify({ type: "autonomy_status", active: true, platform }));
 
           autonomyHandle = startAutonomy(
@@ -392,7 +393,7 @@ async function main() {
                 } catch {
                   /* client disconnected */
                 }
-                console.log(text);
+                log.info("ws-server", text);
               },
             },
             platform,
@@ -410,7 +411,7 @@ async function main() {
               ? "[AUTONOMY] Stopped (Jupiter)"
               : "[AUTONOMY] Stopped — heartbeat ended, GTC orders will auto-cancel";
             ws.send(JSON.stringify({ type: "action_result", text: stopMsg }));
-            console.log("ws-server: autonomy stopped");
+            log.info("ws-server", "autonomy stopped");
           }
           ws.send(JSON.stringify({ type: "autonomy_status", active: false, platform: null }));
           return;
@@ -421,15 +422,15 @@ async function main() {
     },
   });
 
-  console.log(`ws-server: listening on ws://localhost:${server.port}`);
+  log.info("ws-server", `listening on ws://localhost:${server.port}`);
   if (WS_AUTH_TOKEN) {
-    console.log("ws-server: authentication ENABLED — clients must send auth token");
+    log.info("ws-server", "authentication ENABLED — clients must send auth token");
   } else {
-    console.log("ws-server: authentication DISABLED — set WS_AUTH_TOKEN to enable");
+    log.info("ws-server", "authentication DISABLED — set WS_AUTH_TOKEN to enable");
   }
 }
 
 main().catch((err) => {
-  console.error("ws-server fatal:", err);
+  log.error("ws-server", `fatal: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
 });

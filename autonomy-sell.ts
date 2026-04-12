@@ -27,7 +27,7 @@ import type { PriceTrend } from "./market-intel";
 
 // --- Position collection types ---
 
-export type PolySellTarget = { token: string; shares: number; title: string; pnl: number; curPrice: number };
+export type PolySellTarget = { token: string; shares: number; title: string; pnl: number; curPrice: number; daysLeft?: number };
 export type JupSellTarget = { marketId: string; pubkey: string; title: string; pnl: number };
 export type JupClaimTarget = { pubkey: string; title: string; payout: number };
 export type JupPositionInfo = { marketId: string; pubkey: string; title: string; pnl: number; isYes: boolean; contracts: string; curPrice?: number };
@@ -88,6 +88,7 @@ export async function collectPositions(
         type PolyPosApi = {
           title?: string; asset: string; size: number; percentPnl: number;
           curPrice: number; redeemable?: boolean;
+          end_date_iso?: string; endDate?: string;
         };
         for (const pos of (await posRes.json()) as PolyPosApi[]) {
           const pnl = pos.percentPnl ?? 0;
@@ -101,9 +102,14 @@ export async function collectPositions(
           if (pos.size < MIN_CLOB_SHARES || price < DEAD_PRICE_THRESHOLD) {
             untradeableKeys.add(pos.asset);
           }
-          polyAllSellable.push({ token: pos.asset, shares: pos.size, title: pos.title ?? "", pnl, curPrice: price });
+          let daysLeft: number | undefined;
+          const endDateStr = pos.end_date_iso ?? (pos as Record<string, unknown>).endDate as string | undefined;
+          if (endDateStr) {
+            daysLeft = Math.max(0, (new Date(endDateStr).getTime() - Date.now()) / 86400000);
+          }
+          polyAllSellable.push({ token: pos.asset, shares: pos.size, title: pos.title ?? "", pnl, curPrice: price, ...(daysLeft !== undefined ? { daysLeft } : {}) });
           if (pnl < sellLossThreshold || pnl > sellProfitThreshold) {
-            polySellTargets.push({ token: pos.asset, shares: pos.size, title: pos.title ?? "", pnl, curPrice: price });
+            polySellTargets.push({ token: pos.asset, shares: pos.size, title: pos.title ?? "", pnl, curPrice: price, ...(daysLeft !== undefined ? { daysLeft } : {}) });
           }
         }
       }

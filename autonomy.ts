@@ -413,7 +413,7 @@ export async function runAutonomyCycle(
         activeCount: polyActive,
         minBet: MIN_BET_SIZE_USD,
         breakerActive,
-        reviewPositions: polyReviewable.map((p) => ({ token: p.token, title: p.title, pnl: p.pnl, shares: p.shares, curPrice: p.curPrice })),
+        reviewPositions: polyReviewable.map((p) => ({ token: p.token, title: p.title, pnl: p.pnl, shares: p.shares, curPrice: p.curPrice, ...(p.daysLeft !== undefined ? { daysLeft: p.daysLeft } : {}) })),
         scan: () => scanPolymarketMarkets(ownedTitles, state, callbacks),
         executeBuy: async (analysis, betSize, remaining) => {
           const marketPrice = analysis.side === "YES" ? analysis.pick.yesPrice : 1 - analysis.pick.yesPrice;

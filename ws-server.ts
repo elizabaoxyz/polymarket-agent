@@ -50,7 +50,7 @@ import { log } from "./log";
 import { WS_AUTH_TOKEN, AUTONOMY_PLATFORM } from "./config";
 import { AsyncMutex } from "./mutex";
 import { getPortfolioStatus } from "./portfolio";
-import { startAutonomy, type AutonomyHandle, type AutonomyPlatform } from "./autonomy";
+import { startAutonomy, type AutonomyHandle, type AutonomyPlatform } from "./autonomy-loop";
 
 const WS_PORT = Number(process.env.PORT ?? process.env.WS_PORT ?? 3001);
 const DEFAULT_ROOM_ID = stringToUuid("web-chat-room");

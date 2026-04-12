@@ -15,6 +15,8 @@ import {
   TRAILING_STOP_DROP_PCT,
   CAPITAL_PRESSURE_MIN_BALANCE,
   CAPITAL_PRESSURE_MAX_POSITIONS,
+  TIME_DECAY_SELL_DAYS,
+  PARTIAL_PROFIT_PRICE,
 } from "./config";
 import { withRetry } from "./retry";
 import { getSolanaKeypair } from "./solana-wallet";
@@ -47,6 +49,7 @@ export type ReviewablePosition = {
   curPrice?: number;
   isYes?: boolean;
   contracts?: string;
+  daysLeft?: number;  // days until market resolution
 };
 
 // --- Collect positions from both platforms ---
@@ -384,10 +387,37 @@ export async function unifiedPortfolioReview(
     else if (age > 2 && price >= 0.35 && price <= 0.65 && Math.abs(pnl) < 5) {
       reason = `stale-position (${age.toFixed(1)}d old, ${pnl >= 0 ? "+" : ""}${pnl.toFixed(0)}% PnL, price $${price.toFixed(2)} — capital trapped)`;
     }
+    // Rule 8: Time-decay — sell positions in no-man's land near resolution
+    else if (p.daysLeft !== undefined && p.daysLeft < TIME_DECAY_SELL_DAYS) {
+      if (price >= 0.40 && price <= 0.70) {
+        reason = `time-decay (${p.daysLeft.toFixed(1)}d to resolve, price $${price.toFixed(2)} in no-man's land)`;
+      } else if (price < 0.25 && price > 0) {
+        reason = `time-decay-loser (${p.daysLeft.toFixed(1)}d to resolve, price $${price.toFixed(2)} — thesis wrong)`;
+      }
+    }
 
     if (reason) {
       autoSellSet.add(p);
       await executeSell(deps, callbacks, state, p, platform, reason);
+    }
+  }
+
+  // === Partial profit: sell 50% of position at high price (Polymarket only) ===
+  if (platform === "POLYMARKET") {
+    for (const p of reviewable) {
+      if (autoSellSet.has(p)) continue;
+      const price = p.curPrice ?? 0;
+      const shares = p.shares ?? 0;
+      if (price >= PARTIAL_PROFIT_PRICE && shares > 10) {
+        const halfShares = Math.floor(shares / 2);
+        if (halfShares >= 5) { // CLOB minimum
+          const key = p.token ?? "";
+          if (state.recentlySold.has(key) || state.failedSells.has(key)) continue;
+          const partialPos = { ...p, shares: halfShares };
+          callbacks.log(`[SELL:POLYMARKET] Partial profit: "${p.title}" $${price.toFixed(2)} — selling ${halfShares}/${shares} shares`);
+          await executeSell(deps, callbacks, state, partialPos, platform, `partial-profit ($${price.toFixed(2)}, ${halfShares}/${shares} shares)`);
+        }
+      }
     }
   }
 

@@ -356,10 +356,15 @@ async function runAutonomyCycle(
     const { ownedTitles, polySellTargets, polyAllSellable, jupSellTargets, jupAllPositions, jupClaimable, untradeableKeys } =
       await collectPositions(state, sellLossThreshold, sellProfitThreshold);
 
-    const activePositions = ownedTitles.size - state.stuckDust.size - untradeableKeys.size;
-    const positionsFull = activePositions >= MAX_POSITIONS;
-    if (positionsFull) {
-      callbacks.log(`[AUTONOMY] ${activePositions}/${MAX_POSITIONS} positions — sell-only${state.stuckDust.size > 0 ? ` (${state.stuckDust.size} stuck dust excluded)` : ""}${untradeableKeys.size > 0 ? ` (${untradeableKeys.size} untradeable excluded)` : ""}`);
+    // Per-platform position counting (spec: max 3 per platform, not 3 global)
+    const polyUntradeable = polyAllSellable.filter(p => untradeableKeys.has(p.token)).length;
+    const jupUntradeable = jupAllPositions.filter(p => p.pubkey && untradeableKeys.has(p.pubkey)).length;
+    const polyActive = polyAllSellable.length - polyUntradeable;
+    const jupActive = jupAllPositions.length - jupUntradeable;
+    const polyFull = polyActive >= MAX_POSITIONS;
+    const jupFull = jupActive >= MAX_POSITIONS;
+    if (polyFull || jupFull) {
+      callbacks.log(`[AUTONOMY] Poly: ${polyActive}/${MAX_POSITIONS}${polyUntradeable > 0 ? ` (+${polyUntradeable} untradeable)` : ""} | Jup: ${jupActive}/${MAX_POSITIONS}${jupUntradeable > 0 ? ` (+${jupUntradeable} untradeable)` : ""}`);
     }
 
     const runPoly = state.platform === "both" || state.platform === "polymarket";
@@ -369,14 +374,16 @@ async function runAutonomyCycle(
     const polyPhase = async () => {
       if (!runPoly) return;
       callbacks.log(`[POLYMARKET] ${lowPolyBalance ? "SELL-ONLY (low balance)" : "SELL + BUY"}`);
-      // Claim + unified sell+review for all Polymarket positions
+      // Claim + unified sell+review for Polymarket positions (exclude untradeable from LLM review)
+      const polyReviewable = polyAllSellable.filter(p => !untradeableKeys.has(p.token));
       await unifiedPortfolioReview(
         deps, callbacks, state, "POLYMARKET",
-        polyAllSellable.map((p) => ({ token: p.token, title: p.title, pnl: p.pnl, shares: p.shares, curPrice: p.curPrice })),
+        polyReviewable.map((p) => ({ token: p.token, title: p.title, pnl: p.pnl, shares: p.shares, curPrice: p.curPrice })),
         polyBalance, lowPolyBalance,
       );
 
-      if (positionsFull || lowPolyBalance || breakerActive) {
+      if (polyFull || lowPolyBalance || breakerActive) {
+        if (polyFull) callbacks.log(`[POLYMARKET] ${polyActive}/${MAX_POSITIONS} positions — sell-only`);
         if (lowPolyBalance) callbacks.log(`[POLYMARKET] Balance $${polyBalance.toFixed(2)} — sell-only mode`);
         if (breakerActive) callbacks.log(`[POLYMARKET] Circuit breaker active — sell-only mode`);
         return;
@@ -492,14 +499,16 @@ async function runAutonomyCycle(
       callbacks.log(`[JUPITER] ${lowSolBalance ? "SELL-ONLY (low balance)" : "SELL + BUY"}`);
       // Claim settled Jupiter positions first
       await claimJupiterPositions(deps, callbacks, state, jupClaimable);
-      // Unified sell+review for all Jupiter positions
+      // Unified sell+review for Jupiter positions (exclude untradeable from LLM review)
+      const jupReviewable = jupAllPositions.filter(p => !p.pubkey || !untradeableKeys.has(p.pubkey));
       await unifiedPortfolioReview(
         deps, callbacks, state, "JUPITER",
-        jupAllPositions.map((p) => ({ pubkey: p.pubkey, title: p.title, pnl: p.pnl, isYes: p.isYes, contracts: p.contracts, ...(p.curPrice != null ? { curPrice: p.curPrice } : {}) })),
+        jupReviewable.map((p) => ({ pubkey: p.pubkey, title: p.title, pnl: p.pnl, isYes: p.isYes, contracts: p.contracts, ...(p.curPrice != null ? { curPrice: p.curPrice } : {}) })),
         solBalance, lowSolBalance,
       );
 
-      if (positionsFull || lowSolBalance || breakerActive) {
+      if (jupFull || lowSolBalance || breakerActive) {
+        if (jupFull) callbacks.log(`[JUPITER] ${jupActive}/${MAX_POSITIONS} positions — sell-only`);
         if (lowSolBalance) callbacks.log(`[JUPITER] Balance $${solBalance.toFixed(2)} — sell-only mode`);
         if (breakerActive) callbacks.log(`[JUPITER] Circuit breaker active — sell-only mode`);
         // Still record price snapshots before returning
@@ -659,7 +668,7 @@ async function runAutonomyCycle(
     const spendInfo = DAILY_SPEND_LIMIT_USD > 0 ? ` | spent: $${state.dailySpend.toFixed(2)}/$${DAILY_SPEND_LIMIT_USD.toFixed(2)}` : "";
     const idleInfo = state.idleCycles > 0 ? ` | idle: ${state.idleCycles} cycles` : "";
     callbacks.log(
-      `[AUTONOMY] x402: ${x402Payments} payments | positions: ${activePositions}/${MAX_POSITIONS}${state.stuckDust.size > 0 ? ` (+${state.stuckDust.size} dust)` : ""}${untradeableKeys.size > 0 ? ` (+${untradeableKeys.size} untradeable)` : ""} | poly: $${polyBalance.toFixed(2)} | sol: $${solBalance.toFixed(2)}${spendInfo}${idleInfo}`,
+      `[AUTONOMY] x402: ${x402Payments} payments | poly: ${polyActive}/${MAX_POSITIONS} | jup: ${jupActive}/${MAX_POSITIONS}${untradeableKeys.size > 0 ? ` (${untradeableKeys.size} untradeable)` : ""} | poly: $${polyBalance.toFixed(2)} | sol: $${solBalance.toFixed(2)}${spendInfo}${idleInfo}`,
     );
     callbacks.log(`[AUTONOMY] Cycle #${state.cycleCount} complete in ${cycleDuration}s`);
   } catch (err) {

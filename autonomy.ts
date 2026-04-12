@@ -153,8 +153,9 @@ async function platformBuyPhase(
         : "";
 
     const balanceLabel = config.label === "JUPITER" ? "SOL balance" : "balance";
+    const dbg = (scored as unknown as { _debug?: string })._debug;
     callbacks.log(
-      `${tag} ${scored.length} new markets | ${balanceLabel}: $${config.balance.toFixed(2)}`,
+      `${tag} ${scored.length} new markets | ${balanceLabel}: $${config.balance.toFixed(2)}${dbg ? ` | ${dbg}` : ""}`,
     );
 
     if (config.onScanComplete) {

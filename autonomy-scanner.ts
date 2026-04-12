@@ -412,7 +412,8 @@ export async function scanJupiterMarkets(
     _jupDbgPrice = 0,
     _jupDbgVol = 0,
     _jupDbgOwned = 0,
-    _jupDbgDays = 0;
+    _jupDbgDays = 0,
+    _jupDbgCooldown = 0;
   for (const event of evData.data ?? []) {
     for (const m of (event.markets ?? []).filter(
       (x: Record<string, unknown>) => x.status === "open",
@@ -490,21 +491,12 @@ export async function scanJupiterMarkets(
         _jupDbgOwned++;
         continue;
       }
-      if (isRecentlyTraded(state, q)) continue;
-      // Also check if any market in same event was recently traded
-      if (
-        eventTitle &&
-        state.tradeHistory.some(
-          (h) => h.question.toLowerCase().includes(eventTitle) && Date.now() - h.time < 86_400_000,
-        )
-      )
-        continue;
-      if (state.recentlySoldQuestions.has(q.toLowerCase())) continue;
-      if (state.pendingBuys.has(q.toLowerCase())) continue;
-      // Check if any market in same event is pending buy
-      if (eventTitle && [...state.pendingBuys].some((p) => p.includes(eventTitle))) continue;
-      if (!isFailCooledDown(state.failedBuys, m.marketId, FAILED_BUY_COOLDOWN_MS)) continue;
-      if (state.skippedMarkets.has(q.toLowerCase())) continue;
+      // No trade-history cooldown for Jupiter — pool is too small for 7-day exclusions
+      if (state.pendingBuys.has(q.toLowerCase())) { _jupDbgCooldown++; continue; }
+      if (eventTitle && [...state.pendingBuys].some((p) => p.includes(eventTitle))) { _jupDbgCooldown++; continue; }
+      if (!isFailCooledDown(state.failedBuys, m.marketId, FAILED_BUY_COOLDOWN_MS)) { _jupDbgCooldown++; continue; }
+      if (state.recentlyAnalyzed.has(q.toLowerCase())) { _jupDbgCooldown++; continue; }
+      if (state.skippedMarkets.has(q.toLowerCase())) { _jupDbgCooldown++; continue; }
       jupScored.push({
         question: q,
         marketId: m.marketId,
@@ -549,6 +541,6 @@ export async function scanJupiterMarkets(
 
   // Attach debug info as non-enumerable property
   (jupScored as unknown as { _debug?: string })._debug =
-    `${_jupDbgTotal} scanned, filtered: price=${_jupDbgPrice}, days=${_jupDbgDays}, volume=${_jupDbgVol}, owned=${_jupDbgOwned}, passed=${jupScored.length}`;
+    `${_jupDbgTotal} scanned, filtered: price=${_jupDbgPrice}, days=${_jupDbgDays}, volume=${_jupDbgVol}, owned=${_jupDbgOwned}, cooldown=${_jupDbgCooldown}, passed=${jupScored.length}`;
   return jupScored;
 }

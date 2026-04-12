@@ -208,11 +208,7 @@ If nothing qualifies, respond PICK: 0 — waiting is free, bad bets cost money.`
   }
 
   if (results.length === 0) {
-    const yesNo = /\b(YES|NO)\b/i.exec(text);
-    if (yesNo) {
-      return [{ pick: candidates[0]!, side: yesNo[1]!.toUpperCase(), reason: text.slice(0, 100), edge: 0.10, confidence: 0.5, category: "OTHER", estimatedProb: candidates[0]!.yesPrice }];
-    }
-    callbacks.log(`[ANALYSIS] Skipping — no valid picks produced`);
+    callbacks.log(`[ANALYSIS] Skipping — LLM found no qualifying trades`);
   }
 
   return results;

@@ -59,8 +59,8 @@ export const QUICK_FLIP_MAX_DAYS = envFloat("QUICK_FLIP_MAX_DAYS", 7);
 /** Score bonus for quick-flip markets */
 export const QUICK_FLIP_BONUS = envFloat("QUICK_FLIP_BONUS", 0.35);
 
-/** Maximum days — filter removes junk, scoring + LLM enforce 1-7 day preference */
-export const MARKET_MAX_DAYS = envFloat("MARKET_MAX_DAYS", 14);
+/** Maximum days — filter removes junk, scoring + LLM handle time preference */
+export const MARKET_MAX_DAYS = envFloat("MARKET_MAX_DAYS", 30);
 
 export const SCORE_PRICE_SWEET_SPOT_WEIGHT = envFloat("SCORE_PRICE_SWEET_SPOT_WEIGHT", 0.15);
 export const SCORE_MOMENTUM_WEIGHT = envFloat("SCORE_MOMENTUM_WEIGHT", 0.10);

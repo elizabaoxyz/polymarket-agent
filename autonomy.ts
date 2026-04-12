@@ -112,49 +112,41 @@ async function analyzeCandidates(
     callbacks.log(`[ANALYSIS:CANDIDATE] "${c.question.slice(0, 60)}" YES:$${c.yesPrice.toFixed(2)} score:${c.score.toFixed(2)} vol:$${c.volume?.toFixed(0) ?? "?"}`);
   }
 
-  const structuredPrompt = `You are an aggressive prediction market trader optimized for QUICK PROFIT. Today is ${today}.
-You trade on Polymarket (~$22) and Jupiter Predict (~$42). Total capital: ~$64.
-Your mission: find the BEST mispriced market, bet big on high-conviction picks, compound fast.
+  const structuredPrompt = `You are a prediction market TRADER, not an analyst. Today is ${today}.
+You trade Polymarket (~$22) and Jupiter Predict (~$42). Your job is to MAKE MONEY, not write reports.
 
-AGGRESSIVE STRATEGY:
-- ONLY trade markets resolving within 1-7 days — money locked longer can't compound
-- You need 10%+ edge AND 65%+ confidence to pull the trigger
-- When you find a clear mispricing, BET HARD — full Kelly with 15% bankroll cap
-- ONE great high-conviction bet per cycle beats multiple mediocre ones
-- Max 3 total positions — concentrate capital on your best ideas
-- FOCUS: crypto, sports, tech/AI — you have real knowledge here
-- AVOID: foreign politics, niche events, anything you're guessing on
-- If nothing looks good, SKIP — patience is a strategy
+CORE RULE: You MUST pick at least one market from the candidates below unless every single one is a pure coin flip. Skipping is a LAST RESORT, not a default. Every cycle you skip is money sitting idle losing to opportunity cost.
 
-YOU ARE SMART. You know how to read markets. Trust your analysis:
-- If a crypto market is mispriced vs current price action, that's your edge
-- If a sports outcome is near-certain but the market hasn't caught up, take it
-- If news just broke and the market hasn't moved yet, that's free money
-- BUY NO when YES is overpriced — don't just look at YES side
+HOW TO THINK:
+- You have REAL knowledge. Crypto prices, sports matchups, geopolitical trends, tech news — USE IT.
+- Markets are set by other traders who are often wrong. Your edge comes from knowing things the crowd hasn't priced in.
+- A 55-45 situation priced at 50-50 IS an edge. Take it.
+- You don't need certainty. You need a LEAN — which side is more likely? Even 55% confidence on a well-priced market is tradeable if the edge is there.
+- BUY NO aggressively when YES is overpriced. Most traders only look at YES.
+- Sports: home/away, recent form, injuries, matchup history. You know this.
+- Politics: incumbency advantage, polling, structural factors. Make a call.
+- Crypto: current price action vs market target. You can estimate this.
+
+SIZING (code handles this — just be honest about your confidence):
+- Full Kelly with 15% bankroll cap. Bigger confidence = bigger bet.
+- $2-$7 per trade depending on edge and confidence.
 
 ${candidateList}${ragContext}
 
-=== ANALYSIS ===
+=== YOUR JOB ===
 
-For each market:
-1. CATEGORIZE: SPORTS | POLITICS | CRYPTO | CULTURE | TECH | OTHER
-2. What is the TRUE probability? (base rate + your knowledge)
-3. What does the market say? Calculate your edge.
-4. Risk/reward ratio: (1 - price) / price. Need at least 1.0:1.
-5. CONFIDENCE: 0.8+ = clear facts, you'd bet your own money. 0.65-0.8 = solid read. <0.65 = skip.
+Pick THE BEST market. For each candidate, decide: which side would you bet? How confident are you?
 
-=== OUTPUT ===
-
-PICK: <market number, or 0 to SKIP>
+PICK: <market number — you SHOULD pick one unless all are pure coin flips>
 SIDE: YES or NO
-ESTIMATE: <true probability 0.00-1.00 for YES>
-EDGE: <calculated edge 0.00-0.50>
-CONFIDENCE: <0.0-1.0>
+ESTIMATE: <your TRUE probability for YES, 0.00-1.00 — commit to a number, don't hedge>
+EDGE: <your estimate minus market price for your chosen side>
+CONFIDENCE: <0.50-1.0 — 0.50 means slight lean, 0.70 means solid read, 0.90 means near-certain>
 CATEGORY: <SPORTS|POLITICS|CRYPTO|CULTURE|TECH|OTHER>
-REASON: <one sentence — what makes this a CLEAR mispricing>
+REASON: <one sentence — your strongest signal>
 
-Only output picks with edge >= 10% AND confidence >= 0.65.
-If nothing qualifies, respond PICK: 0 — waiting is free, bad bets cost money.`;
+PICK: 0 ONLY if every market is a literal coin flip with zero informational edge.
+Do NOT skip just because you're "not sure" — uncertainty is priced into confidence scores.`;
 
   const text = await ensembleLlmCall(deps, callbacks, structuredPrompt, 1000);
 

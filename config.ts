@@ -72,11 +72,11 @@ export const LLM_KNOWLEDGE_BONUS = envFloat("LLM_KNOWLEDGE_BONUS", 0.35);
 
 // --- Edge thresholds ---
 
-/** Minimum LLM-reported edge (0-1) to enter a trade. Below 10% = skip. */
-export const MIN_EDGE_THRESHOLD = envFloat("MIN_EDGE_THRESHOLD", 0.10);
+/** Minimum LLM-reported edge (0-1) to enter a trade. */
+export const MIN_EDGE_THRESHOLD = envFloat("MIN_EDGE_THRESHOLD", 0.05);
 
-/** Minimum LLM confidence (0-1) to enter a trade. Below 0.65 = skip. */
-export const MIN_CONFIDENCE_THRESHOLD = envFloat("MIN_CONFIDENCE_THRESHOLD", 0.65);
+/** Minimum LLM confidence (0-1) to enter a trade. 0.50 = slight lean is enough. */
+export const MIN_CONFIDENCE_THRESHOLD = envFloat("MIN_CONFIDENCE_THRESHOLD", 0.50);
 
 // --- Price sweet spot ---
 

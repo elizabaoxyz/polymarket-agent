@@ -11,6 +11,7 @@ import {
   type SimilarityResult,
   type EnrichedContext,
 } from "./types";
+import { log } from "../../log";
 
 type Runtime = { getSetting: (key: string) => string | undefined };
 
@@ -55,7 +56,7 @@ export class RAGService {
       DEFAULT_RAG_CONFIG.chromaUrl;
 
     if (!openaiApiKey) {
-      console.log("rag: disabled (OPENAI_API_KEY not set)");
+      log.info("rag", "disabled (OPENAI_API_KEY not set)");
       // Return a stub service that's not initialized
       const stub = Object.create(RAGService.prototype) as RAGService;
       (stub as { config: RAGConfig }).config = { ...DEFAULT_RAG_CONFIG, chromaUrl, openaiApiKey: "" };
@@ -82,10 +83,10 @@ export class RAGService {
       await svc.chroma.getOrCreateCollection(COLLECTIONS.JUPITER_MARKETS);
       await svc.chroma.getOrCreateCollection(COLLECTIONS.NEWS_ARTICLES);
       await svc.chroma.getOrCreateCollection(COLLECTIONS.SEARCH_RESULTS);
-      console.log(`rag: active | chroma: ${chromaUrl} | model: ${config.embeddingModel}`);
+      log.info("rag", `active | chroma: ${chromaUrl} | model: ${config.embeddingModel}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`rag: ChromaDB connection failed (${msg}) — similarity search disabled`);
+      log.warn("rag", `ChromaDB connection failed (${msg}) — similarity search disabled`);
       svc._initialized = false;
     }
 
@@ -185,11 +186,11 @@ export class RAGService {
         metadata: { url: r.url, query: r.query },
       }));
       await this.chroma.upsertDocuments(COLLECTIONS.SEARCH_RESULTS, docs);
-      console.log(`rag: indexed ${docs.length} search results`);
+      log.info("rag", `indexed ${docs.length} search results`);
       return docs.length;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`rag: failed to index search results: ${msg}`);
+      log.warn("rag", `failed to index search results: ${msg}`);
       return 0;
     }
   }
@@ -232,7 +233,7 @@ export class RAGService {
       }).slice(0, limit);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`rag: similarity search failed: ${msg}`);
+      log.warn("rag", `similarity search failed: ${msg}`);
       return [];
     }
   }
@@ -254,7 +255,7 @@ export class RAGService {
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`rag: news search failed: ${msg}`);
+      log.warn("rag", `news search failed: ${msg}`);
       return [];
     }
   }
@@ -276,7 +277,7 @@ export class RAGService {
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`rag: search retrieval failed: ${msg}`);
+      log.warn("rag", `search retrieval failed: ${msg}`);
       return [];
     }
   }

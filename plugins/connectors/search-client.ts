@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { TavilySearchResult, TavilyResponse } from "./types";
+import { log } from "../../log";
 
 /**
  * Tavily Search client — AI-optimized web search for market research.
@@ -95,7 +96,7 @@ export class TavilySearchClient {
       return contexts.join("\n\n");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`connectors: tavily search failed for "${query}": ${msg}`);
+      log.warn("connectors", `tavily search failed for "${query}": ${msg}`);
       return "";
     }
   }

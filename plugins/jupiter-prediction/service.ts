@@ -2,6 +2,7 @@ import { Connection, VersionedTransaction, Keypair } from "@solana/web3.js";
 import bs58 from "bs58";
 import { JupiterPredictionClient } from "./api";
 import type { OrderStatus } from "./types";
+import { log } from "../../log";
 
 const DEFAULT_RPC_URL = "https://api.mainnet-beta.solana.com";
 const ORDER_POLL_INTERVAL_MS = 2000;
@@ -40,7 +41,7 @@ export class JupiterPredictionService {
     const rpcUrl = runtime.getSetting("SOLANA_RPC_URL") ?? process.env.SOLANA_RPC_URL?.trim();
 
     if (!apiKey || !solanaPrivateKey) {
-      console.log("Jupiter Prediction: JUPITER_API_KEY or SOLANA_PRIVATE_KEY not set — Jupiter actions disabled.");
+      log.info("jupiter", "JUPITER_API_KEY or SOLANA_PRIVATE_KEY not set — Jupiter actions disabled.");
       // Return a stub that reports not ready
       const stub = Object.create(JupiterPredictionService.prototype) as JupiterPredictionService;
       Object.defineProperty(stub, "serviceType", { value: JUPITER_SERVICE_TYPE });
@@ -54,7 +55,7 @@ export class JupiterPredictionService {
       solanaPrivateKey,
       rpcUrl: rpcUrl ?? undefined,
     });
-    console.log(`Jupiter Prediction: initialized, wallet ${service.ownerPubkey}`);
+    log.info("jupiter", `initialized, wallet ${service.ownerPubkey}`);
     return service;
   }
 

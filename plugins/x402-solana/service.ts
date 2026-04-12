@@ -8,6 +8,7 @@ import {
   X402PaymentCapExceeded,
   type X402Config,
 } from "./types";
+import { log } from "../../log";
 
 const SOLANA_MAINNET = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 const SOLANA_DEVNET = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
@@ -43,7 +44,7 @@ export class X402SolanaService {
     const enabled = enabledRaw !== "false";
 
     if (!solanaPrivateKey || !enabled) {
-      console.log("x402: disabled (SOLANA_PRIVATE_KEY not set or X402_ENABLED=false)");
+      log.info("x402", "disabled (SOLANA_PRIVATE_KEY not set or X402_ENABLED=false)");
       return new X402SolanaService(globalThis.fetch, null);
     }
 
@@ -82,7 +83,7 @@ export class X402SolanaService {
           let usdAmount = 0;
           try {
             // Log full args structure for debugging
-            console.log("x402: onBeforePaymentCreation args:", JSON.stringify(args).slice(0, 500));
+            log.info("x402", `onBeforePaymentCreation args: ${JSON.stringify(args).slice(0, 500)}`);
 
             // Deep search: recursively find "amount" field in any arg
             const AMOUNT_KEYS = ["amount", "maxAmountRequired", "maxAmount"];
@@ -123,17 +124,17 @@ export class X402SolanaService {
           svc._paymentCount++;
           svc._totalPaidUsd += usdAmount;
           svc._paymentLog.push({ timestamp: Date.now(), amountUsd: usdAmount, url: "402-gated" });
-          console.log(`x402: payment #${svc._paymentCount} — $${usdAmount.toFixed(4)} (total: $${svc._totalPaidUsd.toFixed(4)})`);
+          log.info("x402", `payment #${svc._paymentCount} — $${usdAmount.toFixed(4)} (total: $${svc._totalPaidUsd.toFixed(4)})`);
         });
 
       const wrappedFetch = wrapFetchWithPayment(globalThis.fetch, client);
       svc.wrappedFetch = wrappedFetch;
-      console.log(`x402: active | cap: $${maxPaymentUsd.toFixed(2)}/request | networks: solana mainnet + devnet`);
+      log.info("x402", `active | cap: $${maxPaymentUsd.toFixed(2)}/request | networks: solana mainnet + devnet`);
       return svc;
     } catch (error) {
       if (error instanceof X402PaymentCapExceeded) throw error;
       const msg = error instanceof Error ? error.message : String(error);
-      console.warn(`x402: failed to initialize (${msg}), payments disabled`);
+      log.warn("x402", `failed to initialize (${msg}), payments disabled`);
       return new X402SolanaService(globalThis.fetch, null);
     }
   }

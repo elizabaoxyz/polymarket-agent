@@ -5,6 +5,7 @@ import {
   type NewsArticle,
   type SearchContext,
 } from "./types";
+import { log } from "../../log";
 
 type Runtime = { getSetting: (key: string) => string | undefined };
 
@@ -46,12 +47,12 @@ export class ConnectorsService {
     const search = tavilyApiKey ? new TavilySearchClient({ apiKey: tavilyApiKey }) : null;
 
     if (!news && !search) {
-      console.log("connectors: disabled (set NEWSAPI_API_KEY and/or TAVILY_API_KEY)");
+      log.info("connectors", "disabled (set NEWSAPI_API_KEY and/or TAVILY_API_KEY)");
     } else {
       const parts: string[] = [];
       if (news) parts.push("news");
       if (search) parts.push("search");
-      console.log(`connectors: active [${parts.join(", ")}]`);
+      log.info("connectors", `active [${parts.join(", ")}]`);
     }
 
     return new ConnectorsService(news, search);
@@ -72,7 +73,7 @@ export class ConnectorsService {
       return await this.news.fetchMarketNews(keywords, maxArticles);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`connectors: failed to fetch news: ${msg}`);
+      log.warn("connectors", `failed to fetch news: ${msg}`);
       return [];
     }
   }
@@ -88,7 +89,7 @@ export class ConnectorsService {
       return await this.news.fetchMarketNews(keywords, maxArticles);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`connectors: failed to fetch market news: ${msg}`);
+      log.warn("connectors", `failed to fetch market news: ${msg}`);
       return [];
     }
   }
@@ -104,7 +105,7 @@ export class ConnectorsService {
       return await this.search.getSearchContext(query, maxResults);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`connectors: web search failed: ${msg}`);
+      log.warn("connectors", `web search failed: ${msg}`);
       return "";
     }
   }

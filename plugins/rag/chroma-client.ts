@@ -5,6 +5,7 @@ import {
   type ChromaCollection,
   type SimilarityResult,
 } from "./types";
+import { log } from "../../log";
 
 const CHROMA_API_VERSION = "api/v2";
 
@@ -83,10 +84,10 @@ export class ChromaClient {
 
     if (!upsertRes.ok) {
       const text = await upsertRes.text().catch(() => "");
-      console.warn(`chroma: upsert failed for collection "${collectionName}" (id=${collection.id}): ${upsertRes.status} ${text.slice(0, 200)}`);
+      log.warn("chroma", `upsert failed for collection "${collectionName}" (id=${collection.id}): ${upsertRes.status} ${text.slice(0, 200)}`);
       throw new Error(`ChromaDB upsert failed: ${upsertRes.status} ${text}`);
     }
-    console.log(`chroma: upserted ${documents.length} docs into "${collectionName}" (id=${collection.id})`);
+    log.info("chroma", `upserted ${documents.length} docs into "${collectionName}" (id=${collection.id})`);
   }
 
   async deleteCollection(name: string): Promise<void> {

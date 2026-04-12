@@ -2,6 +2,7 @@
  * Centralized Solana wallet and balance utilities.
  * Eliminates duplicate key decoding and RPC calls scattered across the codebase.
  */
+import { log } from "./log";
 
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
@@ -30,7 +31,7 @@ export function getSolanaKeypair(): Keypair | null {
     _cachedPrivateKey = solKey;
     return _cachedKeypair;
   } catch {
-    console.warn("solana-wallet: failed to decode SOLANA_PRIVATE_KEY");
+    log.warn("solana-wallet", "failed to decode SOLANA_PRIVATE_KEY");
     return null;
   }
 }

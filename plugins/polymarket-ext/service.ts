@@ -2,6 +2,7 @@ import { ethers } from "ethers";
 import { ClobApiClient } from "./clob-client";
 import { DataApiClient } from "./data-client";
 import { POLYMARKET_EXT_SERVICE_TYPE } from "./types";
+import { log } from "../../log";
 
 const DEFAULT_CLOB_URL = "https://clob.polymarket.com";
 const DEFAULT_DATA_URL = "https://data-api.polymarket.com";
@@ -37,7 +38,7 @@ export class PolymarketExtService {
       ?? process.env.EVM_PRIVATE_KEY?.trim();
 
     if (!privateKey) {
-      console.log("polymarket-ext: disabled (no EVM_PRIVATE_KEY)");
+      log.info("polymarket-ext", "disabled (no EVM_PRIVATE_KEY)");
       const data = new DataApiClient(DEFAULT_DATA_URL);
       return new PolymarketExtService(null, data, "", null);
     }
@@ -56,7 +57,7 @@ export class PolymarketExtService {
     const clobUrl = runtime.getSetting("CLOB_API_URL") ?? process.env.CLOB_API_URL?.trim() ?? DEFAULT_CLOB_URL;
 
     if (!apiKey || !secret || !passphrase) {
-      console.log(`polymarket-ext: data-only mode (CLOB credentials missing) | wallet: ${walletAddress}`);
+      log.info("polymarket-ext", `data-only mode (CLOB credentials missing) | wallet: ${walletAddress}`);
       return new PolymarketExtService(null, data, walletAddress, privateKey);
     }
 
@@ -73,7 +74,7 @@ export class PolymarketExtService {
     // Heartbeat managed by autonomy toggle in ws-server.ts
     // Starts when autonomy ON, stops when autonomy OFF or disconnect
 
-    console.log(`polymarket-ext: active | wallet: ${walletAddress}${funderAddress ? " (proxy)" : " (EOA)"}`);
+    log.info("polymarket-ext", `active | wallet: ${walletAddress}${funderAddress ? " (proxy)" : " (EOA)"}`);
     return svc;
   }
 

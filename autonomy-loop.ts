@@ -74,7 +74,14 @@ export function startAutonomy(
             text: "[AUTONOMY] Heartbeat started — GTC orders protected",
           });
         }
-      } catch {}
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.warn("autonomy", `Heartbeat init failed: ${msg} — GTC orders may auto-cancel`);
+        callbacks.send({
+          type: "action_result",
+          text: `[AUTONOMY] ⚠️ Heartbeat failed to start: ${msg} — GTC orders at risk`,
+        });
+      }
     })();
 
   // x402 status

@@ -12,7 +12,6 @@ import {
   pruneStaleJupHistory,
   pruneStaleTracking,
   recordJupPriceSnapshot,
-  recordTrade,
   trackPositionAge,
   updatePeakPrice,
 } from "./autonomy-state";
@@ -29,6 +28,7 @@ import {
   TRAILING_STOP_DROP_PCT,
   TRAILING_STOP_MIN_PRICE,
 } from "./config";
+import { log } from "./log";
 import type { PriceTrend } from "./market-intel";
 import { computePriceTrend, fetchPolyPriceHistory } from "./market-intel";
 import {
@@ -166,7 +166,12 @@ export async function collectPositions(
         }
       }
     }
-  } catch {}
+  } catch (err) {
+    log.warn(
+      "sell",
+      `Polymarket position fetch failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 
   // Jupiter positions
   try {
@@ -245,7 +250,12 @@ export async function collectPositions(
         }
       }
     }
-  } catch {}
+  } catch (err) {
+    log.warn(
+      "sell",
+      `Jupiter position fetch failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 
   return {
     ownedTitles,

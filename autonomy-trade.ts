@@ -137,7 +137,7 @@ export async function directPolymarketBuy(
     // search for the market to find the NO token.
     let tokenId: string;
     let midPrice: number;
-    if ((knownTokenId && side === "BUY") || (knownTokenId && side === "YES")) {
+    if (knownTokenId && (side === "YES" || side === "BUY")) {
       // YES side: use the known YES token directly
       tokenId = knownTokenId;
       midPrice = 0.5;
@@ -215,17 +215,20 @@ export async function directPolymarketBuy(
       return false;
     }
 
-    const size = Math.max(5, Math.floor(betSize / price));
-    const totalCost = size * price;
+    let size = Math.max(5, Math.floor(betSize / price));
     const balance = availableBalance ?? betSize * 2;
+    const totalCost = size * price;
     if (totalCost > balance) {
-      const affordableSize = Math.max(5, Math.floor(balance / price));
-      if (affordableSize < 5) {
+      size = Math.max(5, Math.floor(balance / price));
+      if (size < 5) {
         callbacks.log(
           `[BUY:POLYMARKET] ❌ Not enough balance: $${balance.toFixed(2)} — can't afford 5 shares at $${price.toFixed(2)}`,
         );
         return false;
       }
+      callbacks.log(
+        `[BUY:POLYMARKET] ⚠️ Reduced order from ${Math.floor(betSize / price)} to ${size} shares to fit balance $${balance.toFixed(2)}`,
+      );
     }
 
     // Try FOK (Fill-Or-Kill) first for immediate execution

@@ -388,12 +388,10 @@ async function main() {
               return;
             }
             // Stop current autonomy to switch platform
+            const oldPlatform = autonomyHandle.platform;
             autonomyHandle.stop();
             autonomyHandle = null;
-            log.info(
-              "ws-server",
-              `switching autonomy from ${autonomyHandle?.platform ?? "?"} to ${platform}`,
-            );
+            log.info("ws-server", `switching autonomy from ${oldPlatform} to ${platform}`);
           }
 
           const label =
@@ -465,7 +463,10 @@ async function main() {
   if (WS_AUTH_TOKEN) {
     log.info("ws-server", "authentication ENABLED — clients must send auth token");
   } else {
-    log.info("ws-server", "authentication DISABLED — set WS_AUTH_TOKEN to enable");
+    log.warn(
+      "ws-server",
+      "⚠️ AUTHENTICATION DISABLED — anyone with network access can trade. Set WS_AUTH_TOKEN to secure.",
+    );
   }
 }
 

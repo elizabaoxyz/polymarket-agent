@@ -75,6 +75,7 @@ import {
   claimJupiterPositions,
 } from "./autonomy-sell";
 import { TAKER_FEE_RATE } from "./config";
+import { log } from "./log";
 
 // --- LLM analysis ---
 
@@ -761,7 +762,7 @@ export function startAutonomy(
             .catch((err) => {
               consecutiveFailures++;
               const errMsg = err instanceof Error ? err.message : String(err);
-              console.warn(`autonomy: heartbeat failed (${consecutiveFailures}x): ${errMsg}`);
+              log.warn("autonomy", `heartbeat failed (${consecutiveFailures}x): ${errMsg}`);
               if (consecutiveFailures >= HEARTBEAT_MAX_FAILURES) {
                 callbacks.send({
                   type: "action_result",

@@ -18,6 +18,7 @@ import {
   writeEnvFile,
   type CliOptions,
 } from "./lib";
+import { log } from "./log";
 import { runTradingTui } from "./tui";
 import { runSettingsWizard, type SettingsField } from "./tui-settings";
 import { jupiterPredictionPlugin } from "./plugins/jupiter-prediction/index";
@@ -197,11 +198,11 @@ export async function jupiterVerify(options: CliOptions): Promise<void> {
   await ensureJupiterEnvConfig(options, false);
   const session = await createJupiterSession(options);
   try {
-    console.log("✅ runtime initialized");
-    console.log(`🔑 wallet: ${session.jupiterService.ownerPubkey}`);
+    log.info("jupiter", "runtime initialized");
+    log.info("jupiter", `wallet: ${session.jupiterService.ownerPubkey}`);
     const ready = await session.jupiterService.isReady();
-    console.log(`📡 jupiter exchange: ${ready ? "operational" : "unavailable"}`);
-    console.log(`🔧 execute: ${options.execute ? "enabled" : "disabled"}`);
+    log.info("jupiter", `jupiter exchange: ${ready ? "operational" : "unavailable"}`);
+    log.info("jupiter", `execute: ${options.execute ? "enabled" : "disabled"}`);
   } finally {
     await session.runtime.stop();
   }
@@ -218,9 +219,9 @@ export async function jupiterChat(options: CliOptions): Promise<void> {
   };
   process.once("SIGINT", onSigint);
 
-  console.log("✅ runtime initialized");
-  console.log(`🔑 wallet: ${session.jupiterService.ownerPubkey}`);
-  console.log(`🔧 execute: ${options.execute ? "enabled" : "disabled"}`);
+  log.info("jupiter", "runtime initialized");
+  log.info("jupiter", `wallet: ${session.jupiterService.ownerPubkey}`);
+  log.info("jupiter", `execute: ${options.execute ? "enabled" : "disabled"}`);
 
   try {
     const { runtime, roomId, worldId, userId } = session;

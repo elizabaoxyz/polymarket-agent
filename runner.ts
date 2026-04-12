@@ -30,6 +30,7 @@ import {
   type EnvConfig,
   type LlmProvider,
 } from "./lib";
+import { log } from "./log";
 import { runPolymarketTui, setFatalError } from "./tui";
 import { runSettingsWizard, type SettingsField } from "./tui-settings";
 import { jupiterPredictionPlugin } from "./plugins/jupiter-prediction/index";
@@ -112,17 +113,17 @@ function displayFatalError(error: Error | string, context?: string): void {
   const errorMessage = error instanceof Error ? error.message : String(error);
   const stack = error instanceof Error ? error.stack : undefined;
   
-  console.error("\n" + "=".repeat(60));
-  console.error("❌ FATAL ERROR" + (context ? ` [${context}]` : ""));
-  console.error("=".repeat(60));
-  console.error(errorMessage);
+  log.error("runner", "\n" + "=".repeat(60));
+  log.error("runner", "FATAL ERROR" + (context ? ` [${context}]` : ""));
+  log.error("runner", "=".repeat(60));
+  log.error("runner", errorMessage);
   if (stack) {
-    console.error("\nStack trace:");
-    console.error(stack);
+    log.error("runner", "\nStack trace:");
+    log.error("runner", stack);
   }
-  console.error("=".repeat(60));
-  console.error(`Error log saved to: ${ERROR_LOG_PATH}`);
-  console.error("");
+  log.error("runner", "=".repeat(60));
+  log.error("runner", `Error log saved to: ${ERROR_LOG_PATH}`);
+  log.error("runner", "");
 }
 
 /**
@@ -708,9 +709,7 @@ async function resolveApiCredentials(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (config.creds) {
-      console.warn(
-        `⚠️ Failed to derive API key (${message}); using .env credentials for this run.`
-      );
+      log.warn("runner", `Failed to derive API key (${message}); using .env credentials for this run.`);
       return config;
     }
     throw new Error(
@@ -726,9 +725,7 @@ async function resolveApiCredentials(
   }
 
   if (config.creds && config.creds.key !== derivedKey) {
-    console.warn(
-      "⚠️ CLOB_API_KEY does not match derived key; using derived credentials for this run."
-    );
+    log.warn("runner", "CLOB_API_KEY does not match derived key; using derived credentials for this run.");
   }
 
   return {
@@ -742,9 +739,9 @@ async function resolveApiCredentials(
 }
 
 function logSessionStart(options: CliOptions): void {
-  console.log("✅ runtime initialized");
-  console.log(`🔧 chain: ${options.chain}`);
-  console.log(`🔧 execute: ${options.execute ? "enabled" : "disabled"}`);
+  log.info("runner", "runtime initialized");
+  log.info("runner", `chain: ${options.chain}`);
+  log.info("runner", `execute: ${options.execute ? "enabled" : "disabled"}`);
 }
 
 async function runWithSession(
@@ -778,8 +775,8 @@ async function runWithSession(
 
 export async function verify(options: CliOptions): Promise<void> {
   await runWithSession(options, async (session) => {
-    console.log("✅ clob api url:", session.config.clobApiUrl);
-    console.log("✅ creds present:", String(session.config.creds !== null));
+    log.info("runner", `clob api url: ${session.config.clobApiUrl}`);
+    log.info("runner", `creds present: ${String(session.config.creds !== null)}`);
   });
 }
 
@@ -791,7 +788,7 @@ export async function chat(options: CliOptions): Promise<void> {
 
 export async function settings(options: CliOptions): Promise<void> {
   await ensureEnvConfig(options, true);
-  console.log("✅ settings saved to .env");
+  log.info("runner", "settings saved to .env");
 }
 
 export async function inputTest(options: CliOptions): Promise<void> {

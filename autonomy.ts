@@ -390,7 +390,21 @@ async function runAutonomyCycle(
       }
 
       try {
-        const scored = await scanPolymarketMarkets(ownedTitles, state, callbacks);
+        let scored = await scanPolymarketMarkets(ownedTitles, state, callbacks);
+
+        // If Polymarket scan returned 0 candidates due to cooldowns, retry without them.
+        // Same fix as Jupiter — cooldowns can exhaust a temporarily thin pool.
+        if (scored.length === 0) {
+          const beforeAnalyzed = state.recentlyAnalyzed.size;
+          const beforeSkipped = state.skippedMarkets.size;
+          for (const [key] of state.recentlyAnalyzed) state.recentlyAnalyzed.delete(key);
+          for (const [key] of state.skippedMarkets) state.skippedMarkets.delete(key);
+          if (beforeAnalyzed > 0 || beforeSkipped > 0) {
+            callbacks.log(`[POLYMARKET:SCAN] 0 candidates — retrying without cooldowns (cleared ${beforeAnalyzed} analyzed, ${beforeSkipped} skipped)`);
+            scored = await scanPolymarketMarkets(ownedTitles, state, callbacks);
+          }
+        }
+
         const ragContext = scored.length > 0
           ? await indexAndEnrich(deps, callbacks, state, scored, "polymarket", scored[0]!.question)
           : "";
@@ -529,9 +543,31 @@ async function runAutonomyCycle(
       }
 
       try {
-        const jupScored = await scanJupiterMarkets(ownedTitles, state, callbacks);
-        const debugInfo = (jupScored as unknown as { _debug?: string })._debug;
+        let jupScored = await scanJupiterMarkets(ownedTitles, state, callbacks);
+        let debugInfo = (jupScored as unknown as { _debug?: string })._debug;
         if (debugInfo) callbacks.log(`[JUPITER:SCAN] ${debugInfo}`);
+
+        // If Jupiter scan returned 0 candidates due to cooldowns, retry without them.
+        // Jupiter has a small market pool (~2 qualifying at any time) — cooldowns can
+        // exhaust the entire pool, leaving the agent idle for hours.
+        if (jupScored.length === 0) {
+          const beforeAnalyzed = state.recentlyAnalyzed.size;
+          const beforeSkipped = state.skippedMarkets.size;
+          // Clear only Jupiter-related entries (questions containing common Jupiter patterns)
+          for (const [key] of state.recentlyAnalyzed) {
+            state.recentlyAnalyzed.delete(key);
+          }
+          for (const [key] of state.skippedMarkets) {
+            state.skippedMarkets.delete(key);
+          }
+          if (beforeAnalyzed > 0 || beforeSkipped > 0) {
+            callbacks.log(`[JUPITER:SCAN] 0 candidates — retrying without cooldowns (cleared ${beforeAnalyzed} analyzed, ${beforeSkipped} skipped)`);
+            jupScored = await scanJupiterMarkets(ownedTitles, state, callbacks);
+            debugInfo = (jupScored as unknown as { _debug?: string })._debug;
+            if (debugInfo) callbacks.log(`[JUPITER:SCAN:RETRY] ${debugInfo}`);
+          }
+        }
+
         const ragContext = jupScored.length > 0
           ? await indexAndEnrich(deps, callbacks, state, jupScored, "jupiter", jupScored[0]!.question)
           : "";

@@ -203,18 +203,35 @@ export async function directPolymarketBuy(
     let totalCost = size * price;
     const balance = availableBalance ?? betSize * 2;
     if (totalCost > balance) {
-      const affordablePrice = Math.floor((balance / 5) * 100) / 100;
-      if (affordablePrice < 0.01) {
-        callbacks.log(`[BUY:POLYMARKET] ❌ Not enough balance: $${balance.toFixed(2)} — can't even afford 5 shares at $0.01`);
+      const affordableSize = Math.max(5, Math.floor(balance / price));
+      if (affordableSize < 5) {
+        callbacks.log(`[BUY:POLYMARKET] ❌ Not enough balance: $${balance.toFixed(2)} — can't afford 5 shares at $${price.toFixed(2)}`);
         return false;
       }
-      price = Math.min(affordablePrice, midPrice);
-      callbacks.log(
-        `[BUY:POLYMARKET] 💡 Adjusting limit bid to $${price.toFixed(2)} (5 shares = $${(5 * price).toFixed(2)})`,
-      );
     }
 
-    const result = await extSvc.placeOrder({ tokenId, side: "BUY", price, size });
+    // Try FOK (Fill-Or-Kill) first for immediate execution
+    let result: { orderID: string; status: string; transactionsHashes: string[] };
+    try {
+      result = await extSvc.placeMarketOrder({ tokenId, side: "BUY", amount: betSize });
+      if (result.status === "matched") {
+        const txInfo = result.transactionsHashes.length > 0
+          ? ` | tx: ${result.transactionsHashes[0]!.slice(0, 10)}...`
+          : "";
+        callbacks.log(
+          `[BUY:POLYMARKET] ✅ FOK FILLED: $${betSize.toFixed(2)} for "${question.slice(0, 60)}"${txInfo}`,
+        );
+        recordSpend(state, betSize);
+        return true;
+      }
+      callbacks.log(`[BUY:POLYMARKET] FOK didn't fill (${result.status}), trying GTC limit at $${price.toFixed(2)}...`);
+    } catch (fokErr) {
+      const fokMsg = fokErr instanceof Error ? fokErr.message : String(fokErr);
+      callbacks.log(`[BUY:POLYMARKET] FOK failed (${fokMsg}), trying GTC limit...`);
+    }
+
+    // Fallback: GTC limit order at mid-price
+    result = await extSvc.placeOrder({ tokenId, side: "BUY", price, size });
     const total = (size * price).toFixed(2);
     const statusIcon = result.status === "matched" ? "FILLED" : String(result.status).toUpperCase();
     const txInfo = result.transactionsHashes.length > 0
@@ -223,11 +240,17 @@ export async function directPolymarketBuy(
     callbacks.log(
       `[BUY:POLYMARKET] ✅ ${statusIcon}: ${size} shares @ $${price.toFixed(2)} ($${total}) for "${question.slice(0, 60)}"${txInfo}`,
     );
-    // Only record spend for filled orders (not live/pending GTC orders)
     if (result.status === "matched") {
       recordSpend(state, Number(total));
     } else {
-      callbacks.log(`[BUY:POLYMARKET] ⚠️ Order is ${statusIcon}, not FILLED — spend not recorded (will be recorded if filled later)`);
+      state.pendingOrders.set(result.orderID, {
+        orderID: result.orderID,
+        platform: "POLYMARKET",
+        question: question.slice(0, 80),
+        amount: Number(total),
+        placedAt: Date.now(),
+      });
+      callbacks.log(`[BUY:POLYMARKET] ⏳ GTC order ${result.orderID} pending — will monitor next cycle`);
     }
     return true;
   } catch (err) {

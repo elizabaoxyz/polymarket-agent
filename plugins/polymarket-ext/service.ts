@@ -164,4 +164,41 @@ export class PolymarketExtService {
   }> {
     return this.placeOrder({ ...params, side: "SELL" });
   }
+
+  async placeMarketOrder(params: {
+    tokenId: string;
+    side: "BUY" | "SELL";
+    amount: number;
+  }): Promise<{
+    orderID: string;
+    status: string;
+    transactionsHashes: string[];
+  }> {
+    if (params.amount <= 0) {
+      throw new Error(`Invalid amount ${params.amount}`);
+    }
+    const client = await this.getClobClient();
+    const { OrderType } = await import("@polymarket/clob-client");
+    const order = await client.createAndPostMarketOrder(
+      {
+        tokenID: params.tokenId,
+        amount: params.amount,
+        side: params.side,
+        feeRateBps: 1000,
+        nonce: 0,
+      },
+      undefined,
+      OrderType.FOK,
+    );
+
+    if (order.error || (typeof order.status === "number" && order.status >= 400)) {
+      throw new Error(order.error ?? order.errorMsg ?? `Market order failed with status ${order.status}`);
+    }
+
+    return {
+      orderID: order.orderID ?? order.id ?? "unknown",
+      status: String(order.status ?? "submitted"),
+      transactionsHashes: order.transactionsHashes ?? [],
+    };
+  }
 }

@@ -2,9 +2,9 @@
  * Settings wizard — extracted from tui.tsx for maintainability.
  */
 
-import type { ReactNode } from "react";
-import { Box, Text, render, useApp, useInput } from "ink";
+import { Box, render, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
+import type { ReactNode } from "react";
 import { useCallback, useMemo, useState } from "react";
 
 export type SettingsField = {
@@ -61,7 +61,9 @@ function SettingsWizardApp({
   const [index, setIndex] = useState(0);
   const [values, setValues] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {};
-    config.fields.forEach((field) => { initial[field.key] = field.value ?? ""; });
+    config.fields.forEach((field) => {
+      initial[field.key] = field.value ?? "";
+    });
     return initial;
   });
 
@@ -80,21 +82,40 @@ function SettingsWizardApp({
     return raw;
   }, [currentField, values]);
 
-  const updateValue = useCallback((value: string) => {
-    if (!currentField) return;
-    setValues((prev) => ({ ...prev, [currentField.key]: value }));
-  }, [currentField]);
+  const updateValue = useCallback(
+    (value: string) => {
+      if (!currentField) return;
+      setValues((prev) => ({ ...prev, [currentField.key]: value }));
+    },
+    [currentField],
+  );
 
-  const moveNext = useCallback(() => { setIndex((prev) => Math.min(prev + 1, fields.length)); }, [fields.length]);
-  const movePrev = useCallback(() => { setIndex((prev) => Math.max(0, prev - 1)); }, []);
-  const save = useCallback(() => { onDone({ status: "saved", values }); exit(); }, [exit, onDone, values]);
-  const cancel = useCallback(() => { onDone({ status: "cancelled" }); exit(); }, [exit, onDone]);
+  const moveNext = useCallback(() => {
+    setIndex((prev) => Math.min(prev + 1, fields.length));
+  }, [fields.length]);
+  const movePrev = useCallback(() => {
+    setIndex((prev) => Math.max(0, prev - 1));
+  }, []);
+  const save = useCallback(() => {
+    onDone({ status: "saved", values });
+    exit();
+  }, [exit, onDone, values]);
+  const cancel = useCallback(() => {
+    onDone({ status: "cancelled" });
+    exit();
+  }, [exit, onDone]);
 
   useInput((input, rawKey) => {
     const key = rawKey as InkKey;
     const keyName = (rawKey as { name?: string }).name;
-    if (key.ctrl && keyName === "c") { cancel(); return; }
-    if (key.escape) { cancel(); return; }
+    if (key.ctrl && keyName === "c") {
+      cancel();
+      return;
+    }
+    if (key.escape) {
+      cancel();
+      return;
+    }
     if (isReview) {
       if (key.return) save();
       if (key.upArrow) movePrev();
@@ -105,11 +126,23 @@ function SettingsWizardApp({
       const options = currentField.options ?? [];
       if (options.length === 0) return;
       const currentIdx = Math.max(0, options.indexOf(currentValue));
-      if (key.leftArrow) { updateValue(options[(currentIdx - 1 + options.length) % options.length] ?? currentValue); return; }
-      if (key.rightArrow) { updateValue(options[(currentIdx + 1) % options.length] ?? currentValue); return; }
-      if (key.return) { moveNext(); return; }
+      if (key.leftArrow) {
+        updateValue(options[(currentIdx - 1 + options.length) % options.length] ?? currentValue);
+        return;
+      }
+      if (key.rightArrow) {
+        updateValue(options[(currentIdx + 1) % options.length] ?? currentValue);
+        return;
+      }
+      if (key.return) {
+        moveNext();
+        return;
+      }
     }
-    if (key.upArrow) { movePrev(); return; }
+    if (key.upArrow) {
+      movePrev();
+      return;
+    }
     if (key.downArrow) moveNext();
   });
 
@@ -131,18 +164,35 @@ function SettingsWizardApp({
         {isReview ? (
           <Box flexDirection="column">
             <Text>Review settings:</Text>
-            {summaryLines.map((line) => (<Text key={line}>{line}</Text>))}
-            <Box marginTop={1}><Text dimColor>Press Enter to save, Esc to cancel, Up to edit.</Text></Box>
+            {summaryLines.map((line) => (
+              <Text key={line}>{line}</Text>
+            ))}
+            <Box marginTop={1}>
+              <Text dimColor>Press Enter to save, Esc to cancel, Up to edit.</Text>
+            </Box>
           </Box>
         ) : currentField ? (
           <Box flexDirection="column">
-            <Text>{currentField.label}{currentField.required ? "*" : ""} ({index + 1}/{fields.length})</Text>
+            <Text>
+              {currentField.label}
+              {currentField.required ? "*" : ""} ({index + 1}/{fields.length})
+            </Text>
             {currentField.type === "select" ? (
-              <Box><Text dimColor>Use ← → to change, Enter to confirm. </Text><Text color="cyan">{currentValue}</Text></Box>
+              <Box>
+                <Text dimColor>Use ← → to change, Enter to confirm. </Text>
+                <Text color="cyan">{currentValue}</Text>
+              </Box>
             ) : (
-              <TextInput value={currentValue} onChange={updateValue} onSubmit={moveNext} placeholder={currentField.secret ? "(hidden)" : ""} />
+              <TextInput
+                value={currentValue}
+                onChange={updateValue}
+                onSubmit={moveNext}
+                placeholder={currentField.secret ? "(hidden)" : ""}
+              />
             )}
-            <Box marginTop={1}><Text dimColor>Enter to continue, Esc to cancel, Up/Down to move.</Text></Box>
+            <Box marginTop={1}>
+              <Text dimColor>Enter to continue, Esc to cancel, Up/Down to move.</Text>
+            </Box>
           </Box>
         ) : null}
       </Box>
@@ -150,12 +200,22 @@ function SettingsWizardApp({
   );
 }
 
-export async function runSettingsWizard(config: SettingsWizardConfig): Promise<SettingsWizardResult> {
+export async function runSettingsWizard(
+  config: SettingsWizardConfig,
+): Promise<SettingsWizardResult> {
   return new Promise((resolve) => {
     let result: SettingsWizardResult = { status: "cancelled" };
     const { waitUntilExit, unmount } = render(
-      <SettingsWizardApp config={config} onDone={(next) => { result = next; }} />
+      <SettingsWizardApp
+        config={config}
+        onDone={(next) => {
+          result = next;
+        }}
+      />,
     );
-    void waitUntilExit().then(() => { unmount(); resolve(result); });
+    void waitUntilExit().then(() => {
+      unmount();
+      resolve(result);
+    });
   });
 }

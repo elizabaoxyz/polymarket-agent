@@ -48,7 +48,7 @@ describe("ResponseStreamExtractor behavior", () => {
 
   test("special characters pass through", () => {
     const extractor = new ResponseStreamExtractor();
-    const result = extractor.push('<actions>REPLY</actions><text>$0.45 → $0.50</text>');
+    const result = extractor.push("<actions>REPLY</actions><text>$0.45 → $0.50</text>");
     expect(result).toBe("$0.45 → $0.50");
   });
 });

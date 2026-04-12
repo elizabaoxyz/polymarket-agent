@@ -4,11 +4,16 @@
  * with fallback to elizaOS message handler.
  */
 
-import type { AgentRuntime, Content } from "@elizaos/core";
-import { createMessageMemory, stringToUuid, ChannelType } from "@elizaos/core";
+import type { Content } from "@elizaos/core";
+import { ChannelType, createMessageMemory, type stringToUuid } from "@elizaos/core";
 import { v4 as uuidv4 } from "uuid";
 import type { AutonomyCallbacks, AutonomyDeps } from "./autonomy-state";
-import { LLM_TEMPERATURE, TAKER_FEE_RATE, MIN_EDGE_THRESHOLD, MIN_CONFIDENCE_THRESHOLD } from "./config";
+import {
+  LLM_TEMPERATURE,
+  MIN_CONFIDENCE_THRESHOLD,
+  MIN_EDGE_THRESHOLD,
+  TAKER_FEE_RATE,
+} from "./config";
 import { formatIntelForPrompt } from "./market-intel";
 
 /**
@@ -93,10 +98,12 @@ export async function callLlmDirect(prompt: string, maxTokens: number): Promise<
     const apiKey = glmKey || anthropicKey!;
     const baseUrl = glmKey
       ? "https://api.z.ai/api/anthropic"
-      : (process.env.ANTHROPIC_BASE_URL?.trim() || "https://api.anthropic.com");
+      : process.env.ANTHROPIC_BASE_URL?.trim() || "https://api.anthropic.com";
     const model = glmKey
-      ? (process.env.GLM_LARGE_MODEL?.trim() || "glm-4.7")
-      : (process.env.ANTHROPIC_LARGE_MODEL?.trim() || process.env.LARGE_MODEL?.trim() || "claude-sonnet-4-20250514");
+      ? process.env.GLM_LARGE_MODEL?.trim() || "glm-4.7"
+      : process.env.ANTHROPIC_LARGE_MODEL?.trim() ||
+        process.env.LARGE_MODEL?.trim() ||
+        "claude-sonnet-4-20250514";
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const res = await fetch(`${baseUrl}/v1/messages`, {
@@ -117,7 +124,7 @@ export async function callLlmDirect(prompt: string, maxTokens: number): Promise<
       if (!res.ok) {
         const errText = await res.text().catch(() => "");
         if (res.status === 429 && attempt < maxRetries) {
-          const delay = baseDelay * Math.pow(2, attempt);
+          const delay = baseDelay * 2 ** attempt;
           await new Promise((r) => setTimeout(r, delay));
           continue;
         }
@@ -135,14 +142,15 @@ export async function callLlmDirect(prompt: string, maxTokens: number): Promise<
   // OpenAI-compatible
   if (openaiKey) {
     const baseUrl = process.env.OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1";
-    const model = process.env.OPENAI_LARGE_MODEL?.trim() || process.env.LARGE_MODEL?.trim() || "gpt-4o";
+    const model =
+      process.env.OPENAI_LARGE_MODEL?.trim() || process.env.LARGE_MODEL?.trim() || "gpt-4o";
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const res = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${openaiKey}`,
+          Authorization: `Bearer ${openaiKey}`,
         },
         body: JSON.stringify({
           model,
@@ -155,7 +163,7 @@ export async function callLlmDirect(prompt: string, maxTokens: number): Promise<
       if (!res.ok) {
         const errText = await res.text().catch(() => "");
         if (res.status === 429 && attempt < maxRetries) {
-          const delay = baseDelay * Math.pow(2, attempt);
+          const delay = baseDelay * 2 ** attempt;
           await new Promise((r) => setTimeout(r, delay));
           continue;
         }
@@ -204,7 +212,7 @@ function parseLlmResponse(text: string): ParsedLlmPick | null {
     pickNum,
     side: sideMatch[1]!.toUpperCase(),
     estimate: estimateMatch ? Number.parseFloat(estimateMatch[1]!) : 0.5,
-    edge: edgeMatch ? Math.min(0.5, Number.parseFloat(edgeMatch[1]!)) : 0.10,
+    edge: edgeMatch ? Math.min(0.5, Number.parseFloat(edgeMatch[1]!)) : 0.1,
     confidence: confidenceMatch ? Math.min(1.0, Number.parseFloat(confidenceMatch[1]!)) : 0.5,
     category: categoryMatch ? categoryMatch[1]!.toUpperCase() : "OTHER",
     reason: reasonMatch ? reasonMatch[1]!.trim() : "",
@@ -217,10 +225,7 @@ function parseLlmResponse(text: string): ParsedLlmPick | null {
  * - If they disagree on SIDE -> return null (no consensus = skip)
  * - If only one result provided -> use it directly
  */
-export function mergeEnsembleResults(
-  textA: string,
-  textB: string | null,
-): ParsedLlmPick | null {
+export function mergeEnsembleResults(textA: string, textB: string | null): ParsedLlmPick | null {
   const a = parseLlmResponse(textA);
   if (!textB) return a; // Single-provider mode
 
@@ -264,12 +269,15 @@ export async function ensembleLlmCall(
 
   const anthropicBase = process.env.GLM_API_KEY?.trim()
     ? "https://api.z.ai/api/anthropic"
-    : (process.env.ANTHROPIC_BASE_URL?.trim() || "https://api.anthropic.com");
+    : process.env.ANTHROPIC_BASE_URL?.trim() || "https://api.anthropic.com";
   const anthropicModel = process.env.GLM_API_KEY?.trim()
-    ? (process.env.GLM_LARGE_MODEL?.trim() || "glm-4.7")
-    : (process.env.ANTHROPIC_LARGE_MODEL?.trim() || process.env.LARGE_MODEL?.trim() || "claude-sonnet-4-20250514");
+    ? process.env.GLM_LARGE_MODEL?.trim() || "glm-4.7"
+    : process.env.ANTHROPIC_LARGE_MODEL?.trim() ||
+      process.env.LARGE_MODEL?.trim() ||
+      "claude-sonnet-4-20250514";
   const openaiBase = process.env.OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1";
-  const openaiModel = process.env.OPENAI_LARGE_MODEL?.trim() || process.env.LARGE_MODEL?.trim() || "gpt-4o";
+  const openaiModel =
+    process.env.OPENAI_LARGE_MODEL?.trim() || process.env.LARGE_MODEL?.trim() || "gpt-4o";
 
   const callAnthropic = async (): Promise<string> => {
     const res = await fetch(`${anthropicBase}/v1/messages`, {
@@ -297,7 +305,7 @@ export async function ensembleLlmCall(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${openaiKey}`,
+        Authorization: `Bearer ${openaiKey}`,
       },
       body: JSON.stringify({
         model: openaiModel,
@@ -318,19 +326,23 @@ export async function ensembleLlmCall(
   const textB = resultB.status === "fulfilled" ? resultB.value : "";
 
   if (resultA.status === "rejected") {
-    callbacks.log(`[LLM:ENSEMBLE] Anthropic failed: ${(resultA.reason as Error).message ?? "unknown"}`);
+    callbacks.log(
+      `[LLM:ENSEMBLE] Anthropic failed: ${(resultA.reason as Error).message ?? "unknown"}`,
+    );
   }
   if (resultB.status === "rejected") {
-    callbacks.log(`[LLM:ENSEMBLE] OpenAI failed: ${(resultB.reason as Error).message ?? "unknown"}`);
+    callbacks.log(
+      `[LLM:ENSEMBLE] OpenAI failed: ${(resultB.reason as Error).message ?? "unknown"}`,
+    );
   }
 
   // If both returned results, merge all picks
   if (textA && textB) {
     // Parse all picks from each provider
     const parseAll = (text: string): ParsedLlmPick[] => {
-      const blocks = text.split(/\n\s*\n/).filter(b => /PICK:/i.test(b));
+      const blocks = text.split(/\n\s*\n/).filter((b) => /PICK:/i.test(b));
       const toParse = blocks.length > 0 ? blocks : [text];
-      return toParse.map(b => parseLlmResponse(b)).filter((p): p is ParsedLlmPick => p !== null);
+      return toParse.map((b) => parseLlmResponse(b)).filter((p): p is ParsedLlmPick => p !== null);
     };
 
     const picksA = parseAll(textA);
@@ -345,7 +357,7 @@ export async function ensembleLlmCall(
     // Merge matching picks (by pickNum + same side), include extras from A
     const merged: ParsedLlmPick[] = [];
     for (const a of picksA) {
-      const b = picksB.find(p => p.pickNum === a.pickNum && p.side === a.side);
+      const b = picksB.find((p) => p.pickNum === a.pickNum && p.side === a.side);
       if (b) {
         merged.push({
           ...a,
@@ -364,11 +376,16 @@ export async function ensembleLlmCall(
       return "PICK: 0";
     }
 
-    callbacks.log(`[LLM:ENSEMBLE] Consensus on ${merged.length} pick(s): ${merged.map(p => `${p.side} #${p.pickNum}`).join(", ")}`);
+    callbacks.log(
+      `[LLM:ENSEMBLE] Consensus on ${merged.length} pick(s): ${merged.map((p) => `${p.side} #${p.pickNum}`).join(", ")}`,
+    );
 
-    return merged.map(p =>
-      `PICK: ${p.pickNum}\nSIDE: ${p.side}\nESTIMATE: ${p.estimate.toFixed(3)}\nEDGE: ${p.edge.toFixed(3)}\nCONFIDENCE: ${p.confidence.toFixed(3)}\nCATEGORY: ${p.category}\nREASON: ${p.reason}`
-    ).join("\n\n");
+    return merged
+      .map(
+        (p) =>
+          `PICK: ${p.pickNum}\nSIDE: ${p.side}\nESTIMATE: ${p.estimate.toFixed(3)}\nEDGE: ${p.edge.toFixed(3)}\nCONFIDENCE: ${p.confidence.toFixed(3)}\nCATEGORY: ${p.category}\nREASON: ${p.reason}`,
+      )
+      .join("\n\n");
   }
 
   // If only one succeeded, use it
@@ -376,19 +393,33 @@ export async function ensembleLlmCall(
 }
 
 export type AnalysisResult = {
-  pick: { question: string; yesPrice: number; score: number; volume?: number; daysLeft?: number; intel?: import("./market-intel").MarketIntel | null };
+  pick: {
+    question: string;
+    yesPrice: number;
+    score: number;
+    volume?: number;
+    daysLeft?: number;
+    intel?: import("./market-intel").MarketIntel | null;
+  };
   side: string;
   reason: string;
-  edge: number;       // 0-1: how big the edge is
-  confidence: number;  // 0-1: how confident the LLM is
-  category: string;    // market category for logging
+  edge: number; // 0-1: how big the edge is
+  confidence: number; // 0-1: how confident the LLM is
+  category: string; // market category for logging
   estimatedProb: number; // LLM's estimated true probability
 };
 
 export async function analyzeCandidates(
   deps: AutonomyDeps,
   callbacks: AutonomyCallbacks,
-  candidates: Array<{ question: string; yesPrice: number; score: number; volume?: number; daysLeft?: number; intel?: import("./market-intel").MarketIntel | null }>,
+  candidates: Array<{
+    question: string;
+    yesPrice: number;
+    score: number;
+    volume?: number;
+    daysLeft?: number;
+    intel?: import("./market-intel").MarketIntel | null;
+  }>,
   ragContext: string,
 ): Promise<AnalysisResult[]> {
   const today = new Date().toISOString().split("T")[0];
@@ -411,7 +442,9 @@ export async function analyzeCandidates(
 
   callbacks.log(`[ANALYSIS] Analyzing top ${candidates.length} markets (ensemble)...`);
   for (const c of candidates) {
-    callbacks.log(`[ANALYSIS:CANDIDATE] "${c.question.slice(0, 60)}" YES:$${c.yesPrice.toFixed(2)} score:${c.score.toFixed(2)} vol:$${c.volume?.toFixed(0) ?? "?"}`);
+    callbacks.log(
+      `[ANALYSIS:CANDIDATE] "${c.question.slice(0, 60)}" YES:$${c.yesPrice.toFixed(2)} score:${c.score.toFixed(2)} vol:$${c.volume?.toFixed(0) ?? "?"}`,
+    );
   }
 
   const structuredPrompt = `You are a prediction market TRADER, not an analyst. Today is ${today}.
@@ -487,30 +520,40 @@ PICK: 0 if no market has a clear edge after accounting for fees. This is NOT a f
     const pickIdx = Math.min(pickNum - 1, candidates.length - 1);
     const pick = candidates[Math.max(0, pickIdx)]!;
     const side = sideMatch[1]!.toUpperCase();
-    const edge = edgeMatch ? Math.min(0.5, Number.parseFloat(edgeMatch[1]!)) : 0.10;
-    const confidence = confidenceMatch ? Math.min(1.0, Number.parseFloat(confidenceMatch[1]!)) : 0.5;
+    const edge = edgeMatch ? Math.min(0.5, Number.parseFloat(edgeMatch[1]!)) : 0.1;
+    const confidence = confidenceMatch
+      ? Math.min(1.0, Number.parseFloat(confidenceMatch[1]!))
+      : 0.5;
     const estimatedProb = estimateMatch ? Number.parseFloat(estimateMatch[1]!) : pick.yesPrice;
     const category = categoryMatch ? categoryMatch[1]!.toUpperCase() : "OTHER";
     const reason = reasonMatch ? reasonMatch[1]!.trim() : "";
 
     if (edge < MIN_EDGE_THRESHOLD) {
-      callbacks.log(`[ANALYSIS] ❌ Edge ${edge.toFixed(2)} below minimum ${MIN_EDGE_THRESHOLD} — skipping "${pick.question.slice(0, 50)}"`);
+      callbacks.log(
+        `[ANALYSIS] ❌ Edge ${edge.toFixed(2)} below minimum ${MIN_EDGE_THRESHOLD} — skipping "${pick.question.slice(0, 50)}"`,
+      );
       continue;
     }
 
     // Fee-adjusted edge: deduct taker fees + gas before accepting
     const feeAdjustedEdge = edge - TAKER_FEE_RATE;
     if (feeAdjustedEdge < 0.02) {
-      callbacks.log(`[ANALYSIS] ❌ Fee-adjusted edge ${feeAdjustedEdge.toFixed(3)} (raw ${edge.toFixed(2)} - ${TAKER_FEE_RATE} fees) too thin — skipping "${pick.question.slice(0, 50)}"`);
+      callbacks.log(
+        `[ANALYSIS] ❌ Fee-adjusted edge ${feeAdjustedEdge.toFixed(3)} (raw ${edge.toFixed(2)} - ${TAKER_FEE_RATE} fees) too thin — skipping "${pick.question.slice(0, 50)}"`,
+      );
       continue;
     }
 
     if (confidence < MIN_CONFIDENCE_THRESHOLD) {
-      callbacks.log(`[ANALYSIS] ❌ Confidence ${confidence.toFixed(2)} below minimum ${MIN_CONFIDENCE_THRESHOLD} — skipping "${pick.question.slice(0, 50)}"`);
+      callbacks.log(
+        `[ANALYSIS] ❌ Confidence ${confidence.toFixed(2)} below minimum ${MIN_CONFIDENCE_THRESHOLD} — skipping "${pick.question.slice(0, 50)}"`,
+      );
       continue;
     }
 
-    callbacks.log(`[ANALYSIS] ✅ #${results.length + 1} ${category} | ${side} | edge=${edge.toFixed(2)} | conf=${confidence.toFixed(2)} | est=${estimatedProb.toFixed(2)} | "${reason.slice(0, 80)}"`);
+    callbacks.log(
+      `[ANALYSIS] ✅ #${results.length + 1} ${category} | ${side} | edge=${edge.toFixed(2)} | conf=${confidence.toFixed(2)} | est=${estimatedProb.toFixed(2)} | "${reason.slice(0, 80)}"`,
+    );
 
     results.push({ pick, side, reason, edge, confidence, category, estimatedProb });
   }

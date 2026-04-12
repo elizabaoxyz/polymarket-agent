@@ -8,10 +8,10 @@
  * Requires: EVM_PRIVATE_KEY, CLOB_API_KEY, CLOB_API_SECRET, CLOB_API_PASSPHRASE in .env
  */
 
-import { describe, expect, test, beforeAll } from "bun:test";
-import dotenv from "dotenv";
+import { beforeAll, describe, expect, test } from "bun:test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
 import { ethers } from "ethers";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -28,7 +28,9 @@ const EVM_PRIVATE_KEY = process.env.EVM_PRIVATE_KEY?.trim();
 const CLOB_API_URL = process.env.CLOB_API_URL?.trim() ?? "https://clob.polymarket.com";
 const DATA_API_URL = "https://data-api.polymarket.com";
 
-const hasCredentials = Boolean(CLOB_API_KEY && CLOB_API_SECRET && CLOB_API_PASSPHRASE && EVM_PRIVATE_KEY);
+const hasCredentials = Boolean(
+  CLOB_API_KEY && CLOB_API_SECRET && CLOB_API_PASSPHRASE && EVM_PRIVATE_KEY,
+);
 
 // Skip all tests if credentials are not available
 const describeIfLive = hasCredentials ? describe : describe.skip;
@@ -70,7 +72,7 @@ describeIfLive("Live: ClobApiClient", () => {
   test("getOrderBook returns bids and asks for a known market", async () => {
     try {
       const book = await client.getOrderBook(
-        "21742633143463906290569050155826241533067272736897614950488156847949938836455"
+        "21742633143463906290569050155826241533067272736897614950488156847949938836455",
       );
       expect(book).toHaveProperty("bids");
       expect(book).toHaveProperty("asks");
@@ -104,7 +106,9 @@ describeIfLive("Live: DataApiClient", () => {
         expect(first).toHaveProperty("title");
         expect(first).toHaveProperty("outcome");
         expect(first).toHaveProperty("size");
-        console.log(`  Live: First position — ${first.title} | ${first.outcome} | ${first.size} shares`);
+        console.log(
+          `  Live: First position — ${first.title} | ${first.outcome} | ${first.size} shares`,
+        );
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -150,8 +154,8 @@ describeIfLive("Live: Market Search & Token Resolution", () => {
     const first = markets[0]!;
     expect(first.question).toBeDefined();
     expect(first.tokens.length).toBeGreaterThanOrEqual(2);
-    const yesToken = first.tokens.find(t => t.outcome === "Yes");
-    const noToken = first.tokens.find(t => t.outcome === "No");
+    const yesToken = first.tokens.find((t) => t.outcome === "Yes");
+    const noToken = first.tokens.find((t) => t.outcome === "No");
     expect(yesToken).toBeDefined();
     expect(noToken).toBeDefined();
     expect(yesToken!.token_id.length).toBeGreaterThan(10);
@@ -167,7 +171,9 @@ describeIfLive("Live: Market Search & Token Resolution", () => {
     const book = await client.getOrderBook(token.token_id);
     expect(book).toHaveProperty("bids");
     expect(book).toHaveProperty("asks");
-    console.log(`  Live: Token ${token.token_id.slice(0, 15)}... has ${book.bids.length} bids, ${book.asks.length} asks`);
+    console.log(
+      `  Live: Token ${token.token_id.slice(0, 15)}... has ${book.bids.length} bids, ${book.asks.length} asks`,
+    );
   }, 30_000);
 });
 

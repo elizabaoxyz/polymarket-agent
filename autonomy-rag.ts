@@ -3,11 +3,11 @@
  * Extracted from autonomy.ts for maintainability.
  */
 
+import type { JupMarket, ScoredMarket } from "./autonomy-scanner";
+import type { AutonomyCallbacks, AutonomyDeps, AutonomyState } from "./autonomy-state";
 import { RAG_SIMILARITY_WEIGHT } from "./config";
-import type { AutonomyDeps, AutonomyCallbacks, AutonomyState } from "./autonomy-state";
 import type { RAGService } from "./plugins/rag/service";
 import type { MarketDocument, NewsDocument } from "./plugins/rag/types";
-import type { ScoredMarket, JupMarket } from "./autonomy-scanner";
 
 async function applyRagSimilarity(
   ragSvc: RAGService,
@@ -104,7 +104,13 @@ export async function indexAndEnrich(
     if (connectorCtx && (connectorCtx as { contextSummary?: string }).contextSummary) {
       const ctx = connectorCtx as {
         contextSummary: string;
-        articles: Array<{ title: string; description: string; source: unknown; url: unknown; publishedAt: unknown }>;
+        articles: Array<{
+          title: string;
+          description: string;
+          source: unknown;
+          url: unknown;
+          publishedAt: unknown;
+        }>;
       };
       parts.push(`NEWS & WEB SEARCH:\n${ctx.contextSummary}`);
       callbacks.log(`[RAG:ENRICH] Got news+search context (${ctx.contextSummary.length} chars)`);
@@ -122,18 +128,32 @@ export async function indexAndEnrich(
         callbacks.log(`[RAG:INDEX] Indexed ${indexed} news articles into ChromaDB`);
       }
     }
-    if (ragCtx && (ragCtx as { similarMarkets: Array<{ metadata: Record<string, unknown>; id: string; score: number }> }).similarMarkets.length > 0) {
-      const r = ragCtx as { similarMarkets: Array<{ metadata: Record<string, unknown>; id: string; score: number }>; relevantNews: unknown[] };
-      const simLines = r.similarMarkets.slice(0, 3).map(
-        (s) => `  - "${(s.metadata as Record<string, unknown>).question ?? s.id}" (similarity: ${(s.score * 100).toFixed(0)}%)`,
-      );
+    if (
+      ragCtx &&
+      (
+        ragCtx as {
+          similarMarkets: Array<{ metadata: Record<string, unknown>; id: string; score: number }>;
+        }
+      ).similarMarkets.length > 0
+    ) {
+      const r = ragCtx as {
+        similarMarkets: Array<{ metadata: Record<string, unknown>; id: string; score: number }>;
+        relevantNews: unknown[];
+      };
+      const simLines = r.similarMarkets
+        .slice(0, 3)
+        .map(
+          (s) =>
+            `  - "${(s.metadata as Record<string, unknown>).question ?? s.id}" (similarity: ${(s.score * 100).toFixed(0)}%)`,
+        );
       parts.push(`SIMILAR MARKETS (from ChromaDB):\n${simLines.join("\n")}`);
       callbacks.log(`[RAG:ENRICH] Found ${r.similarMarkets.length} similar markets in ChromaDB`);
     }
 
-    const result = parts.length > 0
-      ? `\n\nADDITIONAL CONTEXT FOR YOUR ANALYSIS:\n${parts.join("\n\n")}\n\nUse this context to improve your prediction accuracy.`
-      : "";
+    const result =
+      parts.length > 0
+        ? `\n\nADDITIONAL CONTEXT FOR YOUR ANALYSIS:\n${parts.join("\n\n")}\n\nUse this context to improve your prediction accuracy.`
+        : "";
     state.cycleEnrichCache.set(cacheKey, result);
     return result;
   } catch (err) {

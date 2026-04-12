@@ -3,34 +3,62 @@
  * Single unified pipeline: auto-sell → LLM review → recovery mode.
  */
 
-import { JupiterPredictionService, JUPITER_SERVICE_TYPE } from "./plugins/jupiter-prediction/service";
-import type { AutonomyDeps, AutonomyCallbacks, AutonomyState } from "./autonomy-state";
-import { recordTrade, updatePeakPrice, getDropFromPeak, trackPositionAge, getPositionAgeDays, pruneStaleTracking, recordJupPriceSnapshot, computeJupTrend, pruneStaleJupHistory } from "./autonomy-state";
+import { directLlmCall } from "./autonomy-llm";
+import type { AutonomyCallbacks, AutonomyDeps, AutonomyState } from "./autonomy-state";
 import {
-  PRICE_CEILING_SELL,
-  HIGH_PRICE_SELL,
+  computeJupTrend,
+  getDropFromPeak,
+  getPositionAgeDays,
+  pruneStaleJupHistory,
+  pruneStaleTracking,
+  recordJupPriceSnapshot,
+  recordTrade,
+  trackPositionAge,
+  updatePeakPrice,
+} from "./autonomy-state";
+import { directPolymarketSell } from "./autonomy-trade";
+import {
+  CAPITAL_PRESSURE_MAX_POSITIONS,
+  CAPITAL_PRESSURE_MIN_BALANCE,
   DEAD_POSITION_PRICE,
   HARD_STOP_LOSS_PCT,
-  TRAILING_STOP_MIN_PRICE,
-  TRAILING_STOP_DROP_PCT,
-  CAPITAL_PRESSURE_MIN_BALANCE,
-  CAPITAL_PRESSURE_MAX_POSITIONS,
-  TIME_DECAY_SELL_DAYS,
+  HIGH_PRICE_SELL,
   PARTIAL_PROFIT_PRICE,
+  PRICE_CEILING_SELL,
+  TIME_DECAY_SELL_DAYS,
+  TRAILING_STOP_DROP_PCT,
+  TRAILING_STOP_MIN_PRICE,
 } from "./config";
+import type { PriceTrend } from "./market-intel";
+import { computePriceTrend, fetchPolyPriceHistory } from "./market-intel";
+import {
+  JUPITER_SERVICE_TYPE,
+  type JupiterPredictionService,
+} from "./plugins/jupiter-prediction/service";
 import { withRetry } from "./retry";
 import { getSolanaKeypair } from "./solana-wallet";
-import { directPolymarketSell } from "./autonomy-trade";
-import { directLlmCall } from "./autonomy-llm";
-import { fetchPolyPriceHistory, computePriceTrend } from "./market-intel";
-import type { PriceTrend } from "./market-intel";
 
 // --- Position collection types ---
 
-export type PolySellTarget = { token: string; shares: number; title: string; pnl: number; curPrice: number; daysLeft?: number };
+export type PolySellTarget = {
+  token: string;
+  shares: number;
+  title: string;
+  pnl: number;
+  curPrice: number;
+  daysLeft?: number;
+};
 export type JupSellTarget = { marketId: string; pubkey: string; title: string; pnl: number };
 export type JupClaimTarget = { pubkey: string; title: string; payout: number };
-export type JupPositionInfo = { marketId: string; pubkey: string; title: string; pnl: number; isYes: boolean; contracts: string; curPrice?: number };
+export type JupPositionInfo = {
+  marketId: string;
+  pubkey: string;
+  title: string;
+  pnl: number;
+  isYes: boolean;
+  contracts: string;
+  curPrice?: number;
+};
 
 /** Minimum shares to be tradeable on Polymarket CLOB. */
 const MIN_CLOB_SHARES = 5;
@@ -49,7 +77,7 @@ export type ReviewablePosition = {
   curPrice?: number;
   isYes?: boolean;
   contracts?: string;
-  daysLeft?: number;  // days until market resolution
+  daysLeft?: number; // days until market resolution
 };
 
 // --- Collect positions from both platforms ---
@@ -86,9 +114,14 @@ export async function collectPositions(
       );
       if (posRes.ok) {
         type PolyPosApi = {
-          title?: string; asset: string; size: number; percentPnl: number;
-          curPrice: number; redeemable?: boolean;
-          end_date_iso?: string; endDate?: string;
+          title?: string;
+          asset: string;
+          size: number;
+          percentPnl: number;
+          curPrice: number;
+          redeemable?: boolean;
+          end_date_iso?: string;
+          endDate?: string;
         };
         for (const pos of (await posRes.json()) as PolyPosApi[]) {
           const pnl = pos.percentPnl ?? 0;
@@ -103,13 +136,28 @@ export async function collectPositions(
             untradeableKeys.add(pos.asset);
           }
           let daysLeft: number | undefined;
-          const endDateStr = pos.end_date_iso ?? (pos as Record<string, unknown>).endDate as string | undefined;
+          const endDateStr =
+            pos.end_date_iso ?? ((pos as Record<string, unknown>).endDate as string | undefined);
           if (endDateStr) {
             daysLeft = Math.max(0, (new Date(endDateStr).getTime() - Date.now()) / 86400000);
           }
-          polyAllSellable.push({ token: pos.asset, shares: pos.size, title: pos.title ?? "", pnl, curPrice: price, ...(daysLeft !== undefined ? { daysLeft } : {}) });
+          polyAllSellable.push({
+            token: pos.asset,
+            shares: pos.size,
+            title: pos.title ?? "",
+            pnl,
+            curPrice: price,
+            ...(daysLeft !== undefined ? { daysLeft } : {}),
+          });
           if (pnl < sellLossThreshold || pnl > sellProfitThreshold) {
-            polySellTargets.push({ token: pos.asset, shares: pos.size, title: pos.title ?? "", pnl, curPrice: price, ...(daysLeft !== undefined ? { daysLeft } : {}) });
+            polySellTargets.push({
+              token: pos.asset,
+              shares: pos.size,
+              title: pos.title ?? "",
+              pnl,
+              curPrice: price,
+              ...(daysLeft !== undefined ? { daysLeft } : {}),
+            });
           }
         }
       }
@@ -131,10 +179,17 @@ export async function collectPositions(
       );
       if (posRes.ok) {
         type JupPosApi = {
-          marketId: string; pubkey: string; isYes: boolean; contracts: string;
-          pnlUsdPercent: number; eventMetadata?: { title?: string };
-          marketMetadata?: { title?: string }; claimable?: boolean; claimed?: boolean;
-          payoutUsd?: number; markPriceUsd?: string;
+          marketId: string;
+          pubkey: string;
+          isYes: boolean;
+          contracts: string;
+          pnlUsdPercent: number;
+          eventMetadata?: { title?: string };
+          marketMetadata?: { title?: string };
+          claimable?: boolean;
+          claimed?: boolean;
+          payoutUsd?: number;
+          markPriceUsd?: string;
         };
         for (const pos of ((await posRes.json()) as { data?: JupPosApi[] }).data ?? []) {
           const title = pos.eventMetadata?.title ?? pos.marketId ?? "";
@@ -162,7 +217,7 @@ export async function collectPositions(
             });
           }
           // Track Jupiter positions with dead prices as untradeable
-          if (pos.pubkey && (markPrice < DEAD_PRICE_THRESHOLD)) {
+          if (pos.pubkey && markPrice < DEAD_PRICE_THRESHOLD) {
             untradeableKeys.add(pos.pubkey);
           }
           if (
@@ -183,7 +238,15 @@ export async function collectPositions(
     }
   } catch {}
 
-  return { ownedTitles, polySellTargets, polyAllSellable, jupSellTargets, jupAllPositions, jupClaimable, untradeableKeys };
+  return {
+    ownedTitles,
+    polySellTargets,
+    polyAllSellable,
+    jupSellTargets,
+    jupAllPositions,
+    jupClaimable,
+    untradeableKeys,
+  };
 }
 
 // --- Execute a sell on either platform ---
@@ -202,13 +265,23 @@ async function executeSell(
 
   if (platform === "POLYMARKET" && pos.token) {
     callbacks.log(`[SELL:POLYMARKET] "${pos.title}" ${sign}${pos.pnl.toFixed(0)}% — ${reason}`);
-    await directPolymarketSell(deps, callbacks, state, pos.token, pos.shares ?? 0, pos.title, pos.curPrice);
+    await directPolymarketSell(
+      deps,
+      callbacks,
+      state,
+      pos.token,
+      pos.shares ?? 0,
+      pos.title,
+      pos.curPrice,
+    );
     return true;
   } else if (platform === "JUPITER" && pos.pubkey) {
     callbacks.log(`[SELL:JUPITER] "${pos.title}" ${sign}${pos.pnl.toFixed(0)}% — ${reason}`);
     let jupSvc: JupiterPredictionService | null = null;
     try {
-      jupSvc = (await deps.runtime.getServiceLoadPromise(JUPITER_SERVICE_TYPE)) as unknown as JupiterPredictionService | null;
+      jupSvc = (await deps.runtime.getServiceLoadPromise(
+        JUPITER_SERVICE_TYPE,
+      )) as unknown as JupiterPredictionService | null;
     } catch {}
     if (jupSvc) {
       try {
@@ -240,7 +313,9 @@ export async function claimJupiterPositions(
 
   let jupSvc: JupiterPredictionService | null = null;
   try {
-    jupSvc = (await deps.runtime.getServiceLoadPromise(JUPITER_SERVICE_TYPE)) as unknown as JupiterPredictionService | null;
+    jupSvc = (await deps.runtime.getServiceLoadPromise(
+      JUPITER_SERVICE_TYPE,
+    )) as unknown as JupiterPredictionService | null;
   } catch {}
   for (const claim of jupClaimable) {
     callbacks.log(`[CLAIM:JUPITER] "${claim.title}" — payout: $${claim.payout.toFixed(2)}`);
@@ -273,7 +348,10 @@ export async function unifiedPortfolioReview(
   if (lowBalance) {
     const before = state.failedSells.size;
     state.failedSells.clear();
-    if (before > 0) callbacks.log(`[PORTFOLIO:${platform}] Cleared ${before} failed-sell entries (recovery mode)`);
+    if (before > 0)
+      callbacks.log(
+        `[PORTFOLIO:${platform}] Cleared ${before} failed-sell entries (recovery mode)`,
+      );
   }
 
   const reviewable = positions.filter((p) => {
@@ -291,10 +369,18 @@ export async function unifiedPortfolioReview(
 
   if (reviewable.length === 0) {
     const raw = positions.length;
-    const recentlySoldCount = positions.filter((p) => state.recentlySold.has(p.token ?? p.pubkey ?? "")).length;
-    const failedCount = positions.filter((p) => state.failedSells.has(p.token ?? p.pubkey ?? "")).length;
-    const stuckCount = positions.filter((p) => state.stuckDust.has(p.token ?? p.pubkey ?? "")).length;
-    callbacks.log(`[PORTFOLIO:${platform}] No reviewable positions (raw: ${raw}, sold: ${recentlySoldCount}, failed: ${failedCount}, stuck: ${stuckCount})`);
+    const recentlySoldCount = positions.filter((p) =>
+      state.recentlySold.has(p.token ?? p.pubkey ?? ""),
+    ).length;
+    const failedCount = positions.filter((p) =>
+      state.failedSells.has(p.token ?? p.pubkey ?? ""),
+    ).length;
+    const stuckCount = positions.filter((p) =>
+      state.stuckDust.has(p.token ?? p.pubkey ?? ""),
+    ).length;
+    callbacks.log(
+      `[PORTFOLIO:${platform}] No reviewable positions (raw: ${raw}, sold: ${recentlySoldCount}, failed: ${failedCount}, stuck: ${stuckCount})`,
+    );
     return;
   }
 
@@ -395,7 +481,7 @@ export async function unifiedPortfolioReview(
     }
     // Rule 8: Time-decay — sell positions in no-man's land near resolution
     else if (p.daysLeft !== undefined && p.daysLeft < TIME_DECAY_SELL_DAYS) {
-      if (price >= 0.40 && price <= 0.70) {
+      if (price >= 0.4 && price <= 0.7) {
         reason = `time-decay (${p.daysLeft.toFixed(1)}d to resolve, price $${price.toFixed(2)} in no-man's land)`;
       } else if (price < 0.25 && price > 0) {
         reason = `time-decay-loser (${p.daysLeft.toFixed(1)}d to resolve, price $${price.toFixed(2)} — thesis wrong)`;
@@ -416,27 +502,49 @@ export async function unifiedPortfolioReview(
       const shares = p.shares ?? 0;
       if (price >= PARTIAL_PROFIT_PRICE && shares > 10) {
         const halfShares = Math.floor(shares / 2);
-        if (halfShares >= 5) { // CLOB minimum
+        if (halfShares >= 5) {
+          // CLOB minimum
           const key = p.token ?? "";
           if (state.recentlySold.has(key) || state.failedSells.has(key)) continue;
           const partialPos = { ...p, shares: halfShares };
-          callbacks.log(`[SELL:POLYMARKET] Partial profit: "${p.title}" $${price.toFixed(2)} — selling ${halfShares}/${shares} shares`);
-          await executeSell(deps, callbacks, state, partialPos, platform, `partial-profit ($${price.toFixed(2)}, ${halfShares}/${shares} shares)`);
+          callbacks.log(
+            `[SELL:POLYMARKET] Partial profit: "${p.title}" $${price.toFixed(2)} — selling ${halfShares}/${shares} shares`,
+          );
+          await executeSell(
+            deps,
+            callbacks,
+            state,
+            partialPos,
+            platform,
+            `partial-profit ($${price.toFixed(2)}, ${halfShares}/${shares} shares)`,
+          );
         }
       }
     }
   }
 
   // === Capital pressure: sell weakest positions when balance critical ===
-  if (balance < CAPITAL_PRESSURE_MIN_BALANCE && reviewable.length > CAPITAL_PRESSURE_MAX_POSITIONS) {
+  if (
+    balance < CAPITAL_PRESSURE_MIN_BALANCE &&
+    reviewable.length > CAPITAL_PRESSURE_MAX_POSITIONS
+  ) {
     const unsold = reviewable.filter((p) => !autoSellSet.has(p));
     const sorted = [...unsold].sort((a, b) => (a.pnl ?? 0) - (b.pnl ?? 0));
     const toSell = sorted.slice(0, 3);
-    callbacks.log(`[PORTFOLIO:${platform}] CAPITAL PRESSURE — selling ${toSell.length} weakest positions`);
+    callbacks.log(
+      `[PORTFOLIO:${platform}] CAPITAL PRESSURE — selling ${toSell.length} weakest positions`,
+    );
     for (const p of toSell) {
       autoSellSet.add(p);
       const sign = (p.pnl ?? 0) >= 0 ? "+" : "";
-      await executeSell(deps, callbacks, state, p, platform, `capital-pressure (${sign}${(p.pnl ?? 0).toFixed(0)}%)`);
+      await executeSell(
+        deps,
+        callbacks,
+        state,
+        p,
+        platform,
+        `capital-pressure (${sign}${(p.pnl ?? 0).toFixed(0)}%)`,
+      );
     }
   }
 
@@ -445,10 +553,19 @@ export async function unifiedPortfolioReview(
     const unsold = reviewable.filter((p) => !autoSellSet.has(p));
     if (unsold.length > 0) {
       const sorted = [...unsold].sort((a, b) => (a.pnl ?? 0) - (b.pnl ?? 0));
-      callbacks.log(`[PORTFOLIO:${platform}] LOW BALANCE RECOVERY — liquidating ${sorted.length} positions`);
+      callbacks.log(
+        `[PORTFOLIO:${platform}] LOW BALANCE RECOVERY — liquidating ${sorted.length} positions`,
+      );
       for (const p of sorted) {
         const sign = (p.pnl ?? 0) >= 0 ? "+" : "";
-        await executeSell(deps, callbacks, state, p, platform, `recovery (${sign}${(p.pnl ?? 0).toFixed(0)}%)`);
+        await executeSell(
+          deps,
+          callbacks,
+          state,
+          p,
+          platform,
+          `recovery (${sign}${(p.pnl ?? 0).toFixed(0)}%)`,
+        );
       }
     }
     return;
@@ -458,7 +575,9 @@ export async function unifiedPortfolioReview(
   const llmReviewable = reviewable.filter((p) => !autoSellSet.has(p));
   if (llmReviewable.length === 0) return;
 
-  const sortedForReview = [...llmReviewable].sort((a, b) => (b.pnl ?? 0) - (a.pnl ?? 0)).slice(0, 12);
+  const sortedForReview = [...llmReviewable]
+    .sort((a, b) => (b.pnl ?? 0) - (a.pnl ?? 0))
+    .slice(0, 12);
   const llmPositionList = sortedForReview
     .map((p, i) => {
       const dir = p.isYes !== undefined ? (p.isYes ? "YES" : "NO") : "";
@@ -469,15 +588,19 @@ export async function unifiedPortfolioReview(
       const trend = trendMap.get(p.token ?? p.pubkey ?? "");
       if (trend) {
         const parts: string[] = [];
-        if (trend.change1h !== null) parts.push(`1h: ${trend.change1h > 0 ? "+" : ""}${trend.change1h.toFixed(1)}%`);
-        if (trend.change24h !== null) parts.push(`24h: ${trend.change24h > 0 ? "+" : ""}${trend.change24h.toFixed(1)}%`);
+        if (trend.change1h !== null)
+          parts.push(`1h: ${trend.change1h > 0 ? "+" : ""}${trend.change1h.toFixed(1)}%`);
+        if (trend.change24h !== null)
+          parts.push(`24h: ${trend.change24h > 0 ? "+" : ""}${trend.change24h.toFixed(1)}%`);
         trendStr = ` | trend: ${trend.direction} (${parts.join(", ")})`;
       }
       return `${i + 1}. "${p.title}" — PnL: ${sign}${(p.pnl ?? 0).toFixed(0)}%, ${dir} ${qty} units, price: $${(p.curPrice ?? 0).toFixed(2)}, age: ${age.toFixed(1)}d${trendStr}`;
     })
     .join("\n");
 
-  callbacks.log(`[PORTFOLIO:${platform}] LLM reviewing ${sortedForReview.length} ambiguous positions...`);
+  callbacks.log(
+    `[PORTFOLIO:${platform}] LLM reviewing ${sortedForReview.length} ambiguous positions...`,
+  );
   const reviewText = await directLlmCall(
     deps,
     callbacks,
@@ -514,4 +637,3 @@ Respond with one line per position:
     await executeSell(deps, callbacks, state, pos, platform, "portfolio-review");
   }
 }
-

@@ -1,28 +1,28 @@
+import process from "node:process";
 import {
   AgentRuntime,
   ChannelType,
+  type Character,
   createCharacter,
   stringToUuid,
-  type Character,
   type UUID,
 } from "@elizaos/core";
 import sqlPlugin from "@elizaos/plugin-sql";
-import process from "node:process";
 import {
   applyEnvValues,
   buildLlmPlugins,
   buildLlmRuntimeSettings,
+  type CliOptions,
   readEnvFile,
   resolveEnvPath,
   resolveLlmProviderFromEnv,
   writeEnvFile,
-  type CliOptions,
 } from "./lib";
 import { log } from "./log";
-import { runTradingTui } from "./tui";
-import { runSettingsWizard, type SettingsField } from "./tui-settings";
 import { jupiterPredictionPlugin } from "./plugins/jupiter-prediction/index";
 import { JupiterPredictionService } from "./plugins/jupiter-prediction/service";
+import { runTradingTui } from "./tui";
+import { runSettingsWizard, type SettingsField } from "./tui-settings";
 
 const DEFAULT_ROOM_ID = stringToUuid("jupiter-prediction-room");
 const DEFAULT_WORLD_ID = stringToUuid("jupiter-prediction-world");
@@ -121,9 +121,10 @@ async function ensureJupiterEnvConfig(options: CliOptions, force: boolean): Prom
 
   const result = await runSettingsWizard({
     title: "Jupiter Prediction Setup",
-    subtitle: missingRequired.length > 0
-      ? `Missing required: ${missingRequired.join(", ")}`
-      : "Enter required secrets to continue.",
+    subtitle:
+      missingRequired.length > 0
+        ? `Missing required: ${missingRequired.join(", ")}`
+        : "Enter required secrets to continue.",
     fields,
   });
 

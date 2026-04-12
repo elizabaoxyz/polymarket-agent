@@ -1,5 +1,5 @@
-import { Box, Text, render, useApp, useInput, useStdout } from "ink";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Box, render, Text, useApp, useInput, useStdout } from "ink";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 type InkKey = {
   upArrow: boolean;
@@ -157,7 +157,7 @@ function InkInputTestApp(): ReactNode {
 
   const lines = useMemo(
     () => Array.from({ length: 200 }, (_, idx) => `Line ${String(idx + 1).padStart(3, "0")}`),
-    []
+    [],
   );
   const maxScroll = Math.max(0, lines.length - viewHeight);
   const start = clamp(scrollOffset, 0, maxScroll);
@@ -275,7 +275,8 @@ function InkInputTestApp(): ReactNode {
           {keySnapshot.meta ? "on" : "off"} | shift flag: {keySnapshot.shift ? "on" : "off"}
         </Text>
         <Text dimColor>
-          Last wheel delta: {scrollSnapshot.delta} @ {new Date(scrollSnapshot.timestamp).toLocaleTimeString()}
+          Last wheel delta: {scrollSnapshot.delta} @{" "}
+          {new Date(scrollSnapshot.timestamp).toLocaleTimeString()}
         </Text>
         <Box flexDirection="row" gap={3}>
           <Box flexDirection="column">

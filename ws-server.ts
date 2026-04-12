@@ -18,15 +18,16 @@ dotenv.config({ path: path.join(__dirname, ".env") });
 import {
   AgentRuntime,
   ChannelType,
+  type Content,
   createCharacter,
   createMessageMemory,
   stringToUuid,
-  type Content,
 } from "@elizaos/core";
 import polymarketPlugin from "@elizaos/plugin-polymarket";
 import sqlPlugin from "@elizaos/plugin-sql";
 import { v4 as uuidv4 } from "uuid";
-
+import { type AutonomyHandle, type AutonomyPlatform, startAutonomy } from "./autonomy-loop";
+import { AUTONOMY_PLATFORM, WS_AUTH_TOKEN } from "./config";
 import {
   buildLlmPlugins,
   buildLlmRuntimeSettings,
@@ -34,23 +35,20 @@ import {
   parseArgs,
   resolveLlmProviderFromEnv,
 } from "./lib";
-import { polymarketExtPlugin } from "./plugins/polymarket-ext/index";
-import { jupiterPredictionPlugin } from "./plugins/jupiter-prediction/index";
-import { x402SolanaPlugin } from "./plugins/x402-solana/index";
-import { X402SolanaService } from "./plugins/x402-solana/service";
-import { X402_SERVICE_TYPE } from "./plugins/x402-solana/types";
-import { ragPlugin } from "./plugins/rag/index";
-import { RAGService } from "./plugins/rag/service";
-import { RAG_SERVICE_TYPE } from "./plugins/rag/types";
-import { connectorsPlugin } from "./plugins/connectors/index";
-import { ConnectorsService } from "./plugins/connectors/service";
-import { CONNECTORS_SERVICE_TYPE } from "./plugins/connectors/types";
-
 import { log } from "./log";
-import { WS_AUTH_TOKEN, AUTONOMY_PLATFORM } from "./config";
 import { AsyncMutex } from "./mutex";
+import { connectorsPlugin } from "./plugins/connectors/index";
+import type { ConnectorsService } from "./plugins/connectors/service";
+import { CONNECTORS_SERVICE_TYPE } from "./plugins/connectors/types";
+import { jupiterPredictionPlugin } from "./plugins/jupiter-prediction/index";
+import { polymarketExtPlugin } from "./plugins/polymarket-ext/index";
+import { ragPlugin } from "./plugins/rag/index";
+import type { RAGService } from "./plugins/rag/service";
+import { RAG_SERVICE_TYPE } from "./plugins/rag/types";
+import { x402SolanaPlugin } from "./plugins/x402-solana/index";
+import type { X402SolanaService } from "./plugins/x402-solana/service";
+import { X402_SERVICE_TYPE } from "./plugins/x402-solana/types";
 import { getPortfolioStatus } from "./portfolio";
-import { startAutonomy, type AutonomyHandle, type AutonomyPlatform } from "./autonomy-loop";
 
 const WS_PORT = Number(process.env.PORT ?? process.env.WS_PORT ?? 3001);
 const DEFAULT_ROOM_ID = stringToUuid("web-chat-room");
@@ -76,8 +74,14 @@ function buildCharacter() {
     style: { all: ["Keep responses short and operational"], chat: ["Be concise"] },
     messageExamples: [
       [
-        { user: "{{user1}}", content: { text: "buy $3 YES on Will Gavin Newsom win the Democratic nomination" } },
-        { user: "Eliza", content: { text: "Placing $3 YES on Gavin Newsom.", action: "POLYMARKET_PLACE_ORDER" } },
+        {
+          user: "{{user1}}",
+          content: { text: "buy $3 YES on Will Gavin Newsom win the Democratic nomination" },
+        },
+        {
+          user: "Eliza",
+          content: { text: "Placing $3 YES on Gavin Newsom.", action: "POLYMARKET_PLACE_ORDER" },
+        },
       ],
       [
         { user: "{{user1}}", content: { text: "place a $5 bet on something interesting" } },
@@ -85,11 +89,17 @@ function buildCharacter() {
       ],
       [
         { user: "{{user1}}", content: { text: "show my positions" } },
-        { user: "Eliza", content: { text: "Fetching positions.", action: "POLYMARKET_GET_POSITIONS" } },
+        {
+          user: "Eliza",
+          content: { text: "Fetching positions.", action: "POLYMARKET_GET_POSITIONS" },
+        },
       ],
       [
         { user: "{{user1}}", content: { text: "cancel all my orders" } },
-        { user: "Eliza", content: { text: "Cancelling all orders.", action: "POLYMARKET_CANCEL_ALL" } },
+        {
+          user: "Eliza",
+          content: { text: "Cancelling all orders.", action: "POLYMARKET_CANCEL_ALL" },
+        },
       ],
       [
         { user: "{{user1}}", content: { text: "show my PnL" } },
@@ -178,7 +188,9 @@ async function createRuntime() {
   await runtime.initialize();
 
   try {
-    const x402Svc = (await runtime.getServiceLoadPromise(X402_SERVICE_TYPE)) as unknown as X402SolanaService | null;
+    const x402Svc = (await runtime.getServiceLoadPromise(
+      X402_SERVICE_TYPE,
+    )) as unknown as X402SolanaService | null;
     if (x402Svc && x402Svc.isActive()) {
       globalThis.fetch = x402Svc.getWrappedFetch();
     }
@@ -187,7 +199,9 @@ async function createRuntime() {
   // Initialize RAG + Connectors services
   let ragSvc: RAGService | null = null;
   try {
-    ragSvc = (await runtime.getServiceLoadPromise(RAG_SERVICE_TYPE)) as unknown as RAGService | null;
+    ragSvc = (await runtime.getServiceLoadPromise(
+      RAG_SERVICE_TYPE,
+    )) as unknown as RAGService | null;
     if (ragSvc?.isActive()) {
       log.info("ws-server", "RAG active — ChromaDB connected");
     }
@@ -195,7 +209,9 @@ async function createRuntime() {
 
   let connectorsSvc: ConnectorsService | null = null;
   try {
-    connectorsSvc = (await runtime.getServiceLoadPromise(CONNECTORS_SERVICE_TYPE)) as unknown as ConnectorsService | null;
+    connectorsSvc = (await runtime.getServiceLoadPromise(
+      CONNECTORS_SERVICE_TYPE,
+    )) as unknown as ConnectorsService | null;
     if (connectorsSvc?.isActive()) {
       log.info("ws-server", "Connectors active — news + search available");
     }
@@ -296,7 +312,12 @@ async function main() {
         }
 
         if (!isAuthenticated(ws)) {
-          ws.send(JSON.stringify({ type: "error", text: "Not authenticated. Send { type: 'auth', token: '...' } first." }));
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              text: "Not authenticated. Send { type: 'auth', token: '...' } first.",
+            }),
+          );
           return;
         }
 
@@ -348,10 +369,17 @@ async function main() {
         }
 
         // --- Start autonomy (supports platform-specific modes) ---
-        if (msg.type === "start_autonomy" || msg.type === "start_autonomy_polymarket" || msg.type === "start_autonomy_jupiter") {
+        if (
+          msg.type === "start_autonomy" ||
+          msg.type === "start_autonomy_polymarket" ||
+          msg.type === "start_autonomy_jupiter"
+        ) {
           const platform: AutonomyPlatform =
-            msg.type === "start_autonomy_polymarket" ? "polymarket" :
-            msg.type === "start_autonomy_jupiter" ? "jupiter" : AUTONOMY_PLATFORM;
+            msg.type === "start_autonomy_polymarket"
+              ? "polymarket"
+              : msg.type === "start_autonomy_jupiter"
+                ? "jupiter"
+                : AUTONOMY_PLATFORM;
 
           if (autonomyHandle?.isRunning) {
             // If same platform, just confirm. If different, stop and restart.
@@ -362,17 +390,27 @@ async function main() {
             // Stop current autonomy to switch platform
             autonomyHandle.stop();
             autonomyHandle = null;
-            log.info("ws-server", `switching autonomy from ${autonomyHandle?.platform ?? "?"} to ${platform}`);
+            log.info(
+              "ws-server",
+              `switching autonomy from ${autonomyHandle?.platform ?? "?"} to ${platform}`,
+            );
           }
 
-          const label = platform === "both" ? "both platforms" : platform === "polymarket" ? "Polymarket only" : "Jupiter + x402 only";
+          const label =
+            platform === "both"
+              ? "both platforms"
+              : platform === "polymarket"
+                ? "Polymarket only"
+                : "Jupiter + x402 only";
           log.info("ws-server", `autonomy started (${label})`);
           ws.send(JSON.stringify({ type: "autonomy_status", active: true, platform }));
 
           autonomyHandle = startAutonomy(
             {
               runtime,
-              messageService: messageService as { handleMessage: (...args: unknown[]) => Promise<unknown> },
+              messageService: messageService as {
+                handleMessage: (...args: unknown[]) => Promise<unknown>;
+              },
               roomId: DEFAULT_ROOM_ID,
               userId: DEFAULT_USER_ID,
               ragSvc,
@@ -407,9 +445,10 @@ async function main() {
             const wasPlatform = autonomyHandle.platform;
             autonomyHandle.stop();
             autonomyHandle = null;
-            const stopMsg = wasPlatform === "jupiter"
-              ? "[AUTONOMY] Stopped (Jupiter)"
-              : "[AUTONOMY] Stopped — heartbeat ended, GTC orders will auto-cancel";
+            const stopMsg =
+              wasPlatform === "jupiter"
+                ? "[AUTONOMY] Stopped (Jupiter)"
+                : "[AUTONOMY] Stopped — heartbeat ended, GTC orders will auto-cancel";
             ws.send(JSON.stringify({ type: "action_result", text: stopMsg }));
             log.info("ws-server", "autonomy stopped");
           }

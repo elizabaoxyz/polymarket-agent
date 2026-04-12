@@ -3,8 +3,8 @@
  * Extracted from tui.tsx for maintainability.
  */
 
-import type { ReactNode } from "react";
 import { Box, Text } from "ink";
+import type { ReactNode } from "react";
 
 // --- Types ---
 
@@ -157,9 +157,7 @@ export function hasMouseSequence(value: string): boolean {
   );
 }
 
-export function consumeMouseScroll(
-  buffer: string
-): { remaining: string; delta: number } {
+export function consumeMouseScroll(buffer: string): { remaining: string; delta: number } {
   let delta = 0;
   let lastIndex = 0;
   const sgrPattern = /\x1b\[<(64|65|96|97);(\d+);(\d+)[mM]/g;
@@ -300,7 +298,9 @@ export function toRenderLines(messages: ChatMessage[], maxWidth: number): Render
   return lines;
 }
 
-export function normalizeSetting(value: string | number | boolean | null | undefined): string | null {
+export function normalizeSetting(
+  value: string | number | boolean | null | undefined,
+): string | null {
   if (typeof value === "number") return String(value);
   if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value !== "string") return null;

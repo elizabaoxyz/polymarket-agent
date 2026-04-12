@@ -6,9 +6,9 @@
  *   Example: bun run approve-usdc.ts 100
  */
 
-import dotenv from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
 import { ethers } from "ethers";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -49,13 +49,15 @@ async function main() {
 
   console.log(`Wallet: ${wallet.address}`);
   console.log(`USDC Balance: ${ethers.formatUnits(balance, decimals)} USDC`);
-  console.log(`Current Allowance (CTF Exchange): ${ethers.formatUnits(currentAllowanceCTF, decimals)} USDC`);
-  console.log(`Current Allowance (Neg Risk Exchange): ${ethers.formatUnits(currentAllowanceNeg, decimals)} USDC`);
+  console.log(
+    `Current Allowance (CTF Exchange): ${ethers.formatUnits(currentAllowanceCTF, decimals)} USDC`,
+  );
+  console.log(
+    `Current Allowance (Neg Risk Exchange): ${ethers.formatUnits(currentAllowanceNeg, decimals)} USDC`,
+  );
 
   const amountArg = process.argv[2];
-  const approveAmount = amountArg
-    ? ethers.parseUnits(amountArg, decimals)
-    : UNLIMITED;
+  const approveAmount = amountArg ? ethers.parseUnits(amountArg, decimals) : UNLIMITED;
   const label = amountArg ? `${amountArg} USDC` : "unlimited";
 
   console.log(`\nApproving ${label} for CTF Exchange (${CTF_EXCHANGE})...`);
@@ -72,8 +74,12 @@ async function main() {
 
   const newAllowanceCTF = await usdc.allowance(wallet.address, CTF_EXCHANGE);
   const newAllowanceNeg = await usdc.allowance(wallet.address, NEG_RISK_EXCHANGE);
-  console.log(`\nNew Allowance (CTF Exchange): ${ethers.formatUnits(newAllowanceCTF, decimals)} USDC`);
-  console.log(`New Allowance (Neg Risk Exchange): ${ethers.formatUnits(newAllowanceNeg, decimals)} USDC`);
+  console.log(
+    `\nNew Allowance (CTF Exchange): ${ethers.formatUnits(newAllowanceCTF, decimals)} USDC`,
+  );
+  console.log(
+    `New Allowance (Neg Risk Exchange): ${ethers.formatUnits(newAllowanceNeg, decimals)} USDC`,
+  );
   console.log("\nDone! You can now trade on Polymarket.");
 }
 

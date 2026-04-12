@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
-import { AgentRuntime, createCharacter, type Character } from "@elizaos/core";
-import sqlPlugin from "@elizaos/plugin-sql";
+import { AgentRuntime, type Character, createCharacter } from "@elizaos/core";
 import { initializeClobClient } from "@elizaos/plugin-polymarket";
+import sqlPlugin from "@elizaos/plugin-sql";
 
 describe("live integration (Polymarket CLOB)", () => {
   test("fetches markets from real API (gated)", async () => {
@@ -35,4 +35,3 @@ describe("live integration (Polymarket CLOB)", () => {
     }
   });
 });
-

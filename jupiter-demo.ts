@@ -21,9 +21,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, ".env") });
 
-import { log } from "./log";
-import { parseArgs } from "./lib";
 import { jupiterChat, jupiterVerify } from "./jupiter-runner";
+import { parseArgs } from "./lib";
+import { log } from "./log";
 
 type Command = "help" | "verify" | "chat";
 

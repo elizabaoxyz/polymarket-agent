@@ -4,7 +4,7 @@
  * used across the autonomy engine and web dashboard.
  */
 
-import type { Position, Trade, PnlSummary } from "./plugins/polymarket-ext/types";
+import type { PnlSummary, Position, Trade } from "./plugins/polymarket-ext/types";
 
 // Re-export for convenience
 export type PolymarketPosition = Position;

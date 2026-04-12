@@ -18,7 +18,10 @@ function isTransient(error: unknown): boolean {
     // Rate limit
     if (msg.includes("rate limit") || msg.includes("too many requests")) return true;
     // Check for status code in error
-    if ("statusCode" in error && typeof (error as { statusCode: unknown }).statusCode === "number") {
+    if (
+      "statusCode" in error &&
+      typeof (error as { statusCode: unknown }).statusCode === "number"
+    ) {
       return TRANSIENT_STATUS_CODES.has((error as { statusCode: number }).statusCode);
     }
     // Check message for status codes
@@ -44,10 +47,7 @@ export type RetryOptions = {
  * Execute an async function with exponential backoff retry.
  * Only retries on transient errors (network, rate limit, 5xx) by default.
  */
-export async function withRetry<T>(
-  fn: () => Promise<T>,
-  options: RetryOptions = {},
-): Promise<T> {
+export async function withRetry<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
   const maxRetries = options.maxRetries ?? MAX_RETRIES;
   const baseDelay = options.baseDelayMs ?? RETRY_BASE_DELAY_MS;
   const transientOnly = options.transientOnly ?? true;
@@ -66,7 +66,10 @@ export async function withRetry<T>(
 
       const delay = baseDelay * 2 ** attempt + Math.random() * baseDelay * 0.5;
       const msg = error instanceof Error ? error.message : String(error);
-      log.warn("retry", `${label} attempt ${attempt + 1}/${maxRetries} failed: ${msg} — retrying in ${Math.round(delay)}ms`);
+      log.warn(
+        "retry",
+        `${label} attempt ${attempt + 1}/${maxRetries} failed: ${msg} — retrying in ${Math.round(delay)}ms`,
+      );
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }

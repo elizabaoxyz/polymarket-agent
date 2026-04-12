@@ -19,20 +19,24 @@ const SOLANA_MAINNET = "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
 let paymentCount = 0;
 
 function makePaymentRequirements(url: string, description: string, amount: string) {
-  return Buffer.from(JSON.stringify({
-    x402Version: 2,
-    error: "Payment required",
-    resource: { url, description, mimeType: "application/json" },
-    accepts: [{
-      scheme: "exact",
-      network: SOLANA_MAINNET,
-      amount,
-      asset: USDC_MAINNET,
-      payTo: PAY_TO,
-      maxTimeoutSeconds: 300,
-      extra: { name: "USDC", version: "1", feePayer: PAY_TO },
-    }],
-  })).toString("base64");
+  return Buffer.from(
+    JSON.stringify({
+      x402Version: 2,
+      error: "Payment required",
+      resource: { url, description, mimeType: "application/json" },
+      accepts: [
+        {
+          scheme: "exact",
+          network: SOLANA_MAINNET,
+          amount,
+          asset: USDC_MAINNET,
+          payTo: PAY_TO,
+          maxTimeoutSeconds: 300,
+          extra: { name: "USDC", version: "1", feePayer: PAY_TO },
+        },
+      ],
+    }),
+  ).toString("base64");
 }
 
 const server = Bun.serve({
@@ -43,7 +47,11 @@ const server = Bun.serve({
     // CORS
     if (req.method === "OPTIONS") {
       return new Response(null, {
-        headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "*", "Access-Control-Allow-Methods": "GET, OPTIONS" },
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Headers": "*",
+          "Access-Control-Allow-Methods": "GET, OPTIONS",
+        },
       });
     }
 
@@ -66,7 +74,12 @@ const server = Bun.serve({
     }
 
     if (url.pathname === "/health") {
-      return Response.json({ status: "ok", payments: paymentCount, network: "solana-mainnet", payTo: PAY_TO });
+      return Response.json({
+        status: "ok",
+        payments: paymentCount,
+        network: "solana-mainnet",
+        payTo: PAY_TO,
+      });
     }
 
     // Payment-gated endpoints
@@ -81,7 +94,11 @@ const server = Bun.serve({
           headers: {
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",
-            "Payment-Required": makePaymentRequirements(`${url.origin}${url.pathname}`, desc, amount),
+            "Payment-Required": makePaymentRequirements(
+              `${url.origin}${url.pathname}`,
+              desc,
+              amount,
+            ),
           },
         });
       }
@@ -92,26 +109,46 @@ const server = Bun.serve({
       console.log(`x402: payment #${paymentCount} for ${url.pathname} — $${usdAmount} USDC`);
 
       if (url.pathname === "/prediction") {
-        return Response.json({
-          message: "x402 payment verified on Solana mainnet!",
-          data: { prediction: "Bitcoin will reach $120k by end of 2026", confidence: 0.73, timestamp: new Date().toISOString() },
-          payment: { id: `pay-${paymentCount}`, amount: `$${usdAmount}`, network: "solana-mainnet", asset: "USDC" },
-        }, { headers: { "Access-Control-Allow-Origin": "*" } });
+        return Response.json(
+          {
+            message: "x402 payment verified on Solana mainnet!",
+            data: {
+              prediction: "Bitcoin will reach $120k by end of 2026",
+              confidence: 0.73,
+              timestamp: new Date().toISOString(),
+            },
+            payment: {
+              id: `pay-${paymentCount}`,
+              amount: `$${usdAmount}`,
+              network: "solana-mainnet",
+              asset: "USDC",
+            },
+          },
+          { headers: { "Access-Control-Allow-Origin": "*" } },
+        );
       }
 
-      return Response.json({
-        message: "x402 payment verified on Solana mainnet!",
-        data: {
-          analysis: "Polymarket shows bullish sentiment on crypto",
-          topMarkets: [
-            { market: "Bitcoin above $100k", probability: 0.85 },
-            { market: "ETH above $5k", probability: 0.42 },
-          ],
-          recommendation: "BUY YES on Bitcoin markets",
-          timestamp: new Date().toISOString(),
+      return Response.json(
+        {
+          message: "x402 payment verified on Solana mainnet!",
+          data: {
+            analysis: "Polymarket shows bullish sentiment on crypto",
+            topMarkets: [
+              { market: "Bitcoin above $100k", probability: 0.85 },
+              { market: "ETH above $5k", probability: 0.42 },
+            ],
+            recommendation: "BUY YES on Bitcoin markets",
+            timestamp: new Date().toISOString(),
+          },
+          payment: {
+            id: `pay-${paymentCount}`,
+            amount: `$${usdAmount}`,
+            network: "solana-mainnet",
+            asset: "USDC",
+          },
         },
-        payment: { id: `pay-${paymentCount}`, amount: `$${usdAmount}`, network: "solana-mainnet", asset: "USDC" },
-      }, { headers: { "Access-Control-Allow-Origin": "*" } });
+        { headers: { "Access-Control-Allow-Origin": "*" } },
+      );
     }
 
     return new Response("Not Found", { status: 404 });

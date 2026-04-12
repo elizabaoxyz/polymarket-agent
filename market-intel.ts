@@ -11,7 +11,7 @@ export type PricePoint = { time: number; price: number };
 
 export type PriceTrend = {
   current: number;
-  change1h: number | null;  // % change
+  change1h: number | null; // % change
   change6h: number | null;
   change24h: number | null;
   direction: "up" | "down" | "flat";
@@ -19,11 +19,11 @@ export type PriceTrend = {
 };
 
 export type DepthInfo = {
-  bidDepthUsd: number;   // total USD within 10% of mid
+  bidDepthUsd: number; // total USD within 10% of mid
   askDepthUsd: number;
   totalDepthUsd: number;
-  imbalance: number;     // -1 (all asks) to 1 (all bids) — buy pressure indicator
-  isLiquid: boolean;     // depth > threshold
+  imbalance: number; // -1 (all asks) to 1 (all bids) — buy pressure indicator
+  isLiquid: boolean; // depth > threshold
 };
 
 export type MarketIntel = {
@@ -32,7 +32,7 @@ export type MarketIntel = {
   depth: DepthInfo | null;
   openInterest: number | null;
   recentVolume: number | null;
-  isContrarian: boolean;     // 20%+ move in 24h → mean reversion opportunity
+  isContrarian: boolean; // 20%+ move in 24h → mean reversion opportunity
   contrarian24hMove: number | null;
 };
 
@@ -50,12 +50,9 @@ export async function fetchPolyPriceHistory(
   try {
     const startTs = Math.floor((Date.now() - 86_400_000) / 1000); // 24h ago
     const url = `https://clob.polymarket.com/prices-history?market=${tokenId}&interval=${interval}&fidelity=${fidelity}&startTs=${startTs}`;
-    const res = await withRetry(
-      () => fetch(url),
-      { label: "poly-price-history" },
-    );
+    const res = await withRetry(() => fetch(url), { label: "poly-price-history" });
     if (!res.ok) return [];
-    const data = await res.json() as { history?: Array<{ t: number; p: number }> };
+    const data = (await res.json()) as { history?: Array<{ t: number; p: number }> };
     return (data.history ?? []).map((h) => ({ time: h.t, price: h.p }));
   } catch {
     return [];
@@ -73,7 +70,10 @@ export function computePriceTrend(history: PricePoint[], currentPrice: number): 
     let minDiff = Infinity;
     for (const p of history) {
       const diff = Math.abs(p.time - target);
-      if (diff < minDiff) { minDiff = diff; closest = p; }
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = p;
+      }
     }
     // Only accept if within 20% of the target window
     return closest && minDiff < secondsAgo * 0.2 ? closest.price : null;
@@ -93,9 +93,18 @@ export function computePriceTrend(history: PricePoint[], currentPrice: number): 
   // Momentum: weighted average of available changes (-1 to 1)
   let momentumSum = 0;
   let momentumWeight = 0;
-  if (change1h !== null) { momentumSum += Math.tanh(change1h / 10) * 3; momentumWeight += 3; }
-  if (change6h !== null) { momentumSum += Math.tanh(change6h / 15) * 2; momentumWeight += 2; }
-  if (change24h !== null) { momentumSum += Math.tanh(change24h / 20) * 1; momentumWeight += 1; }
+  if (change1h !== null) {
+    momentumSum += Math.tanh(change1h / 10) * 3;
+    momentumWeight += 3;
+  }
+  if (change6h !== null) {
+    momentumSum += Math.tanh(change6h / 15) * 2;
+    momentumWeight += 2;
+  }
+  if (change24h !== null) {
+    momentumSum += Math.tanh(change24h / 20) * 1;
+    momentumWeight += 1;
+  }
   const momentum = momentumWeight > 0 ? momentumSum / momentumWeight : 0;
 
   const direction = momentum > 0.15 ? "up" : momentum < -0.15 ? "down" : "flat";
@@ -112,19 +121,25 @@ export async function fetchPolyDepth(
   midPrice: number,
   minDepthUsd = 200,
 ): Promise<DepthInfo> {
-  const empty: DepthInfo = { bidDepthUsd: 0, askDepthUsd: 0, totalDepthUsd: 0, imbalance: 0, isLiquid: false };
+  const empty: DepthInfo = {
+    bidDepthUsd: 0,
+    askDepthUsd: 0,
+    totalDepthUsd: 0,
+    imbalance: 0,
+    isLiquid: false,
+  };
   try {
     const res = await withRetry(
       () => fetch(`https://clob.polymarket.com/book?token_id=${tokenId}`),
       { label: "poly-depth" },
     );
     if (!res.ok) return empty;
-    const book = await res.json() as {
+    const book = (await res.json()) as {
       bids?: Array<{ price: string; size: string }>;
       asks?: Array<{ price: string; size: string }>;
     };
 
-    const range = midPrice * 0.10; // 10% of mid
+    const range = midPrice * 0.1; // 10% of mid
     let bidDepth = 0;
     let askDepth = 0;
 
@@ -166,7 +181,7 @@ export async function fetchPolyOpenInterest(conditionId: string): Promise<number
       { label: "poly-oi" },
     );
     if (!res.ok) return null;
-    const data = await res.json() as { open_interest?: number };
+    const data = (await res.json()) as { open_interest?: number };
     return data.open_interest ?? null;
   } catch {
     return null;
@@ -179,11 +194,14 @@ export async function fetchPolyOpenInterest(conditionId: string): Promise<number
 export async function fetchPolyLiveVolume(conditionId: string): Promise<number | null> {
   try {
     const res = await withRetry(
-      () => fetch(`https://clob.polymarket.com/get-live-volume-for-an-event?condition_id=${conditionId}`),
+      () =>
+        fetch(
+          `https://clob.polymarket.com/get-live-volume-for-an-event?condition_id=${conditionId}`,
+        ),
       { label: "poly-volume" },
     );
     if (!res.ok) return null;
-    const data = await res.json() as { volume?: number };
+    const data = (await res.json()) as { volume?: number };
     return data.volume ?? null;
   } catch {
     return null;
@@ -198,15 +216,16 @@ export async function fetchPolySpreads(tokenIds: string[]): Promise<Map<string, 
   if (tokenIds.length === 0) return result;
   try {
     const res = await withRetry(
-      () => fetch(`https://clob.polymarket.com/spreads`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(tokenIds),
-      }),
+      () =>
+        fetch(`https://clob.polymarket.com/spreads`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(tokenIds),
+        }),
       { label: "poly-spreads" },
     );
     if (!res.ok) return result;
-    const data = await res.json() as Record<string, { spread?: number }>;
+    const data = (await res.json()) as Record<string, { spread?: number }>;
     for (const [tokenId, info] of Object.entries(data)) {
       if (info.spread !== undefined) result.set(tokenId, info.spread);
     }
@@ -234,16 +253,23 @@ export async function fetchJupDepth(
   apiKey: string,
   minDepthUsd = 100,
 ): Promise<DepthInfo> {
-  const empty: DepthInfo = { bidDepthUsd: 0, askDepthUsd: 0, totalDepthUsd: 0, imbalance: 0, isLiquid: false };
+  const empty: DepthInfo = {
+    bidDepthUsd: 0,
+    askDepthUsd: 0,
+    totalDepthUsd: 0,
+    imbalance: 0,
+    isLiquid: false,
+  };
   try {
     const res = await withRetry(
-      () => fetch(`https://api.jup.ag/prediction/v1/orderbook/${marketId}`, {
-        headers: { "x-api-key": apiKey },
-      }),
+      () =>
+        fetch(`https://api.jup.ag/prediction/v1/orderbook/${marketId}`, {
+          headers: { "x-api-key": apiKey },
+        }),
       { label: "jup-depth" },
     );
     if (!res.ok) return empty;
-    const data = await res.json() as {
+    const data = (await res.json()) as {
       yes?: Array<[number, number]>; // [price_cents, qty_contracts]
       no?: Array<[number, number]>;
     };
@@ -252,7 +278,8 @@ export async function fetchJupDepth(
     const noLevels = data.no ?? [];
 
     // Count levels as basic liquidity proxy (matches existing scanner logic)
-    const hasMinLevels = yesLevels.length >= JUP_MIN_DEPTH_LEVELS && noLevels.length >= JUP_MIN_DEPTH_LEVELS;
+    const hasMinLevels =
+      yesLevels.length >= JUP_MIN_DEPTH_LEVELS && noLevels.length >= JUP_MIN_DEPTH_LEVELS;
 
     // Compute USD depth: sum qty × price across all levels
     let yesDepthUsd = 0;
@@ -288,13 +315,14 @@ export async function fetchJupRecentTrades(
 ): Promise<Array<{ marketId: string; side: string; amount: number; time: number }>> {
   try {
     const res = await withRetry(
-      () => fetch(`https://api.jup.ag/prediction/v1/trades?limit=${limit}`, {
-        headers: { "x-api-key": apiKey },
-      }),
+      () =>
+        fetch(`https://api.jup.ag/prediction/v1/trades?limit=${limit}`, {
+          headers: { "x-api-key": apiKey },
+        }),
       { label: "jup-trades" },
     );
     if (!res.ok) return [];
-    const data = await res.json() as { data?: Array<Record<string, unknown>> };
+    const data = (await res.json()) as { data?: Array<Record<string, unknown>> };
     return (data.data ?? []).map((t) => ({
       marketId: String(t.marketId ?? ""),
       side: String(t.isYes ? "YES" : "NO"),
@@ -316,13 +344,14 @@ export async function fetchJupLeaderboard(
 ): Promise<Array<{ pubkey: string; pnl: number; winRate: number; volume: number }>> {
   try {
     const res = await withRetry(
-      () => fetch(`https://api.jup.ag/prediction/v1/leaderboards?metric=${metric}&limit=${limit}`, {
-        headers: { "x-api-key": apiKey },
-      }),
+      () =>
+        fetch(`https://api.jup.ag/prediction/v1/leaderboards?metric=${metric}&limit=${limit}`, {
+          headers: { "x-api-key": apiKey },
+        }),
       { label: "jup-leaderboard" },
     );
     if (!res.ok) return [];
-    const data = await res.json() as { data?: Array<Record<string, unknown>> };
+    const data = (await res.json()) as { data?: Array<Record<string, unknown>> };
     return (data.data ?? []).map((e) => ({
       pubkey: String(e.pubkey ?? e.wallet ?? ""),
       pnl: Number(e.pnl ?? e.pnlUsd ?? 0) / 1_000_000,
@@ -349,15 +378,18 @@ export async function fetchJupLeaderboard(
  * If the move is sustained (no reversal), it's likely information-driven and
  * betting against it is dangerous.
  */
-export function detectContrarian(trend: PriceTrend | null): { isContrarian: boolean; move24h: number | null } {
+export function detectContrarian(trend: PriceTrend | null): {
+  isContrarian: boolean;
+  move24h: number | null;
+} {
   if (!trend || trend.change24h === null) return { isContrarian: false, move24h: null };
   const absMove = Math.abs(trend.change24h);
   if (absMove < 20) return { isContrarian: false, move24h: trend.change24h };
 
   // Check for reversal: 1h change should be in opposite direction of 24h change
   if (trend.change1h !== null) {
-    const reversing = (trend.change24h > 0 && trend.change1h < -2) ||
-                      (trend.change24h < 0 && trend.change1h > 2);
+    const reversing =
+      (trend.change24h > 0 && trend.change1h < -2) || (trend.change24h < 0 && trend.change1h > 2);
     return { isContrarian: reversing, move24h: trend.change24h };
   }
 
@@ -374,16 +406,22 @@ export function formatIntelForPrompt(intel: MarketIntel): string {
   if (intel.trend) {
     const t = intel.trend;
     const changes: string[] = [];
-    if (t.change1h !== null) changes.push(`1h: ${t.change1h > 0 ? "+" : ""}${t.change1h.toFixed(1)}%`);
-    if (t.change6h !== null) changes.push(`6h: ${t.change6h > 0 ? "+" : ""}${t.change6h.toFixed(1)}%`);
-    if (t.change24h !== null) changes.push(`24h: ${t.change24h > 0 ? "+" : ""}${t.change24h.toFixed(1)}%`);
+    if (t.change1h !== null)
+      changes.push(`1h: ${t.change1h > 0 ? "+" : ""}${t.change1h.toFixed(1)}%`);
+    if (t.change6h !== null)
+      changes.push(`6h: ${t.change6h > 0 ? "+" : ""}${t.change6h.toFixed(1)}%`);
+    if (t.change24h !== null)
+      changes.push(`24h: ${t.change24h > 0 ? "+" : ""}${t.change24h.toFixed(1)}%`);
     if (changes.length > 0) parts.push(`Trend: ${t.direction} (${changes.join(", ")})`);
   }
 
   if (intel.depth) {
     const d = intel.depth;
-    const pressure = d.imbalance > 0.2 ? "buy pressure" : d.imbalance < -0.2 ? "sell pressure" : "balanced";
-    parts.push(`Depth: $${d.totalDepthUsd.toFixed(0)} (${pressure}${d.isLiquid ? "" : ", ILLIQUID"})`);
+    const pressure =
+      d.imbalance > 0.2 ? "buy pressure" : d.imbalance < -0.2 ? "sell pressure" : "balanced";
+    parts.push(
+      `Depth: $${d.totalDepthUsd.toFixed(0)} (${pressure}${d.isLiquid ? "" : ", ILLIQUID"})`,
+    );
   }
 
   if (intel.openInterest !== null) {
@@ -392,7 +430,9 @@ export function formatIntelForPrompt(intel: MarketIntel): string {
 
   if (intel.isContrarian && intel.contrarian24hMove !== null) {
     const dir = intel.contrarian24hMove > 0 ? "surged" : "crashed";
-    parts.push(`⚠️ CONTRARIAN: price ${dir} ${Math.abs(intel.contrarian24hMove).toFixed(0)}% in 24h — possible mean reversion`);
+    parts.push(
+      `⚠️ CONTRARIAN: price ${dir} ${Math.abs(intel.contrarian24hMove).toFixed(0)}% in 24h — possible mean reversion`,
+    );
   }
 
   return parts.length > 0 ? ` [${parts.join(" | ")}]` : "";
@@ -440,9 +480,7 @@ export async function gatherJupIntel(
   question: string,
   apiKey: string,
 ): Promise<MarketIntel> {
-  const [depth] = await Promise.allSettled([
-    fetchJupDepth(marketId, currentPrice, apiKey),
-  ]);
+  const [depth] = await Promise.allSettled([fetchJupDepth(marketId, currentPrice, apiKey)]);
 
   const depthInfo = depth.status === "fulfilled" ? depth.value : null;
 

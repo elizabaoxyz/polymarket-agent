@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { createState, updatePeakPrice, getDropFromPeak, trackPositionAge, getPositionAgeDays, pruneStaleTracking } from "./autonomy-state";
+import {
+  createState,
+  getDropFromPeak,
+  getPositionAgeDays,
+  pruneStaleTracking,
+  trackPositionAge,
+  updatePeakPrice,
+} from "./autonomy-state";
 
 describe("peak price tracking", () => {
   test("updatePeakPrice tracks highest observed price", () => {
@@ -11,21 +18,21 @@ describe("peak price tracking", () => {
     expect(state.peakPrice.get("token-a")).toBe(0.55);
 
     // Lower price should NOT update peak
-    updatePeakPrice(state, "token-a", 0.50);
+    updatePeakPrice(state, "token-a", 0.5);
     expect(state.peakPrice.get("token-a")).toBe(0.55);
   });
 
   test("getDropFromPeak returns percentage drop", () => {
     const state = createState("both");
-    updatePeakPrice(state, "token-a", 0.80);
+    updatePeakPrice(state, "token-a", 0.8);
     // Current price 0.70 → drop = (0.80-0.70)/0.80 * 100 = 12.5%
-    const drop = getDropFromPeak(state, "token-a", 0.70);
+    const drop = getDropFromPeak(state, "token-a", 0.7);
     expect(drop).toBeCloseTo(12.5, 1);
   });
 
   test("getDropFromPeak returns 0 when no peak recorded", () => {
     const state = createState("both");
-    const drop = getDropFromPeak(state, "unknown", 0.50);
+    const drop = getDropFromPeak(state, "unknown", 0.5);
     expect(drop).toBe(0);
   });
 });
@@ -65,8 +72,8 @@ describe("position age tracking", () => {
 describe("pruneStaleTracking", () => {
   test("removes entries not in activeKeys", () => {
     const state = createState("both");
-    state.peakPrice.set("alive", 0.50);
-    state.peakPrice.set("dead", 0.30);
+    state.peakPrice.set("alive", 0.5);
+    state.peakPrice.set("dead", 0.3);
     state.positionFirstSeen.set("alive", Date.now());
     state.positionFirstSeen.set("dead", Date.now());
     pruneStaleTracking(state, new Set(["alive"]));

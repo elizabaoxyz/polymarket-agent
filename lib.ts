@@ -27,13 +27,11 @@ export type CliOptions = {
 export type EnvConfig = {
   readonly privateKey: string;
   readonly clobApiUrl: string;
-  readonly creds:
-    | {
-        readonly key: string;
-        readonly secret: string;
-        readonly passphrase: string;
-      }
-    | null;
+  readonly creds: {
+    readonly key: string;
+    readonly secret: string;
+    readonly passphrase: string;
+  } | null;
   readonly signatureType?: number;
   readonly funderAddress?: string;
 };
@@ -197,7 +195,6 @@ export function parseArgs(argv: readonly string[]): { command: Command; options:
         mutable.clobApiUrl = v.trim();
         i += 1;
       }
-      continue;
     }
   }
 
@@ -217,7 +214,7 @@ export function loadEnvConfig(options: CliOptions): EnvConfig {
 
   if (typeof privateKeyRaw !== "string") {
     throw new Error(
-      "Missing private key. Set EVM_PRIVATE_KEY (recommended) or POLYMARKET_PRIVATE_KEY."
+      "Missing private key. Set EVM_PRIVATE_KEY (recommended) or POLYMARKET_PRIVATE_KEY.",
     );
   }
 
@@ -228,7 +225,7 @@ export function loadEnvConfig(options: CliOptions): EnvConfig {
   const clobApiUrl = z.string().url().parse(clobApiUrlRaw);
 
   const signatureTypeRaw = normalizeEnvValue(
-    process.env.POLYMARKET_SIGNATURE_TYPE ?? process.env.CLOB_SIGNATURE_TYPE
+    process.env.POLYMARKET_SIGNATURE_TYPE ?? process.env.CLOB_SIGNATURE_TYPE,
   );
   const signatureType =
     signatureTypeRaw !== null
@@ -245,13 +242,13 @@ export function loadEnvConfig(options: CliOptions): EnvConfig {
     normalizeEnvValue(
       process.env.POLYMARKET_FUNDER_ADDRESS ??
         process.env.POLYMARKET_FUNDER ??
-        process.env.CLOB_FUNDER_ADDRESS
+        process.env.CLOB_FUNDER_ADDRESS,
     ) ?? undefined;
 
   const key = normalizeEnvValue(process.env.CLOB_API_KEY);
   const secret = normalizeEnvValue(process.env.CLOB_API_SECRET ?? process.env.CLOB_SECRET);
   const passphrase = normalizeEnvValue(
-    process.env.CLOB_API_PASSPHRASE ?? process.env.CLOB_PASS_PHRASE
+    process.env.CLOB_API_PASSPHRASE ?? process.env.CLOB_PASS_PHRASE,
   );
 
   const creds =
@@ -269,7 +266,7 @@ export function loadEnvConfig(options: CliOptions): EnvConfig {
 
   if (options.execute && creds === null) {
     throw new Error(
-      "Missing CLOB API credentials for --execute. Set CLOB_API_KEY, CLOB_API_SECRET, CLOB_API_PASSPHRASE."
+      "Missing CLOB API credentials for --execute. Set CLOB_API_KEY, CLOB_API_SECRET, CLOB_API_PASSPHRASE.",
     );
   }
 
@@ -363,7 +360,7 @@ export async function readEnvFile(envPath: string): Promise<EnvFile> {
 export async function writeEnvFile(
   envPath: string,
   existingLines: readonly EnvLine[],
-  updates: Record<string, string>
+  updates: Record<string, string>,
 ): Promise<void> {
   const pending = new Map(Object.entries(updates));
   const nextLines: EnvLine[] = existingLines.map((line) => {
@@ -397,11 +394,9 @@ export function applyEnvValues(values: Record<string, string>): void {
 }
 
 export function resolveLlmProvider(
-  getValue: (key: string) => string | undefined
+  getValue: (key: string) => string | undefined,
 ): LlmProvider | null {
-  const explicit = normalizeEnvValue(
-    getValue("ELIZA_LLM_PROVIDER") ?? getValue("LLM_PROVIDER")
-  );
+  const explicit = normalizeEnvValue(getValue("ELIZA_LLM_PROVIDER") ?? getValue("LLM_PROVIDER"));
   if (explicit) {
     if (LLM_PROVIDER_ORDER.includes(explicit as LlmProvider)) {
       return explicit as LlmProvider;
@@ -420,7 +415,7 @@ export function resolveLlmProvider(
 
 export function resolveLlmModel(
   provider: LlmProvider | null,
-  getValue: (key: string) => string | undefined
+  getValue: (key: string) => string | undefined,
 ): string | null {
   const explicit = normalizeEnvValue(getValue("ELIZA_LLM_MODEL") ?? getValue("LLM_MODEL"));
   if (explicit) return explicit;
@@ -477,20 +472,25 @@ export function buildLlmPlugins(provider: LlmProvider | null): Array<typeof open
   }
 }
 
-export function buildLlmRuntimeSettings(provider: LlmProvider | null): Record<string, string | undefined> {
+export function buildLlmRuntimeSettings(
+  provider: LlmProvider | null,
+): Record<string, string | undefined> {
   const model = resolveLlmModelFromEnv(provider);
   const smallModel =
     process.env.ELIZA_LLM_SMALL_MODEL ?? process.env.LLM_SMALL_MODEL ?? model ?? undefined;
   const settings: Record<string, string | undefined> = {
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? (provider === "glm" ? process.env.GLM_API_KEY : undefined),
+    ANTHROPIC_API_KEY:
+      process.env.ANTHROPIC_API_KEY ?? (provider === "glm" ? process.env.GLM_API_KEY : undefined),
     GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
     GROQ_API_KEY: process.env.GROQ_API_KEY,
     XAI_API_KEY: process.env.XAI_API_KEY,
     OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
     GROQ_BASE_URL: process.env.GROQ_BASE_URL,
     XAI_BASE_URL: process.env.XAI_BASE_URL,
-    ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL ?? (provider === "glm" ? "https://api.z.ai/api/anthropic" : undefined),
+    ANTHROPIC_BASE_URL:
+      process.env.ANTHROPIC_BASE_URL ??
+      (provider === "glm" ? "https://api.z.ai/api/anthropic" : undefined),
     GOOGLE_API_BASE_URL: process.env.GOOGLE_API_BASE_URL,
     LARGE_MODEL: model ?? undefined,
     SMALL_MODEL: smallModel,

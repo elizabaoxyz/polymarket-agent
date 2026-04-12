@@ -1,24 +1,27 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   AgentRuntime,
   ChannelType,
+  type Character,
   createCharacter,
   stringToUuid,
-  type Character,
   type UUID,
 } from "@elizaos/core";
 import polymarketPlugin from "@elizaos/plugin-polymarket";
 import sqlPlugin from "@elizaos/plugin-sql";
 import { Wallet } from "@ethersproject/wallet";
 import { ClobClient } from "@polymarket/clob-client";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { runInkInputTest } from "./ink-input-test";
 import {
   applyEnvValues,
   buildLlmPlugins,
   buildLlmRuntimeSettings,
+  type CliOptions,
   DEFAULT_LLM_MODELS,
+  type EnvConfig,
+  type LlmProvider,
   loadEnvConfig,
   readEnvFile,
   resolveEnvPath,
@@ -26,19 +29,16 @@ import {
   resolveLlmProvider,
   resolveLlmProviderFromEnv,
   writeEnvFile,
-  type CliOptions,
-  type EnvConfig,
-  type LlmProvider,
 } from "./lib";
 import { log } from "./log";
-import { runPolymarketTui, setFatalError } from "./tui";
-import { runSettingsWizard, type SettingsField } from "./tui-settings";
 import { jupiterPredictionPlugin } from "./plugins/jupiter-prediction/index";
 import { polymarketExtPlugin } from "./plugins/polymarket-ext/index";
 import { x402SolanaPlugin } from "./plugins/x402-solana/index";
-import { X402SolanaService } from "./plugins/x402-solana/service";
+import type { X402SolanaService } from "./plugins/x402-solana/service";
 import { X402_SERVICE_TYPE } from "./plugins/x402-solana/types";
 import { getSolanaPublicKey } from "./solana-wallet";
+import { runPolymarketTui, setFatalError } from "./tui";
+import { runSettingsWizard, type SettingsField } from "./tui-settings";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -85,11 +85,10 @@ const wrappedStreams = new WeakSet<NodeJS.WriteStream>();
  */
 function logErrorToFile(error: Error | string, context?: string): void {
   const timestamp = new Date().toISOString();
-  const errorMessage = error instanceof Error 
-    ? `${error.message}\n${error.stack ?? ""}`
-    : String(error);
+  const errorMessage =
+    error instanceof Error ? `${error.message}\n${error.stack ?? ""}` : String(error);
   const logEntry = `[${timestamp}]${context ? ` [${context}]` : ""}\n${errorMessage}\n\n`;
-  
+
   try {
     fs.appendFileSync(ERROR_LOG_PATH, logEntry);
   } catch {
@@ -109,10 +108,10 @@ function displayFatalError(error: Error | string, context?: string): void {
     // Clear any partial lines and move to a new line
     process.stdout.write("\n");
   }
-  
+
   const errorMessage = error instanceof Error ? error.message : String(error);
   const stack = error instanceof Error ? error.stack : undefined;
-  
+
   log.error("runner", "\n" + "=".repeat(60));
   log.error("runner", "FATAL ERROR" + (context ? ` [${context}]` : ""));
   log.error("runner", "=".repeat(60));
@@ -131,14 +130,14 @@ function displayFatalError(error: Error | string, context?: string): void {
  */
 function handleFatalError(error: Error | string, context?: string): void {
   logErrorToFile(error, context);
-  
+
   // Try to notify the TUI first (if it's running)
   try {
     setFatalError(error instanceof Error ? error.message : String(error));
   } catch {
     // TUI might not be running, that's OK
   }
-  
+
   // Give the TUI a moment to display the error, then force display and exit
   setTimeout(() => {
     displayFatalError(error, context);
@@ -154,7 +153,7 @@ function installGlobalErrorHandlers(): void {
   process.on("uncaughtException", (error) => {
     handleFatalError(error, "uncaughtException");
   });
-  
+
   process.on("unhandledRejection", (reason) => {
     const error = reason instanceof Error ? reason : new Error(String(reason));
     handleFatalError(error, "unhandledRejection");
@@ -166,7 +165,7 @@ installGlobalErrorHandlers();
 
 function normalizeWriteArgs(
   encoding: BufferEncoding | WriteCallback | undefined,
-  callback?: WriteCallback
+  callback?: WriteCallback,
 ): WriteArgs {
   if (typeof encoding === "function") {
     return { encoding: undefined, callback: encoding };
@@ -187,7 +186,7 @@ function filterLines(text: string, pending: { value: string }): string {
   const combined = pending.value + text;
   const lines = combined.split("\n");
   const hasTrailingNewline = combined.endsWith("\n");
-  pending.value = hasTrailingNewline ? "" : lines.pop() ?? "";
+  pending.value = hasTrailingNewline ? "" : (lines.pop() ?? "");
 
   const kept = lines.filter((line) => !shouldDropLine(line));
   if (kept.length === 0) {
@@ -205,13 +204,11 @@ function wrapWriteStream(stream: NodeJS.WriteStream): void {
   stream.write = (
     chunk: string | Uint8Array,
     encoding?: BufferEncoding | WriteCallback,
-    callback?: WriteCallback
+    callback?: WriteCallback,
   ): boolean => {
     const args = normalizeWriteArgs(encoding, callback);
     const text =
-      typeof chunk === "string"
-        ? chunk
-        : Buffer.from(chunk).toString(args.encoding ?? "utf8");
+      typeof chunk === "string" ? chunk : Buffer.from(chunk).toString(args.encoding ?? "utf8");
     const filtered = filterLines(text, pending);
     if (filtered.length === 0) {
       if (args.callback) {
@@ -238,31 +235,56 @@ function buildCharacter(config: CharacterConfig): Character {
     ],
     adjectives: ["action-oriented", "decisive", "direct"],
     style: {
-      all: [
-        "Keep responses short and operational",
-      ],
+      all: ["Keep responses short and operational"],
       chat: ["Be concise"],
     },
     messageExamples: [
       [
-        { user: "{{user1}}", content: { text: "buy $3 YES on Will Gavin Newsom win the Democratic nomination" } },
-        { user: "Eliza", content: { text: "Placing $3 YES on Gavin Newsom Democratic nomination.", action: "POLYMARKET_PLACE_ORDER" } },
+        {
+          user: "{{user1}}",
+          content: { text: "buy $3 YES on Will Gavin Newsom win the Democratic nomination" },
+        },
+        {
+          user: "Eliza",
+          content: {
+            text: "Placing $3 YES on Gavin Newsom Democratic nomination.",
+            action: "POLYMARKET_PLACE_ORDER",
+          },
+        },
       ],
       [
         { user: "{{user1}}", content: { text: "place a $5 bet on something interesting" } },
-        { user: "Eliza", content: { text: "Placing $5 bet on best opportunity.", action: "POLYMARKET_PLACE_ORDER" } },
+        {
+          user: "Eliza",
+          content: {
+            text: "Placing $5 bet on best opportunity.",
+            action: "POLYMARKET_PLACE_ORDER",
+          },
+        },
       ],
       [
         { user: "{{user1}}", content: { text: "analyze markets and place a $2 bet" } },
-        { user: "Eliza", content: { text: "Finding best market and placing $2 order.", action: "POLYMARKET_PLACE_ORDER" } },
+        {
+          user: "Eliza",
+          content: {
+            text: "Finding best market and placing $2 order.",
+            action: "POLYMARKET_PLACE_ORDER",
+          },
+        },
       ],
       [
         { user: "{{user1}}", content: { text: "show my positions" } },
-        { user: "Eliza", content: { text: "Fetching positions.", action: "POLYMARKET_GET_POSITIONS" } },
+        {
+          user: "Eliza",
+          content: { text: "Fetching positions.", action: "POLYMARKET_GET_POSITIONS" },
+        },
       ],
       [
         { user: "{{user1}}", content: { text: "cancel all my orders" } },
-        { user: "Eliza", content: { text: "Cancelling all orders.", action: "POLYMARKET_CANCEL_ALL" } },
+        {
+          user: "Eliza",
+          content: { text: "Cancelling all orders.", action: "POLYMARKET_CANCEL_ALL" },
+        },
       ],
       [
         { user: "{{user1}}", content: { text: "show my PnL" } },
@@ -274,7 +296,10 @@ function buildCharacter(config: CharacterConfig): Character {
       ],
       [
         { user: "{{user1}}", content: { text: "show open orders" } },
-        { user: "Eliza", content: { text: "Fetching open orders.", action: "POLYMARKET_GET_ORDERS" } },
+        {
+          user: "Eliza",
+          content: { text: "Fetching open orders.", action: "POLYMARKET_GET_ORDERS" },
+        },
       ],
     ],
     templates: {
@@ -334,10 +359,7 @@ Example for checking positions:
   });
 }
 
-function buildCharacterSettings(
-  options: CliOptions,
-  config: EnvConfig
-): CharacterConfig {
+function buildCharacterSettings(options: CliOptions, config: EnvConfig): CharacterConfig {
   const signatureTypeSecret =
     typeof config.signatureType === "number" ? String(config.signatureType) : undefined;
 
@@ -415,7 +437,7 @@ type SettingsFieldOptions = {
 function buildSettingsFields(
   snapshot: EnvSnapshot,
   options: CliOptions,
-  fieldOptions: SettingsFieldOptions
+  fieldOptions: SettingsFieldOptions,
 ): SettingsField[] {
   const provider = resolveProvider(snapshot) ?? "openai";
   const model = resolveModel(snapshot, provider) ?? DEFAULT_LLM_MODELS[provider];
@@ -523,7 +545,7 @@ function buildSettingsFields(
       key: "POLYMARKET_FUNDER_ADDRESS",
       label: "Polymarket Funder Address",
       value: getEnvValue(snapshot, "POLYMARKET_FUNDER_ADDRESS") ?? "",
-    }
+    },
   );
   return fields;
 }
@@ -572,7 +594,7 @@ async function ensureEnvConfig(options: CliOptions, force: boolean): Promise<voi
 
 async function createRuntimeSession(
   options: CliOptions,
-  config: EnvConfig
+  config: EnvConfig,
 ): Promise<RuntimeSession> {
   const configBundle = buildCharacterSettings(options, config);
   const character = buildCharacter(configBundle);
@@ -615,7 +637,9 @@ async function createRuntimeSession(
 
   // Wait for x402 service to start, then replace global fetch
   try {
-    const x402Svc = await runtime.getServiceLoadPromise(X402_SERVICE_TYPE) as X402SolanaService | null;
+    const x402Svc = (await runtime.getServiceLoadPromise(
+      X402_SERVICE_TYPE,
+    )) as X402SolanaService | null;
     if (x402Svc && x402Svc.isActive()) {
       globalThis.fetch = x402Svc.getWrappedFetch();
     }
@@ -667,7 +691,9 @@ async function startChat(session: RuntimeSession): Promise<void> {
   }
   // Build startup info for TUI display
   const startupInfo: string[] = [];
-  startupInfo.push(`Chain: ${session.options.chain} | Execute: ${session.options.execute ? "enabled" : "disabled"}`);
+  startupInfo.push(
+    `Chain: ${session.options.chain} | Execute: ${session.options.execute ? "enabled" : "disabled"}`,
+  );
   const jupiterApiKey = process.env.JUPITER_API_KEY?.trim();
   const solanaPubkey = getSolanaPublicKey();
   if (jupiterApiKey && solanaPubkey) {
@@ -677,9 +703,13 @@ async function startChat(session: RuntimeSession): Promise<void> {
   }
 
   try {
-    const x402StartupSvc = await runtime.getServiceLoadPromise(X402_SERVICE_TYPE) as X402SolanaService | null;
+    const x402StartupSvc = (await runtime.getServiceLoadPromise(
+      X402_SERVICE_TYPE,
+    )) as X402SolanaService | null;
     if (x402StartupSvc && x402StartupSvc.isActive()) {
-      startupInfo.push(`x402: active | cap: $${x402StartupSvc.getMaxPaymentUsd().toFixed(2)}/request`);
+      startupInfo.push(
+        `x402: active | cap: $${x402StartupSvc.getMaxPaymentUsd().toFixed(2)}/request`,
+      );
     } else {
       startupInfo.push("x402: disabled");
     }
@@ -697,10 +727,7 @@ async function startChat(session: RuntimeSession): Promise<void> {
   });
 }
 
-async function resolveApiCredentials(
-  options: CliOptions,
-  config: EnvConfig
-): Promise<EnvConfig> {
+async function resolveApiCredentials(options: CliOptions, config: EnvConfig): Promise<EnvConfig> {
   const signer = new Wallet(config.privateKey);
   const client = new ClobClient(config.clobApiUrl, POLYGON_CHAIN_ID, signer);
   let derived: DerivedApiCreds | null = null;
@@ -709,13 +736,16 @@ async function resolveApiCredentials(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (config.creds) {
-      log.warn("runner", `Failed to derive API key (${message}); using .env credentials for this run.`);
+      log.warn(
+        "runner",
+        `Failed to derive API key (${message}); using .env credentials for this run.`,
+      );
       return config;
     }
     throw new Error(
       `Unable to derive API key (${message}). ` +
         "Create API credentials once in Polymarket and set CLOB_API_KEY, CLOB_API_SECRET, " +
-        "CLOB_API_PASSPHRASE, or enable creation explicitly."
+        "CLOB_API_PASSPHRASE, or enable creation explicitly.",
     );
   }
 
@@ -725,7 +755,10 @@ async function resolveApiCredentials(
   }
 
   if (config.creds && config.creds.key !== derivedKey) {
-    log.warn("runner", "CLOB_API_KEY does not match derived key; using derived credentials for this run.");
+    log.warn(
+      "runner",
+      "CLOB_API_KEY does not match derived key; using derived credentials for this run.",
+    );
   }
 
   return {
@@ -746,7 +779,7 @@ function logSessionStart(options: CliOptions): void {
 
 async function runWithSession(
   options: CliOptions,
-  handler: (session: RuntimeSession) => Promise<void>
+  handler: (session: RuntimeSession) => Promise<void>,
 ): Promise<void> {
   wrapWriteStream(process.stdout);
   wrapWriteStream(process.stderr);

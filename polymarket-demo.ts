@@ -28,8 +28,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, ".env") });
 
-import { log } from "./log";
 import { parseArgs } from "./lib";
+import { log } from "./log";
 import { chat, inputTest, verify } from "./runner";
 
 type Command = "help" | "verify" | "chat" | "input-test";
@@ -99,12 +99,12 @@ if (import.meta.main) {
   main().catch((err) => {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
-    
+
     // Reset terminal state in case TUI was active
     if (process.stdout.isTTY) {
       process.stdout.write("\x1b[?1000l\x1b[?1006l\x1b[?1015l\x1b[?1007l\n");
     }
-    
+
     log.error("polymarket", "\n" + "=".repeat(60));
     log.error("polymarket", "FATAL ERROR");
     log.error("polymarket", "=".repeat(60));
@@ -119,4 +119,3 @@ if (import.meta.main) {
     process.exit(1);
   });
 }
-

@@ -41,6 +41,14 @@
     }
   },
   "files": {
-    "includes": ["*.ts", "*.tsx", "*.json", "!!**/node_modules", "!!**/bin", "!!**/.eliza", "!!**/.eliza-polymarket"]
+    "includes": [
+      "*.ts",
+      "*.tsx",
+      "*.json",
+      "!!**/node_modules",
+      "!!**/bin",
+      "!!**/.eliza",
+      "!!**/.eliza-polymarket"
+    ]
   }
 }

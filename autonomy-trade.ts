@@ -3,11 +3,14 @@
  * Bypasses LLM action routing for reliable execution.
  */
 
-import { PolymarketExtService } from "./plugins/polymarket-ext/service";
-import { POLYMARKET_EXT_SERVICE_TYPE } from "./plugins/polymarket-ext/types";
-import { JupiterPredictionService, JUPITER_SERVICE_TYPE } from "./plugins/jupiter-prediction/service";
-import type { AutonomyDeps, AutonomyCallbacks, AutonomyState } from "./autonomy-state";
+import type { AutonomyCallbacks, AutonomyDeps, AutonomyState } from "./autonomy-state";
 import { recordSpend } from "./autonomy-state";
+import {
+  JUPITER_SERVICE_TYPE,
+  type JupiterPredictionService,
+} from "./plugins/jupiter-prediction/service";
+import type { PolymarketExtService } from "./plugins/polymarket-ext/service";
+import { POLYMARKET_EXT_SERVICE_TYPE } from "./plugins/polymarket-ext/types";
 
 /**
  * Direct Polymarket sell via CLOB API (bypasses LLM).
@@ -53,14 +56,18 @@ export async function directPolymarketSell(
     }
 
     if (price < 0.01 || price > 0.99) {
-      callbacks.log(`[SELL:POLYMARKET] ❌ "${title}" — price $${price.toFixed(4)} out of range, market closed/illiquid → marking as stuck`);
+      callbacks.log(
+        `[SELL:POLYMARKET] ❌ "${title}" — price $${price.toFixed(4)} out of range, market closed/illiquid → marking as stuck`,
+      );
       state.failedSells.set(token, Date.now());
       state.stuckDust.add(token);
       return false;
     }
 
     if (price < 0.03) {
-      callbacks.log(`[SELL:POLYMARKET] ❌ "${title}" — price $${price.toFixed(4)}, near-zero → marking as stuck`);
+      callbacks.log(
+        `[SELL:POLYMARKET] ❌ "${title}" — price $${price.toFixed(4)}, near-zero → marking as stuck`,
+      );
       state.failedSells.set(token, Date.now());
       state.stuckDust.add(token);
       return false;
@@ -72,7 +79,9 @@ export async function directPolymarketSell(
     }
     if (shares < 5) {
       if (!state.stuckDust.has(token)) {
-        callbacks.log(`[SELL:POLYMARKET] ⏭️ "${title}" — only ${shares} shares, below CLOB minimum of 5. Stuck dust.`);
+        callbacks.log(
+          `[SELL:POLYMARKET] ⏭️ "${title}" — only ${shares} shares, below CLOB minimum of 5. Stuck dust.`,
+        );
       }
       state.stuckDust.add(token);
       return false;
@@ -81,9 +90,10 @@ export async function directPolymarketSell(
     const result = await extSvc.sellOrder({ tokenId: token, price, size: shares });
     const total = (shares * price).toFixed(2);
     const statusIcon = result.status === "matched" ? "FILLED" : String(result.status).toUpperCase();
-    const txInfo = result.transactionsHashes.length > 0
-      ? ` | tx: ${result.transactionsHashes[0]!.slice(0, 10)}...`
-      : "";
+    const txInfo =
+      result.transactionsHashes.length > 0
+        ? ` | tx: ${result.transactionsHashes[0]!.slice(0, 10)}...`
+        : "";
     callbacks.log(
       `[SELL:POLYMARKET] ✅ ${statusIcon}: "${title}" — ${shares} shares @ $${price.toFixed(2)} ($${total})${txInfo}`,
     );
@@ -127,7 +137,7 @@ export async function directPolymarketBuy(
     // search for the market to find the NO token.
     let tokenId: string;
     let midPrice: number;
-    if (knownTokenId && side === "BUY" || knownTokenId && side === "YES") {
+    if ((knownTokenId && side === "BUY") || (knownTokenId && side === "YES")) {
       // YES side: use the known YES token directly
       tokenId = knownTokenId;
       midPrice = 0.5;
@@ -135,7 +145,8 @@ export async function directPolymarketBuy(
         const book = await extSvc.clob!.getOrderBook(tokenId);
         const bestAsk = book.asks.length > 0 ? parseFloat(book.asks[0]!.price) : null;
         const bestBid = book.bids.length > 0 ? parseFloat(book.bids[0]!.price) : null;
-        if (bestAsk !== null && bestBid !== null) midPrice = Math.round(((bestAsk + bestBid) / 2) * 100) / 100;
+        if (bestAsk !== null && bestBid !== null)
+          midPrice = Math.round(((bestAsk + bestBid) / 2) * 100) / 100;
         else if (bestAsk !== null) midPrice = bestAsk;
         else if (bestBid !== null) midPrice = bestBid;
       } catch {}
@@ -147,7 +158,8 @@ export async function directPolymarketBuy(
         const book = await extSvc.clob!.getOrderBook(tokenId);
         const bestAsk = book.asks.length > 0 ? parseFloat(book.asks[0]!.price) : null;
         const bestBid = book.bids.length > 0 ? parseFloat(book.bids[0]!.price) : null;
-        if (bestAsk !== null && bestBid !== null) midPrice = Math.round(((bestAsk + bestBid) / 2) * 100) / 100;
+        if (bestAsk !== null && bestBid !== null)
+          midPrice = Math.round(((bestAsk + bestBid) / 2) * 100) / 100;
         else if (bestAsk !== null) midPrice = bestAsk;
         else if (bestBid !== null) midPrice = bestBid;
       } catch {}
@@ -161,7 +173,9 @@ export async function directPolymarketBuy(
       const outcome = side === "YES" ? "Yes" : "No";
       const token = market.tokens.find((t) => t.outcome.toLowerCase() === outcome.toLowerCase());
       if (!token) {
-        callbacks.log(`[BUY:POLYMARKET] ❌ No ${outcome} token for "${market.question?.slice(0, 50)}"`);
+        callbacks.log(
+          `[BUY:POLYMARKET] ❌ No ${outcome} token for "${market.question?.slice(0, 50)}"`,
+        );
         return false;
       }
       tokenId = token.token_id;
@@ -185,7 +199,7 @@ export async function directPolymarketBuy(
       }
     }
 
-    let price = midPrice;
+    const price = midPrice;
     if (price < 0.01 || price > 0.99) {
       callbacks.log(`[BUY:POLYMARKET] ❌ Price $${price.toFixed(4)} out of range`);
       return false;
@@ -194,18 +208,22 @@ export async function directPolymarketBuy(
     // Sanity check: abort if CLOB price is much worse than scanner expected
     // Relaxed to 2x — gamma-api prices lag CLOB, especially on volatile markets
     if (expectedPrice && expectedPrice > 0 && price > expectedPrice * 2.0) {
-      callbacks.log(`[BUY:POLYMARKET] ❌ CLOB price $${price.toFixed(2)} is ${Math.round((price / expectedPrice - 1) * 100)}% worse than expected $${expectedPrice.toFixed(2)} — stale data, aborting`);
+      callbacks.log(
+        `[BUY:POLYMARKET] ❌ CLOB price $${price.toFixed(2)} is ${Math.round((price / expectedPrice - 1) * 100)}% worse than expected $${expectedPrice.toFixed(2)} — stale data, aborting`,
+      );
       state.skippedMarkets.set(question.toLowerCase(), Date.now());
       return false;
     }
 
     const size = Math.max(5, Math.floor(betSize / price));
-    let totalCost = size * price;
+    const totalCost = size * price;
     const balance = availableBalance ?? betSize * 2;
     if (totalCost > balance) {
       const affordableSize = Math.max(5, Math.floor(balance / price));
       if (affordableSize < 5) {
-        callbacks.log(`[BUY:POLYMARKET] ❌ Not enough balance: $${balance.toFixed(2)} — can't afford 5 shares at $${price.toFixed(2)}`);
+        callbacks.log(
+          `[BUY:POLYMARKET] ❌ Not enough balance: $${balance.toFixed(2)} — can't afford 5 shares at $${price.toFixed(2)}`,
+        );
         return false;
       }
     }
@@ -215,16 +233,19 @@ export async function directPolymarketBuy(
     try {
       result = await extSvc.placeMarketOrder({ tokenId, side: "BUY", amount: betSize });
       if (result.status === "matched") {
-        const txInfo = result.transactionsHashes.length > 0
-          ? ` | tx: ${result.transactionsHashes[0]!.slice(0, 10)}...`
-          : "";
+        const txInfo =
+          result.transactionsHashes.length > 0
+            ? ` | tx: ${result.transactionsHashes[0]!.slice(0, 10)}...`
+            : "";
         callbacks.log(
           `[BUY:POLYMARKET] ✅ FOK FILLED: $${betSize.toFixed(2)} for "${question.slice(0, 60)}"${txInfo}`,
         );
         recordSpend(state, betSize);
         return true;
       }
-      callbacks.log(`[BUY:POLYMARKET] FOK didn't fill (${result.status}), trying GTC limit at $${price.toFixed(2)}...`);
+      callbacks.log(
+        `[BUY:POLYMARKET] FOK didn't fill (${result.status}), trying GTC limit at $${price.toFixed(2)}...`,
+      );
     } catch (fokErr) {
       const fokMsg = fokErr instanceof Error ? fokErr.message : String(fokErr);
       callbacks.log(`[BUY:POLYMARKET] FOK failed (${fokMsg}), trying GTC limit...`);
@@ -234,9 +255,10 @@ export async function directPolymarketBuy(
     result = await extSvc.placeOrder({ tokenId, side: "BUY", price, size });
     const total = (size * price).toFixed(2);
     const statusIcon = result.status === "matched" ? "FILLED" : String(result.status).toUpperCase();
-    const txInfo = result.transactionsHashes.length > 0
-      ? ` | tx: ${result.transactionsHashes[0]!.slice(0, 10)}...`
-      : "";
+    const txInfo =
+      result.transactionsHashes.length > 0
+        ? ` | tx: ${result.transactionsHashes[0]!.slice(0, 10)}...`
+        : "";
     callbacks.log(
       `[BUY:POLYMARKET] ✅ ${statusIcon}: ${size} shares @ $${price.toFixed(2)} ($${total}) for "${question.slice(0, 60)}"${txInfo}`,
     );
@@ -250,7 +272,9 @@ export async function directPolymarketBuy(
         amount: Number(total),
         placedAt: Date.now(),
       });
-      callbacks.log(`[BUY:POLYMARKET] ⏳ GTC order ${result.orderID} pending — will monitor next cycle`);
+      callbacks.log(
+        `[BUY:POLYMARKET] ⏳ GTC order ${result.orderID} pending — will monitor next cycle`,
+      );
     }
     return true;
   } catch (err) {
@@ -288,7 +312,9 @@ export async function directJupiterBuy(
     const depositAmount = Math.round(Math.max(betSize, 1.1) * 1_000_000);
 
     if (availableBalance !== undefined && availableBalance < betSize) {
-      callbacks.log(`[BUY:JUPITER] ❌ Not enough available balance: $${availableBalance.toFixed(2)} < $${betSize.toFixed(2)}`);
+      callbacks.log(
+        `[BUY:JUPITER] ❌ Not enough available balance: $${availableBalance.toFixed(2)} < $${betSize.toFixed(2)}`,
+      );
       state.jupBuyPausedUntil = Date.now() + 5 * 60_000;
       return false;
     }
@@ -301,20 +327,27 @@ export async function directJupiterBuy(
       mint = "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD";
     } else if (usdc >= betSize) {
       mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-    } else if (combined >= betSize && usdc >= 0.50) {
+    } else if (combined >= betSize && usdc >= 0.5) {
       // Combined balance covers the bet — use whichever has more
       // Jupiter only takes from one mint, so pick the larger one
-      mint = jup >= usdc
-        ? "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD"
-        : "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-      callbacks.log(`[BUY:JUPITER] Using larger mint for combined balance (USDC=$${usdc.toFixed(2)} + JupUSD=$${jup.toFixed(2)} = $${combined.toFixed(2)})`);
+      mint =
+        jup >= usdc
+          ? "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD"
+          : "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+      callbacks.log(
+        `[BUY:JUPITER] Using larger mint for combined balance (USDC=$${usdc.toFixed(2)} + JupUSD=$${jup.toFixed(2)} = $${combined.toFixed(2)})`,
+      );
     } else {
-      callbacks.log(`[BUY:JUPITER] ❌ Combined balance $${combined.toFixed(2)} too low for $${betSize.toFixed(2)} (USDC=$${usdc.toFixed(2)}, JupUSD=$${jup.toFixed(2)}). Need to deposit.`);
+      callbacks.log(
+        `[BUY:JUPITER] ❌ Combined balance $${combined.toFixed(2)} too low for $${betSize.toFixed(2)} (USDC=$${usdc.toFixed(2)}, JupUSD=$${jup.toFixed(2)}). Need to deposit.`,
+      );
       state.jupBuyPausedUntil = Date.now() + 5 * 60_000;
       return false;
     }
     const mintLabel = mint.startsWith("Jupr") ? "JupUSD" : "USDC";
-    callbacks.log(`[BUY:JUPITER] Using ${mintLabel} (USDC=$${usdc.toFixed(2)}, JupUSD=$${jup.toFixed(2)})`);
+    callbacks.log(
+      `[BUY:JUPITER] Using ${mintLabel} (USDC=$${usdc.toFixed(2)}, JupUSD=$${jup.toFixed(2)})`,
+    );
 
     const { orderId, signature } = await jupSvc.placeOrderAndSign({
       ownerPubkey: jupSvc.ownerPubkey,

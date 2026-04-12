@@ -50,8 +50,8 @@ export const MAX_TRADE_HISTORY = envInt("MAX_TRADE_HISTORY", 100);
 
 export const SCORE_SPREAD_WEIGHT = envFloat("SCORE_SPREAD_WEIGHT", 0.25);
 export const SCORE_MIDPOINT_WEIGHT = envFloat("SCORE_MIDPOINT_WEIGHT", 0.15);
-export const SCORE_TIME_WEIGHT = envFloat("SCORE_TIME_WEIGHT", 0.20);
-export const SCORE_VOLUME_WEIGHT = envFloat("SCORE_VOLUME_WEIGHT", 0.20);
+export const SCORE_TIME_WEIGHT = envFloat("SCORE_TIME_WEIGHT", 0.2);
+export const SCORE_VOLUME_WEIGHT = envFloat("SCORE_VOLUME_WEIGHT", 0.2);
 
 /** Markets resolving within this many days get a quick-flip bonus */
 export const QUICK_FLIP_MAX_DAYS = envFloat("QUICK_FLIP_MAX_DAYS", 7);
@@ -63,9 +63,9 @@ export const QUICK_FLIP_BONUS = envFloat("QUICK_FLIP_BONUS", 0.35);
 export const MARKET_MAX_DAYS = envFloat("MARKET_MAX_DAYS", 30);
 
 export const SCORE_PRICE_SWEET_SPOT_WEIGHT = envFloat("SCORE_PRICE_SWEET_SPOT_WEIGHT", 0.15);
-export const SCORE_MOMENTUM_WEIGHT = envFloat("SCORE_MOMENTUM_WEIGHT", 0.10);
-export const SCORE_DEPTH_WEIGHT = envFloat("SCORE_DEPTH_WEIGHT", 0.10);
-export const RAG_SIMILARITY_WEIGHT = envFloat("RAG_SIMILARITY_WEIGHT", 0.10);
+export const SCORE_MOMENTUM_WEIGHT = envFloat("SCORE_MOMENTUM_WEIGHT", 0.1);
+export const SCORE_DEPTH_WEIGHT = envFloat("SCORE_DEPTH_WEIGHT", 0.1);
+export const RAG_SIMILARITY_WEIGHT = envFloat("RAG_SIMILARITY_WEIGHT", 0.1);
 
 /** Bonus for markets in categories where LLMs have real knowledge (crypto, major sports, US politics, tech) */
 export const LLM_KNOWLEDGE_BONUS = envFloat("LLM_KNOWLEDGE_BONUS", 0.35);
@@ -118,7 +118,7 @@ export const MIN_REWARD_RATIO = envFloat("MIN_REWARD_RATIO", 0.5);
 
 /** Price range for Polymarket markets to be considered */
 export const POLY_PRICE_MIN = envFloat("POLY_PRICE_MIN", 0.15);
-export const POLY_PRICE_MAX = envFloat("POLY_PRICE_MAX", 0.80);
+export const POLY_PRICE_MAX = envFloat("POLY_PRICE_MAX", 0.8);
 
 /** Price range for Jupiter — wide to maximize pool, scoring handles quality */
 export const JUP_PRICE_MIN = envFloat("JUP_PRICE_MIN", 0.04);
@@ -146,7 +146,7 @@ export const MAX_BUYS_PER_CYCLE = envInt("MAX_BUYS_PER_CYCLE", 1);
 export const SECOND_BUY_MIN_EDGE = envFloat("SECOND_BUY_MIN_EDGE", 0.15);
 
 /** Minimum confidence for second buy in a cycle */
-export const SECOND_BUY_MIN_CONFIDENCE = envFloat("SECOND_BUY_MIN_CONFIDENCE", 0.70);
+export const SECOND_BUY_MIN_CONFIDENCE = envFloat("SECOND_BUY_MIN_CONFIDENCE", 0.7);
 
 // --- Circuit breaker ---
 
@@ -168,7 +168,7 @@ export const PRICE_CEILING_SELL = envFloat("PRICE_CEILING_SELL", 0.78);
 export const HIGH_PRICE_SELL = envFloat("HIGH_PRICE_SELL", 0.68);
 
 /** Auto-sell dead positions below this price */
-export const DEAD_POSITION_PRICE = envFloat("DEAD_POSITION_PRICE", 0.10);
+export const DEAD_POSITION_PRICE = envFloat("DEAD_POSITION_PRICE", 0.1);
 
 /** Hard stop-loss: sell if PnL drops below this % */
 export const HARD_STOP_LOSS_PCT = envFloat("HARD_STOP_LOSS_PCT", -15);
@@ -228,18 +228,18 @@ export function calcBetSize(
   // Edge multiplier: big edge = bigger bet (0.5× to 2.0×)
   // Edge of 0.10 = 1.0×, edge of 0.20 = 1.5×, edge of 0.05 = 0.5×
   if (edge !== undefined && edge > 0) {
-    const edgeMultiplier = Math.min(2.0, Math.max(0.5, edge / 0.10));
+    const edgeMultiplier = Math.min(2.0, Math.max(0.5, edge / 0.1));
     fraction *= edgeMultiplier;
   }
 
   // Confidence multiplier: high confidence = bigger bet (0.7× to 1.3×)
   if (confidence !== undefined && confidence > 0) {
-    const confMultiplier = 0.7 + (Math.min(1.0, confidence) * 0.6);
+    const confMultiplier = 0.7 + Math.min(1.0, confidence) * 0.6;
     fraction *= confMultiplier;
   }
 
   // Price sweet spot: 30% bonus for prices in the 25–55¢ range
-  const price = marketPrice ?? 0.50;
+  const price = marketPrice ?? 0.5;
   if (price >= PRICE_SWEET_SPOT_MIN && price <= PRICE_SWEET_SPOT_MAX) {
     fraction *= 1.3;
   }
@@ -282,7 +282,7 @@ export function calcKellyBetSize(params: {
   // Quarter-Kelly with position-count scaling:
   // More open positions = more conservative sizing
   // At 0/3: full multiplier, at 2/3: 0.7x multiplier
-  const positionPenalty = 1 - (filledPositions / MAX_POSITIONS * 0.3);
+  const positionPenalty = 1 - (filledPositions / MAX_POSITIONS) * 0.3;
   let fraction = kellyFraction * KELLY_FRACTION_MULTIPLIER * positionPenalty;
 
   const confMultiplier = Math.max(0.5, Math.min(1.0, confidence));
@@ -297,4 +297,7 @@ export function calcKellyBetSize(params: {
 // --- Platform selection ---
 
 /** Default autonomy platform — set via AUTONOMY_PLATFORM env (both | polymarket | jupiter) */
-export const AUTONOMY_PLATFORM = (process.env.AUTONOMY_PLATFORM?.trim() || "both") as "both" | "polymarket" | "jupiter";
+export const AUTONOMY_PLATFORM = (process.env.AUTONOMY_PLATFORM?.trim() || "both") as
+  | "both"
+  | "polymarket"
+  | "jupiter";

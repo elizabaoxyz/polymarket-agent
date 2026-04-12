@@ -4,16 +4,16 @@
  */
 
 import type { AgentRuntime } from "@elizaos/core";
-import { PolymarketExtService } from "./plugins/polymarket-ext/service";
+import type { PolymarketExtService } from "./plugins/polymarket-ext/service";
 import { POLYMARKET_EXT_SERVICE_TYPE } from "./plugins/polymarket-ext/types";
-import type { X402Status, PortfolioStatus, JupiterPositionEntry } from "./portfolio-types";
-import { X402SolanaService } from "./plugins/x402-solana/service";
+import type { X402SolanaService } from "./plugins/x402-solana/service";
 import { X402_SERVICE_TYPE } from "./plugins/x402-solana/types";
-import { getCachedSolanaBalance, getSolanaKeypair } from "./solana-wallet";
+import type { JupiterPositionEntry, PortfolioStatus, X402Status } from "./portfolio-types";
 import { withRetry } from "./retry";
+import { getCachedSolanaBalance, getSolanaKeypair } from "./solana-wallet";
 
 // Re-export types for backward compatibility
-export type { X402Status, PortfolioStatus, JupiterPositionEntry } from "./portfolio-types";
+export type { JupiterPositionEntry, PortfolioStatus, X402Status } from "./portfolio-types";
 
 /**
  * Fetch the Polymarket USDC balance via CLOB API.
@@ -102,7 +102,9 @@ export async function getPortfolioStatus(runtime: AgentRuntime): Promise<Portfol
     // x402 payment stats
     let x402: X402Status = { active: false, payments: 0, totalUsd: 0 };
     try {
-      const x402Svc = (await runtime.getServiceLoadPromise(X402_SERVICE_TYPE)) as unknown as X402SolanaService | null;
+      const x402Svc = (await runtime.getServiceLoadPromise(
+        X402_SERVICE_TYPE,
+      )) as unknown as X402SolanaService | null;
       if (x402Svc) {
         const stats = x402Svc.getPaymentStats();
         x402 = { active: x402Svc.isActive(), payments: stats.count, totalUsd: stats.totalUsd };

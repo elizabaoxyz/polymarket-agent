@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { PrivateKeySchema, loadEnvConfig, type CliOptions } from "./lib";
+import { type CliOptions, loadEnvConfig, PrivateKeySchema } from "./lib";
 
 const baseOpts: CliOptions = {
   execute: false,
@@ -68,4 +68,3 @@ describe("loadEnvConfig", () => {
     expect(cfg.clobApiUrl).toBe("https://clob.polymarket.com");
   });
 });
-

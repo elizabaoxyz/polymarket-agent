@@ -2,10 +2,10 @@
  * Centralized Solana wallet and balance utilities.
  * Eliminates duplicate key decoding and RPC calls scattered across the codebase.
  */
-import { log } from "./log";
 
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
+import { log } from "./log";
 
 const USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 const JUPUSD_MINT = new PublicKey("JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD");
@@ -61,7 +61,12 @@ export type SolanaBalanceBreakdown = {
   jupUsd: number;
 };
 
-let _balanceCache: SolanaBalanceBreakdown & { fetchedAt: number } = { total: 0, usdc: 0, jupUsd: 0, fetchedAt: 0 };
+let _balanceCache: SolanaBalanceBreakdown & { fetchedAt: number } = {
+  total: 0,
+  usdc: 0,
+  jupUsd: 0,
+  fetchedAt: 0,
+};
 const BALANCE_CACHE_TTL = 60_000; // 60 seconds
 
 /**

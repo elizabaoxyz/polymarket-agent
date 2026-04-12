@@ -3,28 +3,31 @@
  * Extracted from tui.tsx for maintainability.
  */
 
-import type { ReactNode } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
+import type { ReactNode } from "react";
 import { useEffect } from "react";
-import type {
-  ChatMessage,
-  SidebarView,
-  RenderLine,
-  InkKey,
-} from "./tui-utils";
+import type { ChatMessage, InkKey, RenderLine, SidebarView } from "./tui-utils";
 import {
-  sanitizeLine,
-  wrapText,
   formatTimestamp,
-  toRenderLines,
   isCardBorderLine,
   isCardDividerLine,
+  sanitizeLine,
+  toRenderLines,
+  wrapText,
 } from "./tui-utils";
 
 // --- Fatal Error Display ---
 
-export function FatalErrorDisplay({ error, columns, rows }: { error: string; columns: number; rows: number }): ReactNode {
+export function FatalErrorDisplay({
+  error,
+  columns,
+  rows,
+}: {
+  error: string;
+  columns: number;
+  rows: number;
+}): ReactNode {
   const { exit } = useApp();
 
   useInput((_, rawKey) => {
@@ -36,9 +39,15 @@ export function FatalErrorDisplay({ error, columns, rows }: { error: string; col
 
   let helpText = "";
   if (error.includes("No output generated") || error.includes("AI_NoOutputGeneratedError")) {
-    helpText = "This usually means your API key is missing, invalid, or rate-limited. Check your .env file.";
-  } else if (error.includes("API key") || error.includes("api_key") || error.includes("Unauthorized")) {
-    helpText = "Check that your API key is set correctly in .env (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)";
+    helpText =
+      "This usually means your API key is missing, invalid, or rate-limited. Check your .env file.";
+  } else if (
+    error.includes("API key") ||
+    error.includes("api_key") ||
+    error.includes("Unauthorized")
+  ) {
+    helpText =
+      "Check that your API key is set correctly in .env (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)";
   } else if (error.includes("ECONNREFUSED") || error.includes("network")) {
     helpText = "Network error - check your internet connection and API endpoint URLs.";
   }
@@ -50,20 +59,30 @@ export function FatalErrorDisplay({ error, columns, rows }: { error: string; col
   return (
     <Box flexDirection="column" width={columns} height={rows} padding={1}>
       <Box marginBottom={1}>
-        <Text color="red" bold>{"═".repeat(Math.min(50, columns - 4))}</Text>
+        <Text color="red" bold>
+          {"═".repeat(Math.min(50, columns - 4))}
+        </Text>
       </Box>
       <Box marginBottom={1}>
-        <Text color="red" bold>❌ FATAL ERROR</Text>
+        <Text color="red" bold>
+          ❌ FATAL ERROR
+        </Text>
       </Box>
       <Box marginBottom={1}>
-        <Text color="red" bold>{"═".repeat(Math.min(50, columns - 4))}</Text>
+        <Text color="red" bold>
+          {"═".repeat(Math.min(50, columns - 4))}
+        </Text>
       </Box>
       <Box flexDirection="column" marginBottom={1}>
         {displayLines.map((line, idx) => (
-          <Text key={idx} color="white" wrap="truncate">{line}</Text>
+          <Text key={idx} color="white" wrap="truncate">
+            {line}
+          </Text>
         ))}
         {lines.length > maxLines && (
-          <Text color="gray" italic>... {lines.length - maxLines} more lines</Text>
+          <Text color="gray" italic>
+            ... {lines.length - maxLines} more lines
+          </Text>
         )}
       </Box>
       {helpText && (
@@ -72,7 +91,9 @@ export function FatalErrorDisplay({ error, columns, rows }: { error: string; col
         </Box>
       )}
       <Box marginTop={1}>
-        <Text color="red" bold>{"═".repeat(Math.min(50, columns - 4))}</Text>
+        <Text color="red" bold>
+          {"═".repeat(Math.min(50, columns - 4))}
+        </Text>
       </Box>
       <Box marginTop={1} flexDirection="column">
         <Text color="cyan">📄 Full log: polymarket-error.log</Text>
@@ -95,7 +116,17 @@ export function ChatPanel(props: {
   readonly onMaxScrollChange?: (maxScroll: number) => void;
   readonly isActive: boolean;
 }): ReactNode {
-  const { messages, input, onInputChange, onSubmit, width, height, scrollOffset, onMaxScrollChange, isActive } = props;
+  const {
+    messages,
+    input,
+    onInputChange,
+    onSubmit,
+    width,
+    height,
+    scrollOffset,
+    onMaxScrollChange,
+    isActive,
+  } = props;
   if (height <= 0) return null;
   const contentWidth = Math.max(10, width - 2);
   const renderLines = toRenderLines(messages, contentWidth);
@@ -155,7 +186,7 @@ function getSidebarBodyLines(
   content: string,
   loading: boolean,
   logs: string[],
-  contentWidth: number
+  contentWidth: number,
 ): string[] {
   const bodyLines: string[] = [];
   if (view === "logs") {
@@ -185,9 +216,21 @@ export function SidebarPanel(props: {
   readonly onMaxScrollChange?: (maxScroll: number) => void;
   readonly isActive: boolean;
 }): ReactNode {
-  const { view, content, loading, updatedAt, width, height, logs, scrollOffset, onMaxScrollChange, isActive } = props;
+  const {
+    view,
+    content,
+    loading,
+    updatedAt,
+    width,
+    height,
+    logs,
+    scrollOffset,
+    onMaxScrollChange,
+    isActive,
+  } = props;
   if (height <= 0) return null;
-  const title = view === "positions" ? "Account" : view === "markets" ? "Active Markets" : "Agent Logs";
+  const title =
+    view === "positions" ? "Account" : view === "markets" ? "Active Markets" : "Agent Logs";
   const contentWidth = Math.max(10, width - 2);
   const bodyLines = getSidebarBodyLines(view, content, loading, logs, contentWidth);
   const bodyHeight = Math.max(0, height - 1);
@@ -204,7 +247,9 @@ export function SidebarPanel(props: {
   const visibleBody = bodyLines.slice(startIdx, endIdx);
 
   const scrollIndicator = effectiveOffset > 0 ? ` ↑${effectiveOffset}` : "";
-  const header = updatedAt ? `${title} (${updatedAt})${scrollIndicator}` : `${title}${scrollIndicator}`;
+  const header = updatedAt
+    ? `${title} (${updatedAt})${scrollIndicator}`
+    : `${title}${scrollIndicator}`;
 
   const renderLines: Array<{ key: string; text: string; color?: string; dim?: boolean }> = [];
   if (view === "markets") {
@@ -213,7 +258,13 @@ export function SidebarPanel(props: {
     visibleBody.forEach((line, idx) => {
       const trimmed = line.trimEnd();
       if (isCardBorderLine(trimmed)) {
-        if (!inCard) { inCard = true; inTitle = true; } else { inCard = false; inTitle = false; }
+        if (!inCard) {
+          inCard = true;
+          inTitle = true;
+        } else {
+          inCard = false;
+          inTitle = false;
+        }
       } else if (isCardDividerLine(trimmed)) {
         inTitle = false;
       }
@@ -257,7 +308,9 @@ export function SidebarPanel(props: {
       overflow="hidden"
     >
       <Box height={1} flexShrink={0}>
-        <Text bold dimColor={!isActive}>{header}</Text>
+        <Text bold dimColor={!isActive}>
+          {header}
+        </Text>
       </Box>
       <Box flexDirection="column" height={bodyHeight} overflow="hidden">
         {linesToRender.map((line) => (

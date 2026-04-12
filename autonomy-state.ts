@@ -3,21 +3,20 @@
  * Extracted from autonomy.ts for maintainability.
  */
 
-import { stringToUuid } from "@elizaos/core";
-import type { AsyncMutex } from "./mutex";
-import type { RAGService } from "./plugins/rag/service";
-import type { ConnectorsService } from "./plugins/connectors/service";
+import type { AgentRuntime, stringToUuid } from "@elizaos/core";
 import {
-  FAILED_SELL_COOLDOWN_MS,
-  FAILED_BUY_COOLDOWN_MS,
-  MAX_TRADE_HISTORY,
-  DAILY_SPEND_LIMIT_USD,
-  SKIPPED_MARKET_COOLDOWN_MS,
-  SAME_MARKET_COOLDOWN_MS,
   CIRCUIT_BREAKER_LOSS_PCT,
+  DAILY_SPEND_LIMIT_USD,
+  FAILED_BUY_COOLDOWN_MS,
+  FAILED_SELL_COOLDOWN_MS,
+  MAX_TRADE_HISTORY,
+  SAME_MARKET_COOLDOWN_MS,
+  SKIPPED_MARKET_COOLDOWN_MS,
   STUCK_DUST_REEVAL_MS,
 } from "./config";
-import type { AgentRuntime } from "@elizaos/core";
+import type { AsyncMutex } from "./mutex";
+import type { ConnectorsService } from "./plugins/connectors/service";
+import type { RAGService } from "./plugins/rag/service";
 
 // --- Public types ---
 
@@ -60,10 +59,10 @@ export type AutonomyState = {
   tradeHistory: TradeHistoryEntry[];
   failedSells: Map<string, number>;
   failedBuys: Map<string, number>;
-  recentlySold: Map<string, number>;  // token/pubkey → timestamp (auto-expires)
-  dailySpend: number;                 // USD spent today
-  dailySpendResetAt: number;          // timestamp of next daily reset
-  prevPolyBalance: number;            // for P&L tracking
+  recentlySold: Map<string, number>; // token/pubkey → timestamp (auto-expires)
+  dailySpend: number; // USD spent today
+  dailySpendResetAt: number; // timestamp of next daily reset
+  prevPolyBalance: number; // for P&L tracking
   prevSolBalance: number;
   /** Cache enrichment context per cycle to avoid duplicate API calls */
   cycleEnrichCache: Map<string, string>;
@@ -96,8 +95,11 @@ export type AutonomyState = {
   /** Jupiter price history: pubkey → array of {time, price} for trend computation */
   jupPriceHistory: Map<string, Array<{ time: number; price: number }>>;
   /** Pending unfilled orders — monitored each cycle, cancelled if stale */
-  pendingOrders: Map<string, { orderID: string; platform: string; question: string; amount: number; placedAt: number }>;
-}
+  pendingOrders: Map<
+    string,
+    { orderID: string; platform: string; question: string; amount: number; placedAt: number }
+  >;
+};
 
 // --- State factory ---
 
@@ -202,7 +204,11 @@ export function isRecentlyTraded(state: AutonomyState, question: string): boolea
   );
 }
 
-export function isFailCooledDown(failMap: Map<string, number>, key: string, cooldownMs: number): boolean {
+export function isFailCooledDown(
+  failMap: Map<string, number>,
+  key: string,
+  cooldownMs: number,
+): boolean {
   const failTime = failMap.get(key);
   return !failTime || Date.now() - failTime >= cooldownMs;
 }
@@ -247,7 +253,14 @@ export async function seedStateFromTradeHistory(state: AutonomyState): Promise<v
   try {
     const res = await fetch(`https://data-api.polymarket.com/trades?user=${funder}&limit=50`);
     if (!res.ok) return;
-    type TradeApi = { title?: string; side?: string; type?: string; timestamp?: number; price?: number; amount?: number };
+    type TradeApi = {
+      title?: string;
+      side?: string;
+      type?: string;
+      timestamp?: number;
+      price?: number;
+      amount?: number;
+    };
     const trades = (await res.json()) as TradeApi[];
 
     const now = Date.now();
@@ -362,7 +375,10 @@ export function recordJupPriceSnapshot(state: AutonomyState, pubkey: string, pri
  * Compute a simple price trend from Jupiter position price history.
  * Returns null if not enough data.
  */
-export function computeJupTrend(state: AutonomyState, pubkey: string): { direction: "up" | "down" | "flat"; changePct: number } | null {
+export function computeJupTrend(
+  state: AutonomyState,
+  pubkey: string,
+): { direction: "up" | "down" | "flat"; changePct: number } | null {
   const history = state.jupPriceHistory.get(pubkey);
   if (!history || history.length < 3) return null;
 

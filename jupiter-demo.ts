@@ -21,6 +21,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, ".env") });
 
+import { log } from "./log";
 import { parseArgs } from "./lib";
 import { jupiterChat, jupiterVerify } from "./jupiter-runner";
 
@@ -53,7 +54,7 @@ function usage(): void {
     "  bun run jupiter-demo.ts verify",
     "  bun run jupiter-demo.ts chat --execute",
   ].join("\n");
-  console.log(text);
+  log.info("jupiter", text);
 }
 
 async function main(): Promise<void> {
@@ -83,15 +84,15 @@ if (import.meta.main) {
       process.stdout.write("\x1b[?1000l\x1b[?1006l\x1b[?1015l\x1b[?1007l\n");
     }
 
-    console.error("\n" + "=".repeat(60));
-    console.error("❌ FATAL ERROR");
-    console.error("=".repeat(60));
-    console.error(message);
+    log.error("jupiter", "\n" + "=".repeat(60));
+    log.error("jupiter", "FATAL ERROR");
+    log.error("jupiter", "=".repeat(60));
+    log.error("jupiter", message);
     if (stack) {
-      console.error("\nStack trace:");
-      console.error(stack);
+      log.error("jupiter", "\nStack trace:");
+      log.error("jupiter", stack);
     }
-    console.error("=".repeat(60));
+    log.error("jupiter", "=".repeat(60));
     process.exit(1);
   });
 }

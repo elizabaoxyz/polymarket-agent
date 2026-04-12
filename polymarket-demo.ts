@@ -28,6 +28,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, ".env") });
 
+import { log } from "./log";
 import { parseArgs } from "./lib";
 import { chat, inputTest, verify } from "./runner";
 
@@ -70,7 +71,7 @@ function usage(): void {
     "  # Interactive chat (with /autonomy true|false)",
     "  bun run polymarket-demo.ts chat",
   ].join("\n");
-  console.log(text);
+  log.info("polymarket", text);
 }
 
 async function main(): Promise<void> {
@@ -104,17 +105,17 @@ if (import.meta.main) {
       process.stdout.write("\x1b[?1000l\x1b[?1006l\x1b[?1015l\x1b[?1007l\n");
     }
     
-    console.error("\n" + "=".repeat(60));
-    console.error("❌ FATAL ERROR");
-    console.error("=".repeat(60));
-    console.error(message);
+    log.error("polymarket", "\n" + "=".repeat(60));
+    log.error("polymarket", "FATAL ERROR");
+    log.error("polymarket", "=".repeat(60));
+    log.error("polymarket", message);
     if (stack) {
-      console.error("\nStack trace:");
-      console.error(stack);
+      log.error("polymarket", "\nStack trace:");
+      log.error("polymarket", stack);
     }
-    console.error("=".repeat(60));
-    console.error("Check polymarket-error.log for more details");
-    console.error("");
+    log.error("polymarket", "=".repeat(60));
+    log.error("polymarket", "Check polymarket-error.log for more details");
+    log.error("polymarket", "");
     process.exit(1);
   });
 }

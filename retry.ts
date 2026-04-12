@@ -3,6 +3,7 @@
  */
 
 import { MAX_RETRIES, RETRY_BASE_DELAY_MS } from "./config";
+import { log } from "./log";
 
 /** Error classes that should trigger a retry */
 const TRANSIENT_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
@@ -65,9 +66,7 @@ export async function withRetry<T>(
 
       const delay = baseDelay * 2 ** attempt + Math.random() * baseDelay * 0.5;
       const msg = error instanceof Error ? error.message : String(error);
-      console.warn(
-        `[retry] ${label} attempt ${attempt + 1}/${maxRetries} failed: ${msg} — retrying in ${Math.round(delay)}ms`,
-      );
+      log.warn("retry", `${label} attempt ${attempt + 1}/${maxRetries} failed: ${msg} — retrying in ${Math.round(delay)}ms`);
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }

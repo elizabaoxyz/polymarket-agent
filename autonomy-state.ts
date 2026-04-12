@@ -95,6 +95,8 @@ export type AutonomyState = {
   lastStuckDustReeval: number;
   /** Jupiter price history: pubkey → array of {time, price} for trend computation */
   jupPriceHistory: Map<string, Array<{ time: number; price: number }>>;
+  /** Pending unfilled orders — monitored each cycle, cancelled if stale */
+  pendingOrders: Map<string, { orderID: string; platform: string; question: string; amount: number; placedAt: number }>;
 }
 
 // --- State factory ---
@@ -128,6 +130,7 @@ export function createState(platform: AutonomyPlatform): AutonomyState {
     circuitBreakerTripped: false,
     lastStuckDustReeval: 0,
     jupPriceHistory: new Map(),
+    pendingOrders: new Map(),
   };
 }
 
@@ -173,6 +176,13 @@ export function housekeep(state: AutonomyState): void {
   // Recently analyzed markets: 10-minute cooldown forces rotation to new candidates
   for (const [key, ts] of state.recentlyAnalyzed) {
     if (now - ts >= 10 * 60_000) state.recentlyAnalyzed.delete(key);
+  }
+
+  // Clean up very old pending orders (safety net)
+  for (const [key, order] of state.pendingOrders) {
+    if (Date.now() - order.placedAt > 10 * 60_000) {
+      state.pendingOrders.delete(key);
+    }
   }
 }
 

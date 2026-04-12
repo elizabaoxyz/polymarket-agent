@@ -247,6 +247,29 @@ export async function runAutonomyCycle(
   state.cycleCount++;
   housekeep(state);
 
+  // Monitor pending orders from previous cycles
+  if (state.pendingOrders.size > 0) {
+    const { POLYMARKET_EXT_SERVICE_TYPE } = await import("./plugins/polymarket-ext/types");
+    type ExtSvcShape = { clob: { cancelOrder: (id: string) => Promise<unknown> } | null };
+    let extSvc: ExtSvcShape | null = null;
+    try {
+      extSvc = (await deps.runtime.getServiceLoadPromise(POLYMARKET_EXT_SERVICE_TYPE)) as unknown as ExtSvcShape;
+    } catch {}
+
+    for (const [key, order] of state.pendingOrders) {
+      const ageMs = Date.now() - order.placedAt;
+      if (ageMs > 2 * 60_000) {
+        if (extSvc?.clob) {
+          try {
+            await extSvc.clob.cancelOrder(order.orderID);
+            callbacks.log(`[ORDER] Cancelled stale ${order.platform} order ${order.orderID.slice(0, 12)}... for "${order.question}"`);
+          } catch {}
+        }
+        state.pendingOrders.delete(key);
+      }
+    }
+  }
+
   // On first cycle, seed state from Polymarket trade history so we don't
   // re-buy markets we recently sold (survives redeploys)
   if (state.cycleCount === 1) {

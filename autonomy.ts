@@ -69,6 +69,7 @@ type PlatformBuyConfig = {
   isFull: boolean;
   activeCount: number;
   minBet: number;
+  filledPositions: number;
   breakerActive: boolean;
   reviewPositions: ReviewablePosition[];
   scan: () => Promise<ScoredMarket[] | JupMarket[]>;
@@ -204,6 +205,7 @@ async function platformBuyPhase(
           confidence: analysis.confidence,
           balance: remainingBalance,
           minBet: config.minBet,
+          filledPositions: config.filledPositions,
         });
 
         if (!canSpend(state, betSize)) {
@@ -412,6 +414,7 @@ export async function runAutonomyCycle(
         isFull: polyFull,
         activeCount: polyActive,
         minBet: MIN_BET_SIZE_USD,
+        filledPositions: polyActive,
         breakerActive,
         reviewPositions: polyReviewable.map((p) => ({ token: p.token, title: p.title, pnl: p.pnl, shares: p.shares, curPrice: p.curPrice, ...(p.daysLeft !== undefined ? { daysLeft: p.daysLeft } : {}) })),
         scan: () => scanPolymarketMarkets(ownedTitles, state, callbacks),
@@ -434,6 +437,7 @@ export async function runAutonomyCycle(
         isFull: jupFull,
         activeCount: jupActive,
         minBet: MIN_BET_SIZE_JUP,
+        filledPositions: jupActive,
         breakerActive,
         reviewPositions: jupReviewable.map((p) => ({ pubkey: p.pubkey, title: p.title, pnl: p.pnl, isYes: p.isYes, contracts: p.contracts, ...(p.curPrice != null ? { curPrice: p.curPrice } : {}) })),
         scan: () => scanJupiterMarkets(ownedTitles, state, callbacks),

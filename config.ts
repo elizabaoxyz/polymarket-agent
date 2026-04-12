@@ -268,25 +268,26 @@ export function calcKellyBetSize(params: {
   confidence: number;
   balance: number;
   minBet?: number;
+  filledPositions?: number;
 }): number {
   const { estimatedProb, marketPrice, confidence, balance } = params;
   const minBet = params.minBet ?? MIN_BET_SIZE_USD;
+  const filledPositions = params.filledPositions ?? 0;
 
-  // Kelly fraction: edge / odds
-  // For binary: (trueProb - marketPrice) / (1 - marketPrice)
   const edge = estimatedProb - marketPrice;
   if (edge <= 0) return minBet;
 
   const kellyFraction = edge / (1 - marketPrice);
 
-  // Half-Kelly (or whatever KELLY_FRACTION_MULTIPLIER is set to)
-  let fraction = kellyFraction * KELLY_FRACTION_MULTIPLIER;
+  // Quarter-Kelly with position-count scaling:
+  // More open positions = more conservative sizing
+  // At 0/3: full multiplier, at 2/3: 0.7x multiplier
+  const positionPenalty = 1 - (filledPositions / MAX_POSITIONS * 0.3);
+  let fraction = kellyFraction * KELLY_FRACTION_MULTIPLIER * positionPenalty;
 
-  // Scale by confidence: confidence of 0.6 reduces bet, 1.0 keeps full Kelly
   const confMultiplier = Math.max(0.5, Math.min(1.0, confidence));
   fraction *= confMultiplier;
 
-  // Hard cap: never risk more than KELLY_MAX_FRACTION of balance
   fraction = Math.min(fraction, KELLY_MAX_FRACTION);
 
   const size = balance * fraction;

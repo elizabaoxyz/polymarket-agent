@@ -23,6 +23,7 @@ import {
   DAILY_SPEND_LIMIT_USD,
   HEARTBEAT_MAX_FAILURES,
   MIN_REWARD_RATIO,
+  MIN_BET_SIZE_USD,
   MIN_BET_SIZE_JUP,
   calcKellyBetSize,
   MAX_BUYS_PER_CYCLE,
@@ -73,8 +74,185 @@ import {
   collectPositions,
   unifiedPortfolioReview,
   claimJupiterPositions,
+  type ReviewablePosition,
 } from "./autonomy-sell";
 import { log } from "./log";
+
+// --- Shared buy phase ---
+
+type PlatformBuyConfig = {
+  label: "POLYMARKET" | "JUPITER";
+  balance: number;
+  lowBalance: boolean;
+  isFull: boolean;
+  activeCount: number;
+  minBet: number;
+  breakerActive: boolean;
+  reviewPositions: ReviewablePosition[];
+  scan: () => Promise<ScoredMarket[] | JupMarket[]>;
+  executeBuy: (analysis: AnalysisResult, betSize: number, remainingBalance: number) => Promise<boolean>;
+  recordFailedBuy: (analysis: AnalysisResult) => void;
+  beforeBuy?: () => Promise<boolean>;
+  onScanComplete?: (scored: ScoredMarket[] | JupMarket[]) => Promise<void>;
+};
+
+async function platformBuyPhase(
+  deps: AutonomyDeps,
+  callbacks: AutonomyCallbacks,
+  state: AutonomyState,
+  config: PlatformBuyConfig,
+): Promise<void> {
+  const tag = `[${config.label}]`;
+
+  callbacks.log(`${tag} ${config.lowBalance ? "SELL-ONLY (low balance)" : "SELL + BUY"}`);
+
+  await unifiedPortfolioReview(
+    deps, callbacks, state, config.label,
+    config.reviewPositions,
+    config.balance, config.lowBalance,
+  );
+
+  if (config.isFull || config.lowBalance || config.breakerActive) {
+    if (config.isFull) callbacks.log(`${tag} ${config.activeCount}/${MAX_POSITIONS} positions — sell-only`);
+    if (config.lowBalance) callbacks.log(`${tag} Balance $${config.balance.toFixed(2)} — sell-only mode`);
+    if (config.breakerActive) callbacks.log(`${tag} Circuit breaker active — sell-only mode`);
+    return;
+  }
+
+  if (config.beforeBuy) {
+    const proceed = await config.beforeBuy();
+    if (!proceed) return;
+  }
+
+  try {
+    let scored = await config.scan();
+
+    // If scan returned 0 candidates due to cooldowns, retry without them.
+    if (scored.length === 0) {
+      const beforeAnalyzed = state.recentlyAnalyzed.size;
+      const beforeSkipped = state.skippedMarkets.size;
+      for (const [key] of state.recentlyAnalyzed) state.recentlyAnalyzed.delete(key);
+      for (const [key] of state.skippedMarkets) state.skippedMarkets.delete(key);
+      if (beforeAnalyzed > 0 || beforeSkipped > 0) {
+        callbacks.log(`${tag.replace("]", ":SCAN]")} 0 candidates — retrying without cooldowns (cleared ${beforeAnalyzed} analyzed, ${beforeSkipped} skipped)`);
+        scored = await config.scan();
+      }
+    }
+
+    const ragContext = scored.length > 0
+      ? await indexAndEnrich(deps, callbacks, state, scored, config.label === "POLYMARKET" ? "polymarket" : "jupiter", scored[0]!.question)
+      : "";
+
+    const balanceLabel = config.label === "JUPITER" ? "SOL balance" : "balance";
+    callbacks.log(`${tag} ${scored.length} new markets | ${balanceLabel}: $${config.balance.toFixed(2)}`);
+
+    if (config.onScanComplete) {
+      await config.onScanComplete(scored);
+    }
+
+    if (scored.length > 0) {
+      const candidates = scored.slice(0, 5);
+      const analyses = await analyzeCandidates(deps, callbacks, candidates, ragContext);
+
+      // Mark unpicked candidates as recently-analyzed so next cycle tries fresh ones
+      const pickedQuestions = new Set(analyses.map((a) => a.pick.question.toLowerCase()));
+      for (const c of candidates) {
+        if (!pickedQuestions.has(c.question.toLowerCase())) {
+          state.recentlyAnalyzed.set(c.question.toLowerCase(), Date.now());
+        }
+      }
+
+      if (analyses.length === 0) {
+        for (const c of candidates) {
+          state.skippedMarkets.set(c.question.toLowerCase(), Date.now());
+        }
+        callbacks.log(`${tag} No high-conviction pick — skipping buy this cycle`);
+        return;
+      }
+
+      let buyCount = 0;
+      let remainingBalance = config.balance;
+
+      for (let ai = 0; ai < analyses.length && buyCount < MAX_BUYS_PER_CYCLE; ai++) {
+        const analysis = analyses[ai]!;
+
+        // Second+ buy requires higher bar
+        if (buyCount > 0) {
+          if (analysis.edge < SECOND_BUY_MIN_EDGE) {
+            callbacks.log(`${tag} Pick #${ai + 1} edge ${analysis.edge.toFixed(2)} below second-buy minimum ${SECOND_BUY_MIN_EDGE} — stopping`);
+            break;
+          }
+          if (analysis.confidence < SECOND_BUY_MIN_CONFIDENCE) {
+            callbacks.log(`${tag} Pick #${ai + 1} confidence ${analysis.confidence.toFixed(2)} below second-buy minimum — stopping`);
+            break;
+          }
+          if (ai > 0 && analyses[ai - 1]?.category === analysis.category) {
+            callbacks.log(`${tag} Pick #${ai + 1} same category (${analysis.category}) as previous — skipping for diversification`);
+            continue;
+          }
+        }
+
+        const marketPrice = analysis.side === "YES" ? analysis.pick.yesPrice : 1 - analysis.pick.yesPrice;
+        const rewardRatio = marketPrice > 0 ? (1 - marketPrice) / marketPrice : 0;
+
+        if (marketPrice > 0.90) {
+          callbacks.log(`${tag} ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ${analysis.side} at $${marketPrice.toFixed(2)} terrible risk/reward`);
+          state.skippedMarkets.set(analysis.pick.question.toLowerCase(), Date.now());
+          continue;
+        }
+        if (marketPrice < 0.10) {
+          callbacks.log(`${tag} ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ${analysis.side} at $${marketPrice.toFixed(2)} too cheap`);
+          state.skippedMarkets.set(analysis.pick.question.toLowerCase(), Date.now());
+          continue;
+        }
+        // Dynamic reward ratio: lower threshold for high-conviction picks.
+        const effectiveMinRatio = analysis.confidence >= 0.85 ? 0.25
+          : analysis.confidence >= 0.70 ? 0.40
+          : MIN_REWARD_RATIO;
+        if (rewardRatio < effectiveMinRatio) {
+          callbacks.log(`${tag} ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ratio ${rewardRatio.toFixed(2)}:1 below ${effectiveMinRatio.toFixed(2)} (conf=${analysis.confidence.toFixed(2)})`);
+          state.skippedMarkets.set(analysis.pick.question.toLowerCase(), Date.now());
+          continue;
+        }
+
+        const kellyProb = analysis.side === "YES" ? analysis.estimatedProb : 1 - analysis.estimatedProb;
+        const betSize = calcKellyBetSize({
+          estimatedProb: kellyProb,
+          marketPrice,
+          confidence: analysis.confidence,
+          balance: remainingBalance,
+          minBet: config.minBet,
+        });
+
+        if (!canSpend(state, betSize)) {
+          callbacks.log(`${tag} Daily spend limit reached — skipping buy`);
+          break;
+        }
+
+        if (remainingBalance < betSize) {
+          callbacks.log(`${tag} Insufficient balance ($${remainingBalance.toFixed(2)}) for $${betSize.toFixed(2)} bet — stopping`);
+          break;
+        }
+
+        callbacks.log(`[BUY:${config.label}] #${buyCount + 1} "${analysis.pick.question}" (${analysis.side}:$${marketPrice.toFixed(2)}, kelly:$${betSize.toFixed(2)}, edge:${analysis.edge.toFixed(2)}, conf:${analysis.confidence.toFixed(2)}, est:${analysis.estimatedProb.toFixed(2)})`);
+        state.pendingBuys.add(analysis.pick.question.toLowerCase());
+        const bought = await config.executeBuy(analysis, betSize, remainingBalance);
+        if (bought) {
+          recordTrade(state, { question: analysis.pick.question, platform: config.label, time: Date.now(), price: analysis.pick.yesPrice, amount: betSize });
+          remainingBalance -= betSize;
+          buyCount++;
+        } else {
+          config.recordFailedBuy(analysis);
+        }
+      }
+    } else {
+      callbacks.log(`${tag} No new markets to buy`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    callbacks.log(`${tag} Scan failed: ${msg}`);
+  }
+}
 
 // --- Main autonomy cycle ---
 
@@ -221,311 +399,71 @@ async function runAutonomyCycle(
     // ========== Run POLYMARKET and JUPITER in parallel ==========
     const polyPhase = async () => {
       if (!runPoly) return;
-      callbacks.log(`[POLYMARKET] ${lowPolyBalance ? "SELL-ONLY (low balance)" : "SELL + BUY"}`);
-      // Claim + unified sell+review for Polymarket positions (exclude untradeable from LLM review)
       const polyReviewable = polyAllSellable.filter(p => !untradeableKeys.has(p.token));
-      await unifiedPortfolioReview(
-        deps, callbacks, state, "POLYMARKET",
-        polyReviewable.map((p) => ({ token: p.token, title: p.title, pnl: p.pnl, shares: p.shares, curPrice: p.curPrice })),
-        polyBalance, lowPolyBalance,
-      );
-
-      if (polyFull || lowPolyBalance || breakerActive) {
-        if (polyFull) callbacks.log(`[POLYMARKET] ${polyActive}/${MAX_POSITIONS} positions — sell-only`);
-        if (lowPolyBalance) callbacks.log(`[POLYMARKET] Balance $${polyBalance.toFixed(2)} — sell-only mode`);
-        if (breakerActive) callbacks.log(`[POLYMARKET] Circuit breaker active — sell-only mode`);
-        return;
-      }
-
-      try {
-        let scored = await scanPolymarketMarkets(ownedTitles, state, callbacks);
-
-        // If Polymarket scan returned 0 candidates due to cooldowns, retry without them.
-        // Same fix as Jupiter — cooldowns can exhaust a temporarily thin pool.
-        if (scored.length === 0) {
-          const beforeAnalyzed = state.recentlyAnalyzed.size;
-          const beforeSkipped = state.skippedMarkets.size;
-          for (const [key] of state.recentlyAnalyzed) state.recentlyAnalyzed.delete(key);
-          for (const [key] of state.skippedMarkets) state.skippedMarkets.delete(key);
-          if (beforeAnalyzed > 0 || beforeSkipped > 0) {
-            callbacks.log(`[POLYMARKET:SCAN] 0 candidates — retrying without cooldowns (cleared ${beforeAnalyzed} analyzed, ${beforeSkipped} skipped)`);
-            scored = await scanPolymarketMarkets(ownedTitles, state, callbacks);
-          }
-        }
-
-        const ragContext = scored.length > 0
-          ? await indexAndEnrich(deps, callbacks, state, scored, "polymarket", scored[0]!.question)
-          : "";
-        callbacks.log(`[POLYMARKET] ${scored.length} new markets | balance: $${polyBalance.toFixed(2)}`);
-
-        if (scored.length > 0) {
-          const candidates = scored.slice(0, 5);
-          const analyses = await analyzeCandidates(deps, callbacks, candidates, ragContext);
-
-          // Mark unpicked candidates as recently-analyzed so next cycle tries fresh ones
-          // Picked markets stay available (edge may persist if trade failed)
-          const pickedQuestions = new Set(analyses.map((a) => a.pick.question.toLowerCase()));
-          for (const c of candidates) {
-            if (!pickedQuestions.has(c.question.toLowerCase())) {
-              state.recentlyAnalyzed.set(c.question.toLowerCase(), Date.now());
-            }
-          }
-
-          let buyCount = 0;
-          let remainingBalance = polyBalance;
-
-          for (let ai = 0; ai < analyses.length && buyCount < MAX_BUYS_PER_CYCLE; ai++) {
-            const analysis = analyses[ai]!;
-
-            // Second+ buy requires higher bar
-            if (buyCount > 0) {
-              if (analysis.edge < SECOND_BUY_MIN_EDGE) {
-                callbacks.log(`[POLYMARKET] Pick #${ai + 1} edge ${analysis.edge.toFixed(2)} below second-buy minimum ${SECOND_BUY_MIN_EDGE} — stopping`);
-                break;
-              }
-              if (analysis.confidence < SECOND_BUY_MIN_CONFIDENCE) {
-                callbacks.log(`[POLYMARKET] Pick #${ai + 1} confidence ${analysis.confidence.toFixed(2)} below second-buy minimum — stopping`);
-                break;
-              }
-              if (ai > 0 && analyses[ai - 1]?.category === analysis.category) {
-                callbacks.log(`[POLYMARKET] Pick #${ai + 1} same category (${analysis.category}) as previous — skipping for diversification`);
-                continue;
-              }
-            }
-
-            const marketPrice = analysis.side === "YES" ? analysis.pick.yesPrice : 1 - analysis.pick.yesPrice;
-            const polyRewardRatio = marketPrice > 0 ? (1 - marketPrice) / marketPrice : 0;
-
-            if (marketPrice > 0.90) {
-              callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ${analysis.side} at $${marketPrice.toFixed(2)} terrible risk/reward`);
-              state.skippedMarkets.set(analysis.pick.question.toLowerCase(), Date.now());
-              continue;
-            }
-            if (marketPrice < 0.10) {
-              callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ${analysis.side} at $${marketPrice.toFixed(2)} too cheap`);
-              state.skippedMarkets.set(analysis.pick.question.toLowerCase(), Date.now());
-              continue;
-            }
-            // Dynamic reward ratio: lower threshold for high-conviction picks.
-            // A 0.33:1 ratio (buying at $0.75) is fine at 95% confidence — expected value is huge.
-            const effectiveMinRatio = analysis.confidence >= 0.85 ? 0.25
-              : analysis.confidence >= 0.70 ? 0.40
-              : MIN_REWARD_RATIO;
-            if (polyRewardRatio < effectiveMinRatio) {
-              callbacks.log(`[POLYMARKET] ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ratio ${polyRewardRatio.toFixed(2)}:1 below ${effectiveMinRatio.toFixed(2)} (conf=${analysis.confidence.toFixed(2)})`);
-              state.skippedMarkets.set(analysis.pick.question.toLowerCase(), Date.now());
-              continue;
-            }
-
-            const kellyProb = analysis.side === "YES" ? analysis.estimatedProb : 1 - analysis.estimatedProb;
-            const betSize = calcKellyBetSize({
-              estimatedProb: kellyProb,
-              marketPrice,
-              confidence: analysis.confidence,
-              balance: remainingBalance,
-            });
-
-            if (!canSpend(state, betSize)) {
-              callbacks.log(`[POLYMARKET] Daily spend limit reached — skipping buy`);
-              break;
-            }
-
-            if (remainingBalance < betSize) {
-              callbacks.log(`[POLYMARKET] Insufficient balance ($${remainingBalance.toFixed(2)}) for $${betSize.toFixed(2)} bet — stopping`);
-              break;
-            }
-
-            callbacks.log(`[BUY:POLYMARKET] #${buyCount + 1} "${analysis.pick.question}" (${analysis.side}:$${marketPrice.toFixed(2)}, kelly:$${betSize.toFixed(2)}, edge:${analysis.edge.toFixed(2)}, conf:${analysis.confidence.toFixed(2)}, est:${analysis.estimatedProb.toFixed(2)})`);
-            state.pendingBuys.add(analysis.pick.question.toLowerCase());
-            const bought = await directPolymarketBuy(deps, callbacks, state, analysis.pick.question, analysis.side, betSize, remainingBalance, (analysis.pick as ScoredMarket).tokenId, marketPrice, (analysis.pick as ScoredMarket).noTokenId);
-            if (bought) {
-              recordTrade(state, { question: analysis.pick.question, platform: "POLYMARKET", time: Date.now(), price: analysis.pick.yesPrice, amount: betSize });
-              remainingBalance -= betSize;
-              buyCount++;
-            } else {
-              state.failedBuys.set(analysis.pick.question, Date.now());
-            }
-          }
-
-          if (analyses.length === 0) {
-            for (const c of candidates) {
-              state.skippedMarkets.set(c.question.toLowerCase(), Date.now());
-            }
-          }
-        } else {
-          callbacks.log("[POLYMARKET] No new markets to buy");
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        callbacks.log(`[POLYMARKET] Scan failed: ${msg}`);
-      }
+      await platformBuyPhase(deps, callbacks, state, {
+        label: "POLYMARKET",
+        balance: polyBalance,
+        lowBalance: lowPolyBalance,
+        isFull: polyFull,
+        activeCount: polyActive,
+        minBet: MIN_BET_SIZE_USD,
+        breakerActive,
+        reviewPositions: polyReviewable.map((p) => ({ token: p.token, title: p.title, pnl: p.pnl, shares: p.shares, curPrice: p.curPrice })),
+        scan: () => scanPolymarketMarkets(ownedTitles, state, callbacks),
+        executeBuy: async (analysis, betSize, remaining) => {
+          const marketPrice = analysis.side === "YES" ? analysis.pick.yesPrice : 1 - analysis.pick.yesPrice;
+          return directPolymarketBuy(deps, callbacks, state, analysis.pick.question, analysis.side, betSize, remaining, (analysis.pick as ScoredMarket).tokenId, marketPrice, (analysis.pick as ScoredMarket).noTokenId);
+        },
+        recordFailedBuy: (analysis) => { state.failedBuys.set(analysis.pick.question, Date.now()); },
+      });
     };
 
     const jupPhase = async () => {
       if (!runJup) return;
-      callbacks.log(`[JUPITER] ${lowSolBalance ? "SELL-ONLY (low balance)" : "SELL + BUY"}`);
-      // Claim settled Jupiter positions first
       await claimJupiterPositions(deps, callbacks, state, jupClaimable);
-      // Unified sell+review for Jupiter positions (exclude untradeable from LLM review)
       const jupReviewable = jupAllPositions.filter(p => !p.pubkey || !untradeableKeys.has(p.pubkey));
-      await unifiedPortfolioReview(
-        deps, callbacks, state, "JUPITER",
-        jupReviewable.map((p) => ({ pubkey: p.pubkey, title: p.title, pnl: p.pnl, isYes: p.isYes, contracts: p.contracts, ...(p.curPrice != null ? { curPrice: p.curPrice } : {}) })),
-        solBalance, lowSolBalance,
-      );
-
-      if (jupFull || lowSolBalance || breakerActive) {
-        if (jupFull) callbacks.log(`[JUPITER] ${jupActive}/${MAX_POSITIONS} positions — sell-only`);
-        if (lowSolBalance) callbacks.log(`[JUPITER] Balance $${solBalance.toFixed(2)} — sell-only mode`);
-        if (breakerActive) callbacks.log(`[JUPITER] Circuit breaker active — sell-only mode`);
-        // Still record price snapshots before returning
-        for (const p of jupAllPositions) {
-          if (p.pubkey && p.curPrice && p.curPrice > 0) {
-            recordJupPriceSnapshot(state, p.pubkey, p.curPrice);
+      await platformBuyPhase(deps, callbacks, state, {
+        label: "JUPITER",
+        balance: solBalance,
+        lowBalance: lowSolBalance,
+        isFull: jupFull,
+        activeCount: jupActive,
+        minBet: MIN_BET_SIZE_JUP,
+        breakerActive,
+        reviewPositions: jupReviewable.map((p) => ({ pubkey: p.pubkey, title: p.title, pnl: p.pnl, isYes: p.isYes, contracts: p.contracts, ...(p.curPrice != null ? { curPrice: p.curPrice } : {}) })),
+        scan: () => scanJupiterMarkets(ownedTitles, state, callbacks),
+        executeBuy: async (analysis, betSize, remaining) => {
+          const pick = analysis.pick as JupMarket;
+          return directJupiterBuy(deps, callbacks, state, pick.marketId, analysis.side, betSize, pick.question, remaining, solUsdcBalance, solJupUsdBalance);
+        },
+        recordFailedBuy: (analysis) => { state.failedBuys.set((analysis.pick as JupMarket).marketId, Date.now()); },
+        beforeBuy: async () => {
+          if (Date.now() < state.jupBuyPausedUntil) {
+            const remaining = Math.ceil((state.jupBuyPausedUntil - Date.now()) / 60_000);
+            callbacks.log(`[JUPITER] Skipping buy — insufficient funds cooldown (${remaining}m remaining)`);
+            return false;
           }
+          return true;
+        },
+        onScanComplete: async (scored) => {
+          const x402ApiUrl = process.env.X402_API_URL;
+          if (x402ApiUrl && scored.length > 0) {
+            try {
+              callbacks.log("[x402] Paying for market analysis on Solana...");
+              await fetch(`${x402ApiUrl}/prediction`);
+            } catch {}
+          }
+        },
+      });
+      // Jupiter price snapshots — always run (even when platformBuyPhase handled sell-only)
+      // This is safe because it's idempotent
+      for (const p of jupAllPositions) {
+        if (p.pubkey && p.curPrice && p.curPrice > 0) {
+          recordJupPriceSnapshot(state, p.pubkey, p.curPrice);
         }
-        const jupActiveKeys = new Set(jupAllPositions.map(p => p.pubkey).filter(Boolean) as string[]);
-        pruneStaleJupHistory(state, jupActiveKeys);
-        return;
       }
-
-      if (Date.now() < state.jupBuyPausedUntil) {
-        const remaining = Math.ceil((state.jupBuyPausedUntil - Date.now()) / 60_000);
-        callbacks.log(`[JUPITER] Skipping buy — insufficient funds cooldown (${remaining}m remaining)`);
-        return;
-      }
-
-      try {
-        let jupScored = await scanJupiterMarkets(ownedTitles, state, callbacks);
-        let debugInfo = (jupScored as unknown as { _debug?: string })._debug;
-        if (debugInfo) callbacks.log(`[JUPITER:SCAN] ${debugInfo}`);
-
-        // If Jupiter scan returned 0 candidates due to cooldowns, retry without them.
-        // Jupiter has a small market pool (~2 qualifying at any time) — cooldowns can
-        // exhaust the entire pool, leaving the agent idle for hours.
-        if (jupScored.length === 0) {
-          const beforeAnalyzed = state.recentlyAnalyzed.size;
-          const beforeSkipped = state.skippedMarkets.size;
-          // Clear only Jupiter-related entries (questions containing common Jupiter patterns)
-          for (const [key] of state.recentlyAnalyzed) {
-            state.recentlyAnalyzed.delete(key);
-          }
-          for (const [key] of state.skippedMarkets) {
-            state.skippedMarkets.delete(key);
-          }
-          if (beforeAnalyzed > 0 || beforeSkipped > 0) {
-            callbacks.log(`[JUPITER:SCAN] 0 candidates — retrying without cooldowns (cleared ${beforeAnalyzed} analyzed, ${beforeSkipped} skipped)`);
-            jupScored = await scanJupiterMarkets(ownedTitles, state, callbacks);
-            debugInfo = (jupScored as unknown as { _debug?: string })._debug;
-            if (debugInfo) callbacks.log(`[JUPITER:SCAN:RETRY] ${debugInfo}`);
-          }
-        }
-
-        const ragContext = jupScored.length > 0
-          ? await indexAndEnrich(deps, callbacks, state, jupScored, "jupiter", jupScored[0]!.question)
-          : "";
-        callbacks.log(`[JUPITER] ${jupScored.length} new markets | SOL balance: $${solBalance.toFixed(2)}`);
-
-        const x402ApiUrl = process.env.X402_API_URL;
-        if (x402ApiUrl && jupScored.length > 0) {
-          try {
-            callbacks.log("[x402] Paying for market analysis on Solana...");
-            await fetch(`${x402ApiUrl}/prediction`);
-          } catch {}
-        }
-
-        if (jupScored.length > 0) {
-          const candidates = jupScored.slice(0, 5);
-          const analyses = await analyzeCandidates(deps, callbacks, candidates, ragContext);
-
-          // Mark unpicked candidates as recently-analyzed so next cycle tries fresh ones
-          const pickedQuestions = new Set(analyses.map((a) => a.pick.question.toLowerCase()));
-          for (const c of candidates) {
-            if (!pickedQuestions.has(c.question.toLowerCase())) {
-              state.recentlyAnalyzed.set(c.question.toLowerCase(), Date.now());
-            }
-          }
-
-          if (analyses.length === 0) {
-            for (const c of candidates) {
-              state.skippedMarkets.set(c.question.toLowerCase(), Date.now());
-            }
-            callbacks.log("[JUPITER] No high-conviction pick — skipping buy this cycle");
-          } else {
-            let buyCount = 0;
-            let remainingBalance = solBalance;
-
-            for (let ai = 0; ai < analyses.length && buyCount < MAX_BUYS_PER_CYCLE; ai++) {
-              const analysis = analyses[ai]!;
-              const pick = analysis.pick;
-              const side = analysis.side;
-
-              if (buyCount > 0) {
-                if (analysis.edge < SECOND_BUY_MIN_EDGE || analysis.confidence < SECOND_BUY_MIN_CONFIDENCE) {
-                  callbacks.log(`[JUPITER] Pick #${ai + 1} below second-buy threshold — stopping`);
-                  break;
-                }
-                if (ai > 0 && analyses[ai - 1]?.category === analysis.category) {
-                  callbacks.log(`[JUPITER] Pick #${ai + 1} same category — skipping`);
-                  continue;
-                }
-              }
-
-              const jupMarketPrice = side === "YES" ? pick.yesPrice : 1 - pick.yesPrice;
-              const jupRewardRatio = jupMarketPrice > 0 ? (1 - jupMarketPrice) / jupMarketPrice : 0;
-
-              if (jupMarketPrice > 0.90) {
-                callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — terrible risk/reward`);
-                state.skippedMarkets.set(pick.question.toLowerCase(), Date.now());
-                continue;
-              }
-              if (jupMarketPrice < 0.10) {
-                callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — too cheap`);
-                state.skippedMarkets.set(pick.question.toLowerCase(), Date.now());
-                continue;
-              }
-              const jupEffectiveMinRatio = analysis.confidence >= 0.85 ? 0.25
-                : analysis.confidence >= 0.70 ? 0.40
-                : MIN_REWARD_RATIO;
-              if (jupRewardRatio < jupEffectiveMinRatio) {
-                callbacks.log(`[JUPITER] ❌ Skipping "${pick.question.slice(0, 50)}" — ratio ${jupRewardRatio.toFixed(2)}:1 below ${jupEffectiveMinRatio.toFixed(2)} (conf=${analysis.confidence.toFixed(2)})`);
-                state.skippedMarkets.set(pick.question.toLowerCase(), Date.now());
-                continue;
-              }
-
-              const kellyProb = analysis.side === "YES" ? analysis.estimatedProb : 1 - analysis.estimatedProb;
-              const betSize = calcKellyBetSize({
-                estimatedProb: kellyProb,
-                marketPrice: jupMarketPrice,
-                confidence: analysis.confidence,
-                balance: remainingBalance,
-                minBet: MIN_BET_SIZE_JUP,
-              });
-
-              if (!canSpend(state, betSize)) {
-                callbacks.log(`[JUPITER] Daily spend limit reached — stopping`);
-                break;
-              }
-
-              callbacks.log(`[BUY:JUPITER] #${buyCount + 1} "${pick.question}" (${side}:$${jupMarketPrice.toFixed(2)}, kelly:$${betSize.toFixed(2)}, edge:${analysis.edge.toFixed(2)}, conf:${analysis.confidence.toFixed(2)}, est:${analysis.estimatedProb.toFixed(2)})`);
-              state.pendingBuys.add(pick.question.toLowerCase());
-              const bought = await directJupiterBuy(deps, callbacks, state, (pick as JupMarket).marketId, side, betSize, pick.question, remainingBalance, solUsdcBalance, solJupUsdBalance);
-              if (bought) {
-                recordTrade(state, { question: pick.question, platform: "JUPITER", time: Date.now(), price: pick.yesPrice, amount: betSize });
-                remainingBalance -= betSize;
-                buyCount++;
-              } else {
-                state.failedBuys.set((pick as JupMarket).marketId, Date.now());
-              }
-            }
-          }
-        } else {
-          callbacks.log(`[JUPITER] No new markets to buy (profit review already ran above)`);
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        callbacks.log(`[JUPITER] Scan failed: ${msg}`);
-      }
+      const jupActiveKeys = new Set(jupAllPositions.map(p => p.pubkey).filter(Boolean) as string[]);
+      pruneStaleJupHistory(state, jupActiveKeys);
     };
 
     await Promise.allSettled([polyPhase(), jupPhase()]);

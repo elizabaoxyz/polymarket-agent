@@ -38,7 +38,7 @@ const DEAD_PRICE_THRESHOLD = 0.03;
 
 // --- Unified position type for review ---
 
-type ReviewablePosition = {
+export type ReviewablePosition = {
   token?: string;
   pubkey?: string;
   title: string;

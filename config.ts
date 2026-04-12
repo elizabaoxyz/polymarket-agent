@@ -20,12 +20,12 @@ function envFloat(key: string, fallback: number): number {
 // --- Trading limits ---
 
 export const MAX_SHARES_PER_ORDER = envInt("MAX_SHARES_PER_ORDER", 500);
-export const MAX_POSITIONS = envInt("MAX_POSITIONS", 16);
-export const MIN_BET_SIZE_USD = envFloat("MIN_BET_SIZE_USD", 3);
+export const MAX_POSITIONS = envInt("MAX_POSITIONS", 6);
+export const MIN_BET_SIZE_USD = envFloat("MIN_BET_SIZE_USD", 1);
 
-/** Minimum bet size in USD for Jupiter — flat $3 bets */
-export const MIN_BET_SIZE_JUP = envFloat("MIN_BET_SIZE_JUP", 3);
-export const MAX_BET_SIZE_USD = envFloat("MAX_BET_SIZE_USD", 3);
+/** Minimum bet size in USD for Jupiter */
+export const MIN_BET_SIZE_JUP = envFloat("MIN_BET_SIZE_JUP", 1);
+export const MAX_BET_SIZE_USD = envFloat("MAX_BET_SIZE_USD", 5);
 export const BASE_BET_SIZE_USD = envFloat("BASE_BET_SIZE_USD", 3);
 
 // --- Sell thresholds ---
@@ -34,11 +34,11 @@ export const SELL_LOSS_THRESHOLD_NORMAL = envFloat("SELL_LOSS_THRESHOLD_NORMAL",
 export const SELL_LOSS_THRESHOLD_AGGRESSIVE = envFloat("SELL_LOSS_THRESHOLD_AGGRESSIVE", -5);
 export const SELL_PROFIT_THRESHOLD_NORMAL = envFloat("SELL_PROFIT_THRESHOLD_NORMAL", 20);
 export const SELL_PROFIT_THRESHOLD_AGGRESSIVE = envFloat("SELL_PROFIT_THRESHOLD_AGGRESSIVE", 10);
-export const LOW_BALANCE_THRESHOLD = envFloat("LOW_BALANCE_THRESHOLD", 5);
+export const LOW_BALANCE_THRESHOLD = envFloat("LOW_BALANCE_THRESHOLD", 3);
 
 // --- Timing ---
 
-export const AUTONOMY_INTERVAL_MS = envInt("AUTONOMY_INTERVAL_MS", 45_000);
+export const AUTONOMY_INTERVAL_MS = envInt("AUTONOMY_INTERVAL_MS", 60_000);
 export const HEARTBEAT_INTERVAL_MS = envInt("HEARTBEAT_INTERVAL_MS", 10_000);
 export const FAILED_SELL_COOLDOWN_MS = envInt("FAILED_SELL_COOLDOWN_MS", 1_800_000);
 export const FAILED_BUY_COOLDOWN_MS = envInt("FAILED_BUY_COOLDOWN_MS", 1_800_000);
@@ -73,10 +73,10 @@ export const LLM_KNOWLEDGE_BONUS = envFloat("LLM_KNOWLEDGE_BONUS", 0.35);
 // --- Edge thresholds ---
 
 /** Minimum LLM-reported edge (0-1) to enter a trade. Below this = skip. */
-export const MIN_EDGE_THRESHOLD = envFloat("MIN_EDGE_THRESHOLD", 0.12);
+export const MIN_EDGE_THRESHOLD = envFloat("MIN_EDGE_THRESHOLD", 0.05);
 
-/** Minimum LLM confidence (0-1) to enter a trade. */
-export const MIN_CONFIDENCE_THRESHOLD = envFloat("MIN_CONFIDENCE_THRESHOLD", 0.70);
+/** Minimum LLM confidence (0-1) to enter a trade. LOW(<0.5) = skip. */
+export const MIN_CONFIDENCE_THRESHOLD = envFloat("MIN_CONFIDENCE_THRESHOLD", 0.50);
 
 // --- Price sweet spot ---
 
@@ -95,7 +95,7 @@ export const RETRY_BASE_DELAY_MS = envInt("RETRY_BASE_DELAY_MS", 1000);
 
 // --- Spending limits ---
 
-export const DAILY_SPEND_LIMIT_USD = envFloat("DAILY_SPEND_LIMIT_USD", 50);
+export const DAILY_SPEND_LIMIT_USD = envFloat("DAILY_SPEND_LIMIT_USD", 0);
 
 // --- Heartbeat ---
 
@@ -122,11 +122,11 @@ export const MIN_JUP_VOLUME = envFloat("MIN_JUP_VOLUME", 10);
 
 // --- Kelly criterion sizing ---
 
-/** Maximum fraction of balance to risk on a single trade (Kelly cap) — 6% of $50 = $3 */
-export const KELLY_MAX_FRACTION = envFloat("KELLY_MAX_FRACTION", 0.06);
+/** Maximum fraction of balance to risk on a single trade — never more than 10% of bankroll */
+export const KELLY_MAX_FRACTION = envFloat("KELLY_MAX_FRACTION", 0.10);
 
-/** Kelly multiplier: 1.0 = full Kelly (min=max=$3 anyway, no undersizing) */
-export const KELLY_FRACTION_MULTIPLIER = envFloat("KELLY_FRACTION_MULTIPLIER", 1.0);
+/** Kelly multiplier: 0.5 = half-Kelly (75% growth rate, drastically reduced drawdown) */
+export const KELLY_FRACTION_MULTIPLIER = envFloat("KELLY_FRACTION_MULTIPLIER", 0.5);
 
 // --- Multi-buy ---
 
@@ -163,7 +163,7 @@ export const TRAILING_STOP_DROP_PCT = envFloat("TRAILING_STOP_DROP_PCT", 8);
 export const CAPITAL_PRESSURE_MIN_BALANCE = envFloat("CAPITAL_PRESSURE_MIN_BALANCE", 5);
 
 /** Capital pressure: trigger when position count exceeds this */
-export const CAPITAL_PRESSURE_MAX_POSITIONS = envInt("CAPITAL_PRESSURE_MAX_POSITIONS", 8);
+export const CAPITAL_PRESSURE_MAX_POSITIONS = envInt("CAPITAL_PRESSURE_MAX_POSITIONS", 4);
 
 // --- Smart position sizing ---
 

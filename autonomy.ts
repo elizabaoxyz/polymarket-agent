@@ -112,27 +112,35 @@ async function analyzeCandidates(
     callbacks.log(`[ANALYSIS:CANDIDATE] "${c.question.slice(0, 60)}" YES:$${c.yesPrice.toFixed(2)} score:${c.score.toFixed(2)} vol:$${c.volume?.toFixed(0) ?? "?"}`);
   }
 
-  const structuredPrompt = `You are an elite prediction market analyst managing a small $50 fund on Jupiter/Solana. Today is ${today}.
-Every bet is exactly $3 (6% of capital) — you MUST be extremely selective.
+  const structuredPrompt = `You are an expert prediction market analyst. Today is ${today}.
+You trade on Polymarket (Polygon/USDC, ~$22 bankroll) and Jupiter Predict (Solana/USDC, ~$42 bankroll).
+Your job: find genuine mispricings where the true probability differs from the market price.
+
+SIZING RULES (enforced by code — inform your confidence level):
+- Half-Kelly criterion with 10% bankroll hard cap per trade
+- HIGH confidence (0.8+) → full half-Kelly position
+- MEDIUM confidence (0.5-0.8) → reduced position (confidence scales it down)
+- LOW confidence (<0.5) → SKIP, do not trade
 
 STRATEGY:
-- PRIORITY #1: Markets resolving within 1-5 days (faster resolution = faster compounding)
-- FOCUS on: crypto prices, major sports, tech/AI — categories where you have verifiable real-time knowledge
-- AVOID: foreign politics, niche cultural events, anything requiring insider information
-- Only bet when you see a CLEAR mispricing of 12%+ edge with 70%+ confidence
-- Prefer YES/NO prices in the $0.25-$0.55 range (best risk/reward ratio)
+- Trade when edge >= 5% AND confidence >= 0.5 (MEDIUM or HIGH)
+- PRIORITIZE: markets resolving within 1-7 days (fastest capital turnover)
+- FOCUS on: crypto prices, major sports, tech/AI — categories with verifiable data
+- AVOID: foreign politics, niche cultural events, anything requiring insider info
+- Prefer YES/NO prices in $0.25-$0.55 range (best risk/reward ratio)
+- Max 3 concurrent positions per platform — be selective
 
 ${candidateList}${ragContext}
 
 === ANALYSIS FRAMEWORK ===
 
-For each market, work through these steps mentally:
+For each market, work through these steps:
 
 STEP 1 — CATEGORIZE: SPORTS | POLITICS | CRYPTO | CULTURE | TECH | OTHER
 STEP 2 — DECOMPOSE probability: base rate + adjustments for this specific instance
 STEP 3 — CALCULATE edge: your estimate MINUS market price (for your chosen side)
 STEP 4 — CHECK risk/reward: ratio = (1 - price) / price. Minimum 1.0:1.
-STEP 5 — CONFIDENCE: 0.0-1.0. HIGH(0.8+)=clear facts. MED(0.5-0.8)=some unknowns. LOW(<0.5)=speculation.
+STEP 5 — CONFIDENCE: 0.0-1.0. HIGH(0.8+)=clear facts. MED(0.5-0.8)=some unknowns. LOW(<0.5)=skip.
 
 === OUTPUT FORMAT ===
 
@@ -147,16 +155,15 @@ CATEGORY: <SPORTS|POLITICS|CRYPTO|CULTURE|TECH|OTHER>
 REASON: <one sentence strongest evidence>
 
 If multiple markets are viable, add more blocks separated by a blank line.
-Rank by edge × confidence descending. Only include markets with edge >= 12% AND confidence >= 0.7.
+Rank by edge × confidence descending. Only include markets with edge >= 5% AND confidence >= 0.5.
 If no market qualifies, respond PICK: 0
 
 RULES:
-- Rank by BIGGEST edge AND highest confidence
 - It is ALWAYS better to skip than to make a mediocre bet
 - Never pick a side where price > $0.75 (terrible risk/reward) or < $0.15 (likely resolved)
 - Diversify: if multiple picks, prefer different CATEGORIES
-- TIME IS MONEY: a market resolving tomorrow with 12% edge beats a 30-day market with 20% edge
-- With small balance, ONE good high-conviction pick is better than two mediocre ones`;
+- TIME IS MONEY: a market resolving tomorrow with 5% edge beats a 30-day market with 15% edge
+- With small bankroll, capital preservation is paramount — one bad bet can set you back days`;
 
   const text = await ensembleLlmCall(deps, callbacks, structuredPrompt, 1000);
 

@@ -361,7 +361,7 @@ export async function unifiedPortfolioReview(
       reason = `price-ceiling ($${price.toFixed(2)} >= $${PRICE_CEILING_SELL})`;
     }
     // Rule 2: High price + stale — upside thinning, capital better elsewhere
-    else if (price >= HIGH_PRICE_SELL && age > 2) {
+    else if (price >= HIGH_PRICE_SELL && age > 1) {
       reason = `high-price-stale ($${price.toFixed(2)}, ${age.toFixed(1)}d old)`;
     }
     // Rule 3: High price + falling trend
@@ -381,7 +381,7 @@ export async function unifiedPortfolioReview(
       reason = `trailing-stop (peak $${state.peakPrice.get(key)?.toFixed(2)}, now $${price.toFixed(2)}, drop ${dropFromPeak.toFixed(1)}%)`;
     }
     // Rule 7: Stale position — no significant movement for 3+ days, capital is trapped
-    else if (age > 3 && price >= 0.30 && price <= 0.70 && Math.abs(pnl) < 5) {
+    else if (age > 2 && price >= 0.35 && price <= 0.65 && Math.abs(pnl) < 5) {
       reason = `stale-position (${age.toFixed(1)}d old, ${pnl >= 0 ? "+" : ""}${pnl.toFixed(0)}% PnL, price $${price.toFixed(2)} — capital trapped)`;
     }
 

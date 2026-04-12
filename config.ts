@@ -25,7 +25,7 @@ export const MIN_BET_SIZE_USD = envFloat("MIN_BET_SIZE_USD", 2);
 
 /** Minimum bet size in USD for Jupiter — $3 flat */
 export const MIN_BET_SIZE_JUP = envFloat("MIN_BET_SIZE_JUP", 3);
-export const MAX_BET_SIZE_USD = envFloat("MAX_BET_SIZE_USD", 7);
+export const MAX_BET_SIZE_USD = envFloat("MAX_BET_SIZE_USD", 5);
 export const BASE_BET_SIZE_USD = envFloat("BASE_BET_SIZE_USD", 3);
 
 // --- Sell thresholds ---
@@ -131,11 +131,11 @@ export const MIN_JUP_VOLUME = envFloat("MIN_JUP_VOLUME", 5);
 
 // --- Kelly criterion sizing ---
 
-/** Maximum fraction of balance to risk on a single trade — 10% bankroll cap */
-export const KELLY_MAX_FRACTION = envFloat("KELLY_MAX_FRACTION", 0.10);
+/** Maximum fraction of balance to risk on a single trade — 8% bankroll cap */
+export const KELLY_MAX_FRACTION = envFloat("KELLY_MAX_FRACTION", 0.08);
 
-/** Kelly multiplier: 0.5 = half-Kelly for safety (preserves ~75% growth, drastically reduces drawdown) */
-export const KELLY_FRACTION_MULTIPLIER = envFloat("KELLY_FRACTION_MULTIPLIER", 0.5);
+/** Kelly multiplier: 0.25 = quarter-Kelly for small bankrolls (56% growth rate, ~60% less drawdown) */
+export const KELLY_FRACTION_MULTIPLIER = envFloat("KELLY_FRACTION_MULTIPLIER", 0.25);
 
 // --- Multi-buy ---
 
@@ -161,11 +161,11 @@ export const STUCK_DUST_REEVAL_MS = envInt("STUCK_DUST_REEVAL_MS", 86_400_000);
 
 // --- Price-based exit rules ---
 
-/** Auto-sell when position price exceeds this (terrible risk/reward) */
-export const PRICE_CEILING_SELL = envFloat("PRICE_CEILING_SELL", 0.85);
+/** Auto-sell when position price exceeds this (~70% of theoretical max captured) */
+export const PRICE_CEILING_SELL = envFloat("PRICE_CEILING_SELL", 0.78);
 
-/** Sell if price > this AND position age > 2 days */
-export const HIGH_PRICE_SELL = envFloat("HIGH_PRICE_SELL", 0.70);
+/** Sell if price > this AND position age > 1 day (R/R turns unfavorable) */
+export const HIGH_PRICE_SELL = envFloat("HIGH_PRICE_SELL", 0.68);
 
 /** Auto-sell dead positions below this price */
 export const DEAD_POSITION_PRICE = envFloat("DEAD_POSITION_PRICE", 0.10);
@@ -177,13 +177,22 @@ export const HARD_STOP_LOSS_PCT = envFloat("HARD_STOP_LOSS_PCT", -15);
 export const TRAILING_STOP_MIN_PRICE = envFloat("TRAILING_STOP_MIN_PRICE", 0.55);
 
 /** Trailing stop: sell if price drops this % from peak price */
-export const TRAILING_STOP_DROP_PCT = envFloat("TRAILING_STOP_DROP_PCT", 8);
+export const TRAILING_STOP_DROP_PCT = envFloat("TRAILING_STOP_DROP_PCT", 6);
 
 /** Capital pressure: sell weakest positions when balance < this AND positions > threshold */
 export const CAPITAL_PRESSURE_MIN_BALANCE = envFloat("CAPITAL_PRESSURE_MIN_BALANCE", 5);
 
 /** Capital pressure: trigger when position count exceeds this */
 export const CAPITAL_PRESSURE_MAX_POSITIONS = envInt("CAPITAL_PRESSURE_MAX_POSITIONS", 2);
+
+/** Minimum days to resolution for buy-side — skip same-day markets */
+export const MIN_DAYS_LEFT = envFloat("MIN_DAYS_LEFT", 1);
+
+/** Time-decay auto-sell: sell positions in no-man's land when resolution < this many days */
+export const TIME_DECAY_SELL_DAYS = envFloat("TIME_DECAY_SELL_DAYS", 2);
+
+/** Partial profit: sell half of position when price >= this (Polymarket only, needs > 10 shares) */
+export const PARTIAL_PROFIT_PRICE = envFloat("PARTIAL_PROFIT_PRICE", 0.65);
 
 // --- Smart position sizing ---
 

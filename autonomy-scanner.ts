@@ -8,8 +8,6 @@ import { isFailCooledDown, isRecentlyTraded } from "./autonomy-state";
 import {
   CONTRARIAN_BONUS,
   FAILED_BUY_COOLDOWN_MS,
-  JUP_PRICE_MAX,
-  JUP_PRICE_MIN,
   LLM_KNOWLEDGE_BONUS,
   MARKET_MAX_DAYS,
   MIN_DAYS_LEFT,
@@ -421,7 +419,8 @@ export async function scanJupiterMarkets(
       _jupDbgTotal++;
       const yp = Number(m.pricing?.buyYesPriceUsd ?? 0) / 1_000_000;
       const np = Number(m.pricing?.buyNoPriceUsd ?? 0) / 1_000_000;
-      if (yp < JUP_PRICE_MIN || yp > JUP_PRICE_MAX) {
+      // Only skip markets with no pricing data at all — let scoring handle quality
+      if (yp <= 0) {
         _jupDbgPrice++;
         continue;
       }
@@ -430,11 +429,9 @@ export async function scanJupiterMarkets(
       let jupDaysLeft = 365;
       if (closeTime > 0) {
         jupDaysLeft = (closeTime * 1000 - Date.now()) / 86_400_000;
-        if (jupDaysLeft > MARKET_MAX_DAYS) {
-          _jupDbgDays++;
-          continue;
-        }
       }
+      // Track for debug but don't hard-filter — time scoring already penalizes long-dated markets
+      if (jupDaysLeft > MARKET_MAX_DAYS) _jupDbgDays++;
       // Quick flip scoring: AGGRESSIVE — time-to-resolution is the #1 factor
       let jupTimeScore: number;
       if (jupDaysLeft <= 3) {
@@ -453,10 +450,8 @@ export async function scanJupiterMarkets(
       const spreadScore = Math.max(0, 1 - spread / 0.15);
       const midScore = 1 - Math.abs(mid - 0.5) * 2;
       const volume = Number(m.pricing?.volume ?? 0) / 1_000_000;
-      if (volume < MIN_JUP_VOLUME) {
-        _jupDbgVol++;
-        continue;
-      }
+      // Track for debug but don't hard-filter — volumeScore already penalizes low volume
+      if (volume < MIN_JUP_VOLUME) _jupDbgVol++;
       const volumeScore = Math.min(1, volume / 10000);
       const score =
         spreadScore * SCORE_SPREAD_WEIGHT +

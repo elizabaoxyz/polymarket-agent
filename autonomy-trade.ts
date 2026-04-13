@@ -77,15 +77,6 @@ export async function directPolymarketSell(
       state.stuckDust.add(token);
       return false;
     }
-    if (shares < 5) {
-      if (!state.stuckDust.has(token)) {
-        callbacks.log(
-          `[SELL:POLYMARKET] ⏭️ "${title}" — only ${shares} shares, below CLOB minimum of 5. Stuck dust.`,
-        );
-      }
-      state.stuckDust.add(token);
-      return false;
-    }
 
     const result = await extSvc.sellOrder({ tokenId: token, price, size: shares });
     const total = (shares * price).toFixed(2);

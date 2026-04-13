@@ -452,8 +452,9 @@ export async function scanJupiterMarkets(
       const volume = Number(m.pricing?.volume ?? 0) / 1_000_000;
       // Track for debug but don't hard-filter — volumeScore already penalizes low volume
       if (volume < MIN_JUP_VOLUME) _jupDbgVol++;
-      // Zero-volume markets can't be traded — heavy penalty so they sink in ranking
-      const volumeScore = volume <= 0 ? 0 : Math.min(1, volume / 10000);
+      // Jupiter-calibrated volume scoring: $100 = perfect (vs Polymarket's $10K).
+      // Jupiter prediction markets are inherently lower-volume.
+      const volumeScore = volume <= 0 ? 0 : Math.min(1, volume / 100);
       const score =
         spreadScore * SCORE_SPREAD_WEIGHT +
         midScore * SCORE_MIDPOINT_WEIGHT +
@@ -468,13 +469,17 @@ export async function scanJupiterMarkets(
       }
       // Quick flip bonus: aggressive — 1-3 days get huge bonus
       const quickFlipBonus = jupDaysLeft <= 3 ? 0.4 : jupDaysLeft <= QUICK_FLIP_MAX_DAYS ? 0.25 : 0;
-      const q = `${event.metadata?.title} — ${m.metadata?.title}`;
+      const eventName = event.metadata?.title ?? "";
+      const marketName = m.metadata?.title ?? "";
+      const q = marketName
+        ? eventName ? `${eventName} — ${marketName}` : marketName
+        : eventName || m.marketId;
       // LLM knowledge bonus
       const knowledgeBonus = llmKnowledgeBonus(q) * LLM_KNOWLEDGE_BONUS;
       let adjustedScore =
         score + priceSweetSpot * SCORE_PRICE_SWEET_SPOT_WEIGHT + quickFlipBonus + knowledgeBonus;
-      // Zero-volume markets waste LLM calls — crush their score
-      if (volume <= 0) adjustedScore *= 0.1;
+      // Near-zero volume markets waste LLM calls — crush their score
+      if (volume < 1) adjustedScore *= 0.1;
       const marketTitle = (m.metadata?.title ?? "").toLowerCase();
       const eventTitle = (event.metadata?.title ?? "").toLowerCase();
       if (ownedTitles.has(marketTitle) || ownedTitles.has(`${eventTitle} — ${marketTitle}`)) {

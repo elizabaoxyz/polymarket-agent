@@ -60,8 +60,10 @@ export type JupPositionInfo = {
   curPrice?: number;
 };
 
-/** Minimum shares to be tradeable on Polymarket CLOB. */
-const MIN_CLOB_SHARES = 5;
+/** Minimum shares to be tradeable on Polymarket CLOB.
+ * Polymarket's per-market minimum_order_size is typically ~1 share.
+ * Previous value of 5 was too aggressive — it marked all small bets untradeable. */
+const MIN_CLOB_SHARES = 1;
 
 /** Price below which a position is effectively dead (can't sell, won't recover). */
 const DEAD_PRICE_THRESHOLD = 0.03;
@@ -107,11 +109,17 @@ export async function collectPositions(
   // Polymarket positions
   try {
     const funder = process.env.POLYMARKET_FUNDER_ADDRESS?.trim();
+    if (!funder) {
+      log.warn("sell", "POLYMARKET_FUNDER_ADDRESS not set — cannot fetch positions");
+    }
     if (funder) {
       const posRes = await withRetry(
         () => fetch(`https://data-api.polymarket.com/positions?user=${funder}`),
         { label: "poly-positions" },
       );
+      if (!posRes.ok) {
+        log.warn("sell", `Polymarket positions API returned ${posRes.status} for ${funder.slice(0, 6)}...${funder.slice(-4)}`);
+      }
       if (posRes.ok) {
         type PolyPosApi = {
           title?: string;
@@ -123,13 +131,22 @@ export async function collectPositions(
           end_date_iso?: string;
           endDate?: string;
         };
-        for (const pos of (await posRes.json()) as PolyPosApi[]) {
+        const rawPositions = (await posRes.json()) as PolyPosApi[];
+        let skippedRedeemable = 0;
+        let skippedPrice = 0;
+        let skippedSize = 0;
+        if (rawPositions.length === 0) {
+          log.warn("sell", `Polymarket Data API returned 0 positions for ${funder.slice(0, 6)}...${funder.slice(-4)} — verify this is the proxy wallet address (not EOA)`);
+        } else {
+          log.info("sell", `Polymarket Data API returned ${rawPositions.length} raw positions`);
+        }
+        for (const pos of rawPositions) {
           const pnl = pos.percentPnl ?? 0;
           const price = pos.curPrice ?? 0;
           // Skip truly dead/empty positions — don't count them toward position limit
-          if (pos.redeemable) continue;
-          if (price < 0.01) continue;
-          if ((pos.size ?? 0) < 1) continue;
+          if (pos.redeemable) { skippedRedeemable++; continue; }
+          if (price < 0.01) { skippedPrice++; continue; }
+          if ((pos.size ?? 0) < 1) { skippedSize++; continue; }
           // Track positions that can't be sold — don't count toward position limit
           if (pos.size < MIN_CLOB_SHARES || price < DEAD_PRICE_THRESHOLD) {
             untradeableKeys.add(pos.asset);
@@ -163,6 +180,9 @@ export async function collectPositions(
               ...(daysLeft !== undefined ? { daysLeft } : {}),
             });
           }
+        }
+        if (skippedRedeemable > 0 || skippedPrice > 0 || skippedSize > 0) {
+          log.info("sell", `Polymarket positions filtered: ${skippedRedeemable} redeemable, ${skippedPrice} dead-price, ${skippedSize} tiny-size → ${polyAllSellable.length} tradeable`);
         }
       }
     }

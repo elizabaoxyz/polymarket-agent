@@ -161,11 +161,14 @@ export const STUCK_DUST_REEVAL_MS = envInt("STUCK_DUST_REEVAL_MS", 86_400_000);
 
 // --- Price-based exit rules ---
 
-/** Auto-sell when position price exceeds this (~70% of theoretical max captured) */
-export const PRICE_CEILING_SELL = envFloat("PRICE_CEILING_SELL", 0.78);
+/** Auto-sell when position price exceeds this (near-resolution territory).
+ * Raised from 0.78 to 0.92 — NO positions are bought at 75-85¢ and need
+ * room to resolve without triggering an immediate sell. */
+export const PRICE_CEILING_SELL = envFloat("PRICE_CEILING_SELL", 0.92);
 
-/** Sell if price > this AND position age > 1 day (R/R turns unfavorable) */
-export const HIGH_PRICE_SELL = envFloat("HIGH_PRICE_SELL", 0.68);
+/** Sell if price > this AND position age > 1 day (R/R turns unfavorable).
+ * Raised from 0.68 to 0.88 to avoid dumping NO positions bought at 80¢+. */
+export const HIGH_PRICE_SELL = envFloat("HIGH_PRICE_SELL", 0.88);
 
 /** Auto-sell dead positions below this price */
 export const DEAD_POSITION_PRICE = envFloat("DEAD_POSITION_PRICE", 0.1);

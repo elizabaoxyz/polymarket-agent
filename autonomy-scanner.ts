@@ -544,11 +544,11 @@ export async function scanJupiterMarkets(
         }
       }
     }
-    jupScored.sort((a, b) => b.score - a.score);
+    dedupedScored.sort((a, b) => b.score - a.score);
   }
 
-  // Attach debug info as non-enumerable property
-  (jupScored as unknown as { _debug?: string })._debug =
-    `${_jupDbgTotal} scanned, filtered: price=${_jupDbgPrice}, days=${_jupDbgDays}, volume=${_jupDbgVol}, owned=${_jupDbgOwned}, cooldown=${_jupDbgCooldown}, passed=${jupScored.length}`;
-  return jupScored;
+  // Attach debug info as non-enumerable property (passed = pre-dedup count for transparency)
+  (dedupedScored as unknown as { _debug?: string })._debug =
+    `${_jupDbgTotal} scanned, filtered: price=${_jupDbgPrice}, days=${_jupDbgDays}, volume=${_jupDbgVol}, owned=${_jupDbgOwned}, cooldown=${_jupDbgCooldown}, passed=${jupScored.length} (${dedupedScored.length} unique events)`;
+  return dedupedScored;
 }

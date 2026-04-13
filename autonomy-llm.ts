@@ -453,9 +453,9 @@ export async function analyzeCandidates(
   const structuredPrompt = `You are a prediction market TRADER, not an analyst. Today is ${today}.
 You trade Polymarket (~$22) and Jupiter Predict (~$42). Your job is to MAKE MONEY, not write reports.
 
-CORE PRINCIPLE: Only trade when you have genuine conviction. A bad trade loses more than no trade.
-Opportunity cost of idle capital is real, but the cost of wrong trades is worse.
-Skip EVERY market if none has a clear, reasoned edge.
+CORE PRINCIPLE: You have idle capital and your job is to put it to work.
+Pick the BEST opportunity from the candidates. Even a small edge is worth trading — idle cash earns nothing.
+Only skip ALL markets if you truly see zero edge on any of them.
 
 HOW TO THINK:
 - You have REAL knowledge. Crypto prices, sports matchups, geopolitical trends, tech news — USE IT.
@@ -471,8 +471,8 @@ SIZING (code handles this — just be honest about your confidence):
 - Half-Kelly with 10% bankroll cap. Bigger confidence = bigger bet.
 - $2-$7 per trade depending on edge and confidence.
 
-FEE REALITY: Every trade costs ~3% in taker fees + gas. Your edge must exceed this to be profitable.
-An edge of 5% is really 2% after fees. Be skeptical of small edges.
+FEE REALITY: Polymarket trades cost ~3% in fees. Jupiter Predict fees are lower (~1%).
+Don't let fee paranoia stop you from trading. A 5% edge after fees is still a 5% edge.
 
 ${candidateList}${ragContext}
 
@@ -482,7 +482,7 @@ Evaluate each candidate honestly. Pick ONLY if you have genuine conviction.
 
 For each candidate, decide: which side would you bet? How confident are you?
 
-PICK: <market number — pick ONLY if you have a genuine, reasoned edge. PICK: 0 means no trade, which is often correct>
+PICK: <market number — pick the best opportunity. PICK: 0 only if you truly see no edge on ANY candidate>
 SIDE: YES or NO
 ESTIMATE: <your TRUE probability for YES, 0.00-1.00 — commit to a number, don't hedge>
 EDGE: <your estimate minus market price for your chosen side>
@@ -490,7 +490,7 @@ CONFIDENCE: <0.55-1.0 — 0.55 means genuine lean, 0.70 means solid read, 0.90 m
 CATEGORY: <SPORTS|POLITICS|CRYPTO|CULTURE|TECH|OTHER>
 REASON: <one sentence — your strongest signal>
 
-PICK: 0 if no market has a clear edge after accounting for fees. This is NOT a failure — patience is profitable.`;
+PICK: 0 only if you genuinely see zero edge on every single candidate. Idle capital is a cost — find the best trade.`;
 
   const text = await ensembleLlmCall(deps, callbacks, structuredPrompt, 1000);
 
@@ -534,15 +534,6 @@ PICK: 0 if no market has a clear edge after accounting for fees. This is NOT a f
     if (edge < MIN_EDGE_THRESHOLD) {
       callbacks.log(
         `[ANALYSIS] ❌ Edge ${edge.toFixed(2)} below minimum ${MIN_EDGE_THRESHOLD} — skipping "${pick.question.slice(0, 50)}"`,
-      );
-      continue;
-    }
-
-    // Fee-adjusted edge: deduct taker fees + gas before accepting
-    const feeAdjustedEdge = edge - TAKER_FEE_RATE;
-    if (feeAdjustedEdge < 0.02) {
-      callbacks.log(
-        `[ANALYSIS] ❌ Fee-adjusted edge ${feeAdjustedEdge.toFixed(3)} (raw ${edge.toFixed(2)} - ${TAKER_FEE_RATE} fees) too thin — skipping "${pick.question.slice(0, 50)}"`,
       );
       continue;
     }

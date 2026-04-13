@@ -177,7 +177,10 @@ export const DEAD_POSITION_PRICE = envFloat("DEAD_POSITION_PRICE", 0.1);
 export const HARD_STOP_LOSS_PCT = envFloat("HARD_STOP_LOSS_PCT", -15);
 
 /** Trailing stop only activates above this price (avoid whipsaw at low prices) */
-export const TRAILING_STOP_MIN_PRICE = envFloat("TRAILING_STOP_MIN_PRICE", 0.55);
+/** Trailing stop activates above this price. Raised from 0.55 to 0.88 —
+ * NO positions enter at 75-85¢ and any micro-dip was triggering
+ * "high-price-falling" sells on positions that haven't even had time to settle. */
+export const TRAILING_STOP_MIN_PRICE = envFloat("TRAILING_STOP_MIN_PRICE", 0.88);
 
 /** Trailing stop: sell if price drops this % from peak price */
 export const TRAILING_STOP_DROP_PCT = envFloat("TRAILING_STOP_DROP_PCT", 6);

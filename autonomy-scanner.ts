@@ -452,7 +452,8 @@ export async function scanJupiterMarkets(
       const volume = Number(m.pricing?.volume ?? 0) / 1_000_000;
       // Track for debug but don't hard-filter — volumeScore already penalizes low volume
       if (volume < MIN_JUP_VOLUME) _jupDbgVol++;
-      const volumeScore = Math.min(1, volume / 10000);
+      // Zero-volume markets can't be traded — heavy penalty so they sink in ranking
+      const volumeScore = volume <= 0 ? 0 : Math.min(1, volume / 10000);
       const score =
         spreadScore * SCORE_SPREAD_WEIGHT +
         midScore * SCORE_MIDPOINT_WEIGHT +
@@ -470,8 +471,10 @@ export async function scanJupiterMarkets(
       const q = `${event.metadata?.title} — ${m.metadata?.title}`;
       // LLM knowledge bonus
       const knowledgeBonus = llmKnowledgeBonus(q) * LLM_KNOWLEDGE_BONUS;
-      const adjustedScore =
+      let adjustedScore =
         score + priceSweetSpot * SCORE_PRICE_SWEET_SPOT_WEIGHT + quickFlipBonus + knowledgeBonus;
+      // Zero-volume markets waste LLM calls — crush their score
+      if (volume <= 0) adjustedScore *= 0.1;
       const marketTitle = (m.metadata?.title ?? "").toLowerCase();
       const eventTitle = (event.metadata?.title ?? "").toLowerCase();
       if (ownedTitles.has(marketTitle) || ownedTitles.has(`${eventTitle} — ${marketTitle}`)) {
@@ -504,8 +507,18 @@ export async function scanJupiterMarkets(
   }
   jupScored.sort((a, b) => b.score - a.score);
 
+  // Event-level dedup: pick best market per event so one event can't flood all LLM slots
+  const seenEvents = new Set<string>();
+  const dedupedScored: JupMarket[] = [];
+  for (const m of jupScored) {
+    const eventPart = m.question.split(" — ")[0]?.toLowerCase() ?? "";
+    if (seenEvents.has(eventPart)) continue;
+    seenEvents.add(eventPart);
+    dedupedScored.push(m);
+  }
+
   // Gather market intelligence for top Jupiter candidates
-  const topN = jupScored.slice(0, 5);
+  const topN = dedupedScored.slice(0, 5);
   if (topN.length > 0 && jupApiKey) {
     callbacks.log(`[INTEL:JUP] Gathering depth for top ${topN.length} markets...`);
     const intelResults = await Promise.allSettled(

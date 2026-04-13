@@ -432,16 +432,18 @@ export async function scanJupiterMarkets(
       }
       // Track for debug but don't hard-filter — time scoring already penalizes long-dated markets
       if (jupDaysLeft > MARKET_MAX_DAYS) _jupDbgDays++;
-      // Quick flip scoring: AGGRESSIVE — time-to-resolution is the #1 factor
+      // Time scoring: prefer near-term but don't zero out long-dated markets
       let jupTimeScore: number;
       if (jupDaysLeft <= 3) {
-        jupTimeScore = 1.0; // 1-3 days: maximum score
+        jupTimeScore = 1.0;
       } else if (jupDaysLeft <= QUICK_FLIP_MAX_DAYS) {
-        jupTimeScore = Math.max(0.7, 1 - (jupDaysLeft - 3) / 5); // 3-5 days: still great
+        jupTimeScore = Math.max(0.7, 1 - (jupDaysLeft - 3) / 5);
       } else if (jupDaysLeft <= 14) {
         jupTimeScore = Math.max(0.2, 0.7 - (jupDaysLeft - QUICK_FLIP_MAX_DAYS) / 14);
+      } else if (jupDaysLeft <= 30) {
+        jupTimeScore = 0.1;
       } else {
-        jupTimeScore = 0; // >14 days: skip entirely
+        jupTimeScore = 0.05; // long-dated: small score, let LLM decide
       }
 
       const effectiveNp = np > 0 ? np : 1 - yp;
@@ -478,8 +480,7 @@ export async function scanJupiterMarkets(
       const knowledgeBonus = llmKnowledgeBonus(q) * LLM_KNOWLEDGE_BONUS;
       let adjustedScore =
         score + priceSweetSpot * SCORE_PRICE_SWEET_SPOT_WEIGHT + quickFlipBonus + knowledgeBonus;
-      // Near-zero volume markets waste LLM calls — crush their score
-      if (volume < 1) adjustedScore *= 0.1;
+      // Volume is informational — let the LLM decide if liquidity is sufficient
       const marketTitle = (m.metadata?.title ?? "").toLowerCase();
       const eventTitle = (event.metadata?.title ?? "").toLowerCase();
       if (ownedTitles.has(marketTitle) || ownedTitles.has(`${eventTitle} — ${marketTitle}`)) {
@@ -543,9 +544,8 @@ export async function scanJupiterMarkets(
 
         if (intel.depth && !intel.depth.isLiquid) {
           callbacks.log(
-            `[INTEL:JUP] ❌ "${topN[i]!.question.slice(0, 50)}" — illiquid ($${intel.depth.totalDepthUsd.toFixed(0)} depth), deprioritized`,
+            `[INTEL:JUP] ⚠️ "${topN[i]!.question.slice(0, 50)}" — low liquidity ($${intel.depth.totalDepthUsd.toFixed(0)} depth)`,
           );
-          topN[i]!.score *= 0.3;
         }
       }
     }

@@ -20,7 +20,7 @@ function envFloat(key: string, fallback: number): number {
 // --- Trading limits ---
 
 export const MAX_SHARES_PER_ORDER = envInt("MAX_SHARES_PER_ORDER", 500);
-export const MAX_POSITIONS = envInt("MAX_POSITIONS", 3);
+export const MAX_POSITIONS = envInt("MAX_POSITIONS", 10);
 export const MIN_BET_SIZE_USD = envFloat("MIN_BET_SIZE_USD", 2);
 
 /** Minimum bet size in USD for Jupiter — $3 flat */

@@ -60,9 +60,10 @@ export type JupPositionInfo = {
   curPrice?: number;
 };
 
-/** Minimum shares to be tradeable on Polymarket CLOB.
- * Polymarket's per-market minimum_order_size is typically ~1 share.
- * Previous value of 5 was too aggressive — it marked all small bets untradeable. */
+/** Minimum shares for Polymarket CLOB position tracking.
+ * CLOB enforces a server-side minimum of 5 shares per order, but we keep this
+ * at 1 so small positions flow through to the sell function where the CLOB
+ * rejection is caught and the position is correctly marked as stuckDust. */
 const MIN_CLOB_SHARES = 1;
 
 /** Price below which a position is effectively dead (can't sell, won't recover). */

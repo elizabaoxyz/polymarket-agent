@@ -94,7 +94,12 @@ export async function directPolymarketSell(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     callbacks.log(`[SELL:POLYMARKET] ❌ "${title}" — failed: ${msg}`);
-    state.failedSells.set(token, Date.now());
+    // CLOB enforces a server-side minimum of 5 shares — these can never be sold
+    if (msg.includes("lower than the minimum")) {
+      state.stuckDust.add(token);
+    } else {
+      state.failedSells.set(token, Date.now());
+    }
     return false;
   }
 }

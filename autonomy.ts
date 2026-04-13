@@ -229,8 +229,11 @@ async function platformBuyPhase(
           continue;
         }
         // Dynamic reward ratio: lower threshold for high-conviction picks.
+        // NO bets on unlikely events (YES at 15-20¢) inherently have low ratios
+        // (0.18-0.25:1) even when they're excellent trades. Kelly sizing handles
+        // the risk math — this gate just prevents degenerate bets.
         const effectiveMinRatio =
-          analysis.confidence >= 0.85 ? 0.25 : analysis.confidence >= 0.7 ? 0.4 : MIN_REWARD_RATIO;
+          analysis.confidence >= 0.75 ? 0.12 : analysis.confidence >= 0.60 ? 0.25 : MIN_REWARD_RATIO;
         if (rewardRatio < effectiveMinRatio) {
           callbacks.log(
             `${tag} ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ratio ${rewardRatio.toFixed(2)}:1 below ${effectiveMinRatio.toFixed(2)} (conf=${analysis.confidence.toFixed(2)})`,

@@ -1,6 +1,6 @@
 /**
- * Portfolio status fetching — extracted from ws-server.ts.
- * Centralizes balance, position, and trade data retrieval across Polymarket and Jupiter.
+ * Portfolio status fetching across Polymarket and Jupiter.
+ * Centralizes balance, position, and trade data retrieval.
  */
 
 import type { AgentRuntime } from "@elizaos/core";
@@ -11,9 +11,6 @@ import { X402_SERVICE_TYPE } from "./plugins/x402-solana/types";
 import type { JupiterPositionEntry, PortfolioStatus, X402Status } from "./portfolio-types";
 import { withRetry } from "./retry";
 import { getCachedSolanaBalance, getSolanaKeypair } from "./solana-wallet";
-
-// Re-export types for backward compatibility
-export type { JupiterPositionEntry, PortfolioStatus, X402Status } from "./portfolio-types";
 
 /**
  * Fetch the Polymarket USDC balance via CLOB API.

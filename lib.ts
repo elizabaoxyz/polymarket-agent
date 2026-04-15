@@ -10,7 +10,7 @@ import { openaiPlugin } from "@elizaos/plugin-openai";
 import XAIPlugin from "@elizaos/plugin-xai";
 import { z } from "zod";
 
-export type Command = "help" | "verify" | "chat" | "settings" | "input-test";
+type Command = "help" | "verify" | "chat" | "settings" | "input-test";
 
 export type CliOptions = {
   readonly execute: boolean;

@@ -48,9 +48,6 @@ import type MarketsResponse from "@elizaos/plugin-polymarket";
 import POLYMARKET_SERVICE_NAME from "@elizaos/plugin-polymarket";
 import { v4 as uuidv4 } from "uuid";
 
-// Re-export types used externally
-export type { SettingsField } from "./tui-settings";
-
 // Import extracted panels
 import { ChatPanel, FatalErrorDisplay, SidebarPanel } from "./tui-panels";
 import { runSettingsWizard } from "./tui-settings";

@@ -36,19 +36,13 @@ export function getSolanaKeypair(): Keypair | null {
   }
 }
 
-/**
- * Get the Solana public key string from environment.
- * Returns null if SOLANA_PRIVATE_KEY is not set.
- */
+/** Get the Solana public key string, or null if SOLANA_PRIVATE_KEY is not set. */
 export function getSolanaPublicKey(): string | null {
   const kp = getSolanaKeypair();
   return kp ? kp.publicKey.toBase58() : null;
 }
 
-/**
- * Create a Solana Connection using the configured RPC URL.
- */
-export function getSolanaConnection(): Connection {
+function getSolanaConnection(): Connection {
   const rpcUrl = process.env.SOLANA_RPC_URL?.trim() || DEFAULT_RPC;
   return new Connection(rpcUrl, "confirmed");
 }
@@ -108,17 +102,8 @@ export async function getCachedSolanaBalanceBreakdown(): Promise<SolanaBalanceBr
   }
 }
 
-/**
- * Get the combined USDC + JupUSD balance (backwards-compatible wrapper).
- */
+/** Get the combined USDC + JupUSD balance. */
 export async function getCachedSolanaBalance(): Promise<number> {
   const { total } = await getCachedSolanaBalanceBreakdown();
   return total;
-}
-
-/**
- * Invalidate the balance cache (e.g. after a trade).
- */
-export function invalidateBalanceCache(): void {
-  _balanceCache.fetchedAt = 0;
 }

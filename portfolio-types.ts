@@ -1,15 +1,9 @@
 /**
- * Shared portfolio types — replaces `unknown[]` in portfolio.ts and
- * provides typed interfaces for positions, trades, and PnL data
+ * Shared portfolio types for positions, trades, and PnL data
  * used across the autonomy engine and web dashboard.
  */
 
-import type { PnlSummary, Position, Trade } from "./plugins/polymarket-ext/types";
-
-// Re-export for convenience
-export type PolymarketPosition = Position;
-export type PolymarketTrade = Trade;
-export type PolymarketPnlSummary = PnlSummary;
+import type { Position, Trade } from "./plugins/polymarket-ext/types";
 
 // Jupiter position as returned by the API (includes nested metadata)
 export type JupiterPositionEntry = {
@@ -41,8 +35,8 @@ export type X402Status = {
 export type PortfolioStatus = {
   balance: number;
   solanaBalance: number;
-  positions: PolymarketPosition[];
-  trades: PolymarketTrade[];
+  positions: Position[];
+  trades: Trade[];
   jupiterPositions: JupiterPositionEntry[];
   x402: X402Status;
 };

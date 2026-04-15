@@ -6,7 +6,6 @@ import { log } from "../../log";
 
 const DEFAULT_CLOB_URL = "https://clob.polymarket.com";
 const DEFAULT_DATA_URL = "https://data-api.polymarket.com";
-const HEARTBEAT_INTERVAL_MS = 60_000;
 
 type Runtime = { getSetting: (key: string) => string | undefined };
 

@@ -373,8 +373,6 @@ export async function claimJupiterPositions(
 }
 
 // --- Unified portfolio review: auto-sell + LLM review + recovery ---
-// This replaces the old polymarketSellPhase + reviewAllPositions + jupiterSellClaimPhase
-// with a single clean pipeline per platform.
 
 export async function unifiedPortfolioReview(
   deps: AutonomyDeps,
@@ -484,7 +482,7 @@ export async function unifiedPortfolioReview(
   for (const p of reviewable) {
     const key = p.token ?? p.pubkey ?? "";
     const price = p.curPrice ?? 0;
-    const pnl = p.pnl ?? 0;
+    const pnl = p.pnl;
     const age = getPositionAgeDays(state, key);
     const trend = trendMap.get(key);
     const dropFromPeak = getDropFromPeak(state, key, price);
@@ -569,21 +567,21 @@ export async function unifiedPortfolioReview(
     reviewable.length > CAPITAL_PRESSURE_MAX_POSITIONS
   ) {
     const unsold = reviewable.filter((p) => !autoSellSet.has(p));
-    const sorted = [...unsold].sort((a, b) => (a.pnl ?? 0) - (b.pnl ?? 0));
+    const sorted = [...unsold].sort((a, b) => a.pnl - b.pnl);
     const toSell = sorted.slice(0, 3);
     callbacks.log(
       `[PORTFOLIO:${platform}] CAPITAL PRESSURE — selling ${toSell.length} weakest positions`,
     );
     for (const p of toSell) {
       autoSellSet.add(p);
-      const sign = (p.pnl ?? 0) >= 0 ? "+" : "";
+      const sign = p.pnl >= 0 ? "+" : "";
       await executeSell(
         deps,
         callbacks,
         state,
         p,
         platform,
-        `capital-pressure (${sign}${(p.pnl ?? 0).toFixed(0)}%)`,
+        `capital-pressure (${sign}${p.pnl.toFixed(0)}%)`,
       );
     }
   }
@@ -592,19 +590,19 @@ export async function unifiedPortfolioReview(
   if (lowBalance) {
     const unsold = reviewable.filter((p) => !autoSellSet.has(p));
     if (unsold.length > 0) {
-      const sorted = [...unsold].sort((a, b) => (a.pnl ?? 0) - (b.pnl ?? 0));
+      const sorted = [...unsold].sort((a, b) => a.pnl - b.pnl);
       callbacks.log(
         `[PORTFOLIO:${platform}] LOW BALANCE RECOVERY — liquidating ${sorted.length} positions`,
       );
       for (const p of sorted) {
-        const sign = (p.pnl ?? 0) >= 0 ? "+" : "";
+        const sign = p.pnl >= 0 ? "+" : "";
         await executeSell(
           deps,
           callbacks,
           state,
           p,
           platform,
-          `recovery (${sign}${(p.pnl ?? 0).toFixed(0)}%)`,
+          `recovery (${sign}${p.pnl.toFixed(0)}%)`,
         );
       }
     }
@@ -616,13 +614,13 @@ export async function unifiedPortfolioReview(
   if (llmReviewable.length === 0) return;
 
   const sortedForReview = [...llmReviewable]
-    .sort((a, b) => (b.pnl ?? 0) - (a.pnl ?? 0))
+    .sort((a, b) => b.pnl - a.pnl)
     .slice(0, 12);
   const llmPositionList = sortedForReview
     .map((p, i) => {
       const dir = p.isYes !== undefined ? (p.isYes ? "YES" : "NO") : "";
       const qty = p.shares ?? p.contracts ?? "?";
-      const sign = (p.pnl ?? 0) >= 0 ? "+" : "";
+      const sign = p.pnl >= 0 ? "+" : "";
       const age = getPositionAgeDays(state, p.token ?? p.pubkey ?? "");
       let trendStr = "";
       const trend = trendMap.get(p.token ?? p.pubkey ?? "");
@@ -634,7 +632,7 @@ export async function unifiedPortfolioReview(
           parts.push(`24h: ${trend.change24h > 0 ? "+" : ""}${trend.change24h.toFixed(1)}%`);
         trendStr = ` | trend: ${trend.direction} (${parts.join(", ")})`;
       }
-      return `${i + 1}. "${p.title}" — PnL: ${sign}${(p.pnl ?? 0).toFixed(0)}%, ${dir} ${qty} units, price: $${(p.curPrice ?? 0).toFixed(2)}, age: ${age.toFixed(1)}d${trendStr}`;
+      return `${i + 1}. "${p.title}" — PnL: ${sign}${p.pnl.toFixed(0)}%, ${dir} ${qty} units, price: $${(p.curPrice ?? 0).toFixed(2)}, age: ${age.toFixed(1)}d${trendStr}`;
     })
     .join("\n");
 

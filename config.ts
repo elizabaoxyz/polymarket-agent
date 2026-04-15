@@ -26,7 +26,6 @@ export const MIN_BET_SIZE_USD = envFloat("MIN_BET_SIZE_USD", 2);
 /** Minimum bet size in USD for Jupiter — $3 flat */
 export const MIN_BET_SIZE_JUP = envFloat("MIN_BET_SIZE_JUP", 3);
 export const MAX_BET_SIZE_USD = envFloat("MAX_BET_SIZE_USD", 5);
-export const BASE_BET_SIZE_USD = envFloat("BASE_BET_SIZE_USD", 3);
 
 // --- Sell thresholds ---
 
@@ -42,7 +41,6 @@ export const AUTONOMY_INTERVAL_MS = envInt("AUTONOMY_INTERVAL_MS", 60_000);
 export const HEARTBEAT_INTERVAL_MS = envInt("HEARTBEAT_INTERVAL_MS", 10_000);
 export const FAILED_SELL_COOLDOWN_MS = envInt("FAILED_SELL_COOLDOWN_MS", 1_800_000);
 export const FAILED_BUY_COOLDOWN_MS = envInt("FAILED_BUY_COOLDOWN_MS", 1_800_000);
-export const POSITION_MIN_AGE_MS = envInt("POSITION_MIN_AGE_MS", 14_400_000);
 export const SAME_MARKET_COOLDOWN_MS = envInt("SAME_MARKET_COOLDOWN_MS", 604_800_000);
 export const MAX_TRADE_HISTORY = envInt("MAX_TRADE_HISTORY", 100);
 
@@ -120,10 +118,6 @@ export const MIN_REWARD_RATIO = envFloat("MIN_REWARD_RATIO", 0.5);
 export const POLY_PRICE_MIN = envFloat("POLY_PRICE_MIN", 0.15);
 export const POLY_PRICE_MAX = envFloat("POLY_PRICE_MAX", 0.8);
 
-/** Price range for Jupiter — wide to maximize pool, scoring handles quality */
-export const JUP_PRICE_MIN = envFloat("JUP_PRICE_MIN", 0.04);
-export const JUP_PRICE_MAX = envFloat("JUP_PRICE_MAX", 0.96);
-
 /** Cooldown in ms before re-analyzing a market the LLM already skipped */
 export const SKIPPED_MARKET_COOLDOWN_MS = envInt("SKIPPED_MARKET_COOLDOWN_MS", 3_600_000);
 export const MIN_POLY_VOLUME = envFloat("MIN_POLY_VOLUME", 1500);
@@ -161,13 +155,10 @@ export const STUCK_DUST_REEVAL_MS = envInt("STUCK_DUST_REEVAL_MS", 86_400_000);
 
 // --- Price-based exit rules ---
 
-/** Auto-sell when position price exceeds this (near-resolution territory).
- * Raised from 0.78 to 0.92 — NO positions are bought at 75-85¢ and need
- * room to resolve without triggering an immediate sell. */
+/** Auto-sell when position price exceeds this (near-resolution territory) */
 export const PRICE_CEILING_SELL = envFloat("PRICE_CEILING_SELL", 0.92);
 
-/** Sell if price > this AND position age > 1 day (R/R turns unfavorable).
- * Raised from 0.68 to 0.88 to avoid dumping NO positions bought at 80¢+. */
+/** Sell if price > this AND position age > 1 day (R/R turns unfavorable) */
 export const HIGH_PRICE_SELL = envFloat("HIGH_PRICE_SELL", 0.88);
 
 /** Auto-sell dead positions below this price */
@@ -177,9 +168,6 @@ export const DEAD_POSITION_PRICE = envFloat("DEAD_POSITION_PRICE", 0.1);
 export const HARD_STOP_LOSS_PCT = envFloat("HARD_STOP_LOSS_PCT", -15);
 
 /** Trailing stop only activates above this price (avoid whipsaw at low prices) */
-/** Trailing stop activates above this price. Raised from 0.55 to 0.88 —
- * NO positions enter at 75-85¢ and any micro-dip was triggering
- * "high-price-falling" sells on positions that haven't even had time to settle. */
 export const TRAILING_STOP_MIN_PRICE = envFloat("TRAILING_STOP_MIN_PRICE", 0.88);
 
 /** Trailing stop: sell if price drops this % from peak price */
@@ -200,62 +188,7 @@ export const TIME_DECAY_SELL_DAYS = envFloat("TIME_DECAY_SELL_DAYS", 2);
 /** Partial profit: sell half of position when price >= this (Polymarket only, needs > 10 shares) */
 export const PARTIAL_PROFIT_PRICE = envFloat("PARTIAL_PROFIT_PRICE", 0.65);
 
-// --- Smart position sizing ---
-
-/**
- * Calculate bet size using edge-weighted conviction sizing.
- *
- * The key insight: a prediction market at $0.40 that you believe is worth $0.60
- * has a HUGE edge ($0.20). You should bet more on that than a market at $0.49
- * that you think is worth $0.51 (tiny $0.02 edge).
- *
- * Sizing model:
- * - Base: tiered by market quality score (liquidity, spread, volume)
- * - Edge multiplier: scales bet 0.5×–2.0× based on LLM-reported edge
- * - Confidence multiplier: scales bet by how sure the LLM is
- * - Price sweet spot: 1.3× bonus for prices in the 25–55¢ range
- * - Balance cap: never risk more than 8% on a single trade
- */
-export function calcBetSize(
-  score: number,
-  balance: number,
-  minBet = MIN_BET_SIZE_USD,
-  marketPrice?: number,
-  edge?: number,
-  confidence?: number,
-): number {
-  // Base fraction from market quality
-  let fraction: number;
-  if (score > 0.8) fraction = 0.08;
-  else if (score > 0.6) fraction = 0.05;
-  else if (score > 0.4) fraction = 0.03;
-  else fraction = 0.02;
-
-  // Edge multiplier: big edge = bigger bet (0.5× to 2.0×)
-  // Edge of 0.10 = 1.0×, edge of 0.20 = 1.5×, edge of 0.05 = 0.5×
-  if (edge !== undefined && edge > 0) {
-    const edgeMultiplier = Math.min(2.0, Math.max(0.5, edge / 0.1));
-    fraction *= edgeMultiplier;
-  }
-
-  // Confidence multiplier: high confidence = bigger bet (0.7× to 1.3×)
-  if (confidence !== undefined && confidence > 0) {
-    const confMultiplier = 0.7 + Math.min(1.0, confidence) * 0.6;
-    fraction *= confMultiplier;
-  }
-
-  // Price sweet spot: 30% bonus for prices in the 25–55¢ range
-  const price = marketPrice ?? 0.5;
-  if (price >= PRICE_SWEET_SPOT_MIN && price <= PRICE_SWEET_SPOT_MAX) {
-    fraction *= 1.3;
-  }
-
-  // Cap at 8% of balance
-  fraction = Math.min(fraction, 0.08);
-
-  const size = balance * fraction;
-  return Math.max(minBet, Math.min(MAX_BET_SIZE_USD, size));
-}
+// --- Kelly criterion sizing ---
 
 /**
  * Fractional Kelly position sizing for binary prediction markets.

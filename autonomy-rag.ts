@@ -1,6 +1,5 @@
 /**
  * RAG indexing, similarity scoring, and context enrichment.
- * Extracted from autonomy.ts for maintainability.
  */
 
 import type { JupMarket, ScoredMarket } from "./autonomy-scanner";

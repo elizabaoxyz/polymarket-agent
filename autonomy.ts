@@ -1,14 +1,8 @@
 /**
- * Autonomy loop — slim orchestrator.
+ * Autonomy cycle orchestrator.
  * Manages the autonomous trading cycle across Polymarket and Jupiter.
- *
- * Extracted modules:
- *   autonomy-state.ts  — types + state management
- *   autonomy-llm.ts    — LLM calls (direct HTTP + elizaOS fallback)
- *   autonomy-scanner.ts — market scanning/scoring
- *   autonomy-trade.ts  — direct buy/sell execution
- *   autonomy-sell.ts   — sell phases + position review
- *   autonomy-rag.ts    — RAG indexing + enrichment
+ * Delegates to: autonomy-state, autonomy-llm, autonomy-scanner,
+ * autonomy-trade, autonomy-sell, autonomy-rag.
  */
 
 import { type AnalysisResult, analyzeCandidates } from "./autonomy-llm";

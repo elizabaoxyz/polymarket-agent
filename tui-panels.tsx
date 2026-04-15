@@ -1,6 +1,5 @@
 /**
  * TUI panel components — ChatPanel, SidebarPanel, FatalErrorDisplay.
- * Extracted from tui.tsx for maintainability.
  */
 
 import { Box, Text, useApp, useInput } from "ink";

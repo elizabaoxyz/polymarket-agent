@@ -1,6 +1,5 @@
 /**
- * Autonomy state types and helpers.
- * Extracted from autonomy.ts for maintainability.
+ * Autonomy state types, factory, and housekeeping helpers.
  */
 
 import type { AgentRuntime, stringToUuid } from "@elizaos/core";

@@ -819,11 +819,6 @@ export async function chat(options: CliOptions): Promise<void> {
   });
 }
 
-export async function settings(options: CliOptions): Promise<void> {
-  await ensureEnvConfig(options, true);
-  log.info("runner", "settings saved to .env");
-}
-
 export async function inputTest(options: CliOptions): Promise<void> {
   void options;
   runInkInputTest();

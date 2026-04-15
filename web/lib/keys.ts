@@ -1,6 +1,6 @@
 "use client";
 
-export type UserKeys = Record<string, string>;
+import type { UserKeys } from "./types";
 
 const STORAGE_KEY = "elizabao-keys";
 

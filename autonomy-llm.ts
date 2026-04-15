@@ -12,14 +12,13 @@ import {
   LLM_TEMPERATURE,
   MIN_CONFIDENCE_THRESHOLD,
   MIN_EDGE_THRESHOLD,
-  TAKER_FEE_RATE,
 } from "./config";
 import { formatIntelForPrompt } from "./market-intel";
 
 /**
  * Send a prompt through elizaOS message handler (triggers actions).
  */
-export async function sendPrompt(
+async function sendPrompt(
   deps: AutonomyDeps,
   callbacks: AutonomyCallbacks,
   prompt: string,
@@ -85,7 +84,7 @@ export async function directLlmCall(
  * Supports Anthropic-compatible (GLM, Claude) and OpenAI-compatible APIs.
  * Retries up to 3 times on 429 (rate limit) with exponential backoff.
  */
-export async function callLlmDirect(prompt: string, maxTokens: number): Promise<string> {
+async function callLlmDirect(prompt: string, maxTokens: number): Promise<string> {
   const glmKey = process.env.GLM_API_KEY?.trim();
   const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
   const openaiEmbeddingsOnly = process.env.OPENAI_EMBEDDINGS_ONLY?.trim() === "true";
@@ -217,34 +216,6 @@ function parseLlmResponse(text: string): ParsedLlmPick | null {
     confidence: confidenceMatch ? Math.min(1.0, Number.parseFloat(confidenceMatch[1]!)) : 0.5,
     category: categoryMatch ? categoryMatch[1]!.toUpperCase() : "OTHER",
     reason: reasonMatch ? reasonMatch[1]!.trim() : "",
-  };
-}
-
-/**
- * Merge two LLM responses into a consensus result.
- * - If both agree on SIDE -> average estimates, edge, confidence
- * - If they disagree on SIDE -> return null (no consensus = skip)
- * - If only one result provided -> use it directly
- */
-export function mergeEnsembleResults(textA: string, textB: string | null): ParsedLlmPick | null {
-  const a = parseLlmResponse(textA);
-  if (!textB) return a; // Single-provider mode
-
-  const b = parseLlmResponse(textB);
-  if (!a && !b) return null;
-  if (!a || !b) return null; // If either provider skipped — no consensus
-
-  // Both must agree on direction
-  if (a.side !== b.side) return null;
-
-  return {
-    pickNum: a.pickNum,
-    side: a.side,
-    estimate: (a.estimate + b.estimate) / 2,
-    edge: (a.edge + b.edge) / 2,
-    confidence: (a.confidence + b.confidence) / 2,
-    category: a.category,
-    reason: `[ensemble] ${a.reason}`,
   };
 }
 

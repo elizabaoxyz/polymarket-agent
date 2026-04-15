@@ -1,6 +1,5 @@
 /**
  * Market scanning and scoring for Polymarket and Jupiter.
- * Extracted from autonomy.ts for maintainability.
  */
 
 import type { AutonomyCallbacks, AutonomyState } from "./autonomy-state";

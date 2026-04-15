@@ -1,5 +1,5 @@
 /**
- * Settings wizard — extracted from tui.tsx for maintainability.
+ * Interactive settings wizard for .env configuration.
  */
 
 import { Box, render, Text, useApp, useInput } from "ink";

@@ -1,6 +1,5 @@
 /**
  * TUI utility functions — text formatting, wrapping, mouse handling.
- * Extracted from tui.tsx for maintainability.
  */
 
 import { Box, Text } from "ink";
@@ -8,7 +7,7 @@ import type { ReactNode } from "react";
 
 // --- Types ---
 
-export type ChatRole = "user" | "assistant" | "system";
+type ChatRole = "user" | "assistant" | "system";
 
 export type ChatMessage = {
   readonly id: string;

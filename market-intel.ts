@@ -188,51 +188,6 @@ export async function fetchPolyOpenInterest(conditionId: string): Promise<number
   }
 }
 
-/**
- * Fetch live volume for a Polymarket event.
- */
-export async function fetchPolyLiveVolume(conditionId: string): Promise<number | null> {
-  try {
-    const res = await withRetry(
-      () =>
-        fetch(
-          `https://clob.polymarket.com/get-live-volume-for-an-event?condition_id=${conditionId}`,
-        ),
-      { label: "poly-volume" },
-    );
-    if (!res.ok) return null;
-    const data = (await res.json()) as { volume?: number };
-    return data.volume ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Fetch spreads for multiple Polymarket tokens in one call.
- */
-export async function fetchPolySpreads(tokenIds: string[]): Promise<Map<string, number>> {
-  const result = new Map<string, number>();
-  if (tokenIds.length === 0) return result;
-  try {
-    const res = await withRetry(
-      () =>
-        fetch(`https://clob.polymarket.com/spreads`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(tokenIds),
-        }),
-      { label: "poly-spreads" },
-    );
-    if (!res.ok) return result;
-    const data = (await res.json()) as Record<string, { spread?: number }>;
-    for (const [tokenId, info] of Object.entries(data)) {
-      if (info.spread !== undefined) result.set(tokenId, info.spread);
-    }
-  } catch {}
-  return result;
-}
-
 // --- Jupiter Intelligence ---
 
 /**
@@ -303,63 +258,6 @@ export async function fetchJupDepth(
     };
   } catch {
     return empty;
-  }
-}
-
-/**
- * Fetch recent global trades from Jupiter to detect volume flow.
- */
-export async function fetchJupRecentTrades(
-  apiKey: string,
-  limit = 50,
-): Promise<Array<{ marketId: string; side: string; amount: number; time: number }>> {
-  try {
-    const res = await withRetry(
-      () =>
-        fetch(`https://api.jup.ag/prediction/v1/trades?limit=${limit}`, {
-          headers: { "x-api-key": apiKey },
-        }),
-      { label: "jup-trades" },
-    );
-    if (!res.ok) return [];
-    const data = (await res.json()) as { data?: Array<Record<string, unknown>> };
-    return (data.data ?? []).map((t) => ({
-      marketId: String(t.marketId ?? ""),
-      side: String(t.isYes ? "YES" : "NO"),
-      amount: Number(t.filledAmountUsd ?? t.depositAmount ?? 0) / 1_000_000,
-      time: Number(t.createdAt ?? Date.now()),
-    }));
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Fetch Jupiter leaderboard to identify smart money direction.
- */
-export async function fetchJupLeaderboard(
-  apiKey: string,
-  metric: "pnl" | "volume" | "win_rate" = "pnl",
-  limit = 10,
-): Promise<Array<{ pubkey: string; pnl: number; winRate: number; volume: number }>> {
-  try {
-    const res = await withRetry(
-      () =>
-        fetch(`https://api.jup.ag/prediction/v1/leaderboards?metric=${metric}&limit=${limit}`, {
-          headers: { "x-api-key": apiKey },
-        }),
-      { label: "jup-leaderboard" },
-    );
-    if (!res.ok) return [];
-    const data = (await res.json()) as { data?: Array<Record<string, unknown>> };
-    return (data.data ?? []).map((e) => ({
-      pubkey: String(e.pubkey ?? e.wallet ?? ""),
-      pnl: Number(e.pnl ?? e.pnlUsd ?? 0) / 1_000_000,
-      winRate: Number(e.winRate ?? e.win_rate ?? 0),
-      volume: Number(e.volume ?? e.totalVolume ?? 0) / 1_000_000,
-    }));
-  } catch {
-    return [];
   }
 }
 

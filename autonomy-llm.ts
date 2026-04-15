@@ -322,26 +322,42 @@ export async function ensembleLlmCall(
     const picksA = parseAll(textA);
     const picksB = parseAll(textB);
 
-    // If both have picks but disagree on first pick's direction → no consensus
-    if (picksA.length > 0 && picksB.length > 0 && picksA[0]!.side !== picksB[0]!.side) {
-      callbacks.log(`[LLM:ENSEMBLE] No consensus — providers disagree on direction. Skipping.`);
-      return "PICK: 0";
-    }
-
-    // Merge matching picks (by pickNum + same side), include extras from A
+    // Merge picks: consensus gets full confidence, disagreement lets the more confident provider through with a penalty
     const merged: ParsedLlmPick[] = [];
-    for (const a of picksA) {
-      const b = picksB.find((p) => p.pickNum === a.pickNum && p.side === a.side);
-      if (b) {
-        merged.push({
-          ...a,
-          estimate: (a.estimate + b.estimate) / 2,
-          edge: (a.edge + b.edge) / 2,
-          confidence: (a.confidence + b.confidence) / 2,
-          reason: `[ensemble] ${a.reason}`,
-        });
-      } else {
-        merged.push({ ...a, confidence: a.confidence * 0.9, reason: `[single] ${a.reason}` });
+
+    if (picksA.length > 0 && picksB.length > 0 && picksA[0]!.side !== picksB[0]!.side) {
+      // Providers disagree on direction — pick the more confident one with a penalty
+      const confA = picksA[0]!.confidence;
+      const confB = picksB[0]!.confidence;
+      const winner = confA >= confB ? picksA[0]! : picksB[0]!;
+      const loser = confA >= confB ? picksB[0]! : picksA[0]!;
+      const confGap = Math.abs(confA - confB);
+      // Bigger gap = more conviction from winner. Scale penalty: 0.75x base, up to 0.85x if gap > 0.15
+      const penalty = confGap > 0.15 ? 0.85 : 0.75;
+      callbacks.log(
+        `[LLM:ENSEMBLE] Providers disagree (${picksA[0]!.side} vs ${picksB[0]!.side}) — using ${winner.side} (conf ${winner.confidence.toFixed(2)} vs ${loser.confidence.toFixed(2)}, ${penalty}x penalty)`,
+      );
+      merged.push({
+        ...winner,
+        confidence: winner.confidence * penalty,
+        edge: winner.edge * 0.9,
+        reason: `[split-decision] ${winner.reason}`,
+      });
+    } else {
+      // Same direction or only one has picks — merge normally
+      for (const a of picksA) {
+        const b = picksB.find((p) => p.pickNum === a.pickNum && p.side === a.side);
+        if (b) {
+          merged.push({
+            ...a,
+            estimate: (a.estimate + b.estimate) / 2,
+            edge: (a.edge + b.edge) / 2,
+            confidence: (a.confidence + b.confidence) / 2,
+            reason: `[ensemble] ${a.reason}`,
+          });
+        } else {
+          merged.push({ ...a, confidence: a.confidence * 0.9, reason: `[single] ${a.reason}` });
+        }
       }
     }
 

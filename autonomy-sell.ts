@@ -513,8 +513,8 @@ export async function unifiedPortfolioReview(
     else if (price >= TRAILING_STOP_MIN_PRICE && dropFromPeak >= TRAILING_STOP_DROP_PCT) {
       reason = `trailing-stop (peak $${state.peakPrice.get(key)?.toFixed(2)}, now $${price.toFixed(2)}, drop ${dropFromPeak.toFixed(1)}%)`;
     }
-    // Rule 7: Stale position — no significant movement for 3+ days, capital is trapped
-    else if (age > 2 && price >= 0.35 && price <= 0.65 && Math.abs(pnl) < 5) {
+    // Rule 7: Stale position — no significant movement for 5+ days, capital is trapped
+    else if (age > 5 && price >= 0.35 && price <= 0.65 && Math.abs(pnl) < 3) {
       reason = `stale-position (${age.toFixed(1)}d old, ${pnl >= 0 ? "+" : ""}${pnl.toFixed(0)}% PnL, price $${price.toFixed(2)} — capital trapped)`;
     }
     // Rule 8: Time-decay — sell positions in no-man's land near resolution
@@ -647,12 +647,13 @@ export async function unifiedPortfolioReview(
 BINARY MARKET RULES — these markets pay $1 or $0. Current PRICE determines risk/reward, not your entry cost.
 
 SELL RULES (price-based — this is what matters in binary markets):
-- Price > $0.75: SELL — max 33% upside, 75% downside. Terrible risk/reward.
-- Price > $0.65 with DOWNWARD trend: SELL — momentum fading, lock in gains.
-- Price < $0.15: SELL — thesis is likely wrong. Salvage remaining value.
-- PnL < -15% with DOWNWARD trend: SELL — getting worse, cut losses.
-- PnL -5% to +10%: HOLD — within noise, spread costs make selling unprofitable.
-- PnL > +10% with UPWARD trend: HOLD — let winners run.
+- Price > $0.85: SELL — max 18% upside, 85% downside. Lock in gains.
+- Price > $0.75 with DOWNWARD trend: SELL — momentum fading, thin upside.
+- Price < $0.05: SELL — thesis is dead. Salvage dust.
+- PnL < -20% with DOWNWARD trend: SELL — getting worse, cut losses.
+- PnL -10% to +15%: HOLD — within noise, spread costs make selling unprofitable.
+- PnL > +15% with UPWARD trend: HOLD — let winners run.
+- Position < 5 days old: HOLD — give trades time to play out unless price is extreme.
 
 CRITICAL: The PRICE is more important than PnL%. A position at $0.70 has 43% max upside regardless of what you paid.
 

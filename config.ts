@@ -23,8 +23,8 @@ export const MAX_SHARES_PER_ORDER = envInt("MAX_SHARES_PER_ORDER", 500);
 export const MAX_POSITIONS = envInt("MAX_POSITIONS", 10);
 export const MIN_BET_SIZE_USD = envFloat("MIN_BET_SIZE_USD", 2);
 
-/** Minimum bet size in USD for Jupiter — $3 flat */
-export const MIN_BET_SIZE_JUP = envFloat("MIN_BET_SIZE_JUP", 3);
+/** Minimum bet size in USD for Jupiter — matches Jupiter's $5 minimum order */
+export const MIN_BET_SIZE_JUP = envFloat("MIN_BET_SIZE_JUP", 5);
 export const MAX_BET_SIZE_USD = envFloat("MAX_BET_SIZE_USD", 5);
 
 // --- Sell thresholds ---
@@ -119,7 +119,7 @@ export const POLY_PRICE_MIN = envFloat("POLY_PRICE_MIN", 0.15);
 export const POLY_PRICE_MAX = envFloat("POLY_PRICE_MAX", 0.8);
 
 /** Cooldown in ms before re-analyzing a market the LLM already skipped */
-export const SKIPPED_MARKET_COOLDOWN_MS = envInt("SKIPPED_MARKET_COOLDOWN_MS", 3_600_000);
+export const SKIPPED_MARKET_COOLDOWN_MS = envInt("SKIPPED_MARKET_COOLDOWN_MS", 1_200_000);
 export const MIN_POLY_VOLUME = envFloat("MIN_POLY_VOLUME", 1500);
 export const MIN_JUP_VOLUME = envFloat("MIN_JUP_VOLUME", 5);
 
@@ -162,7 +162,7 @@ export const PRICE_CEILING_SELL = envFloat("PRICE_CEILING_SELL", 0.92);
 export const HIGH_PRICE_SELL = envFloat("HIGH_PRICE_SELL", 0.88);
 
 /** Auto-sell dead positions below this price */
-export const DEAD_POSITION_PRICE = envFloat("DEAD_POSITION_PRICE", 0.1);
+export const DEAD_POSITION_PRICE = envFloat("DEAD_POSITION_PRICE", 0.05);
 
 /** Hard stop-loss: sell if PnL drops below this % */
 export const HARD_STOP_LOSS_PCT = envFloat("HARD_STOP_LOSS_PCT", -15);
@@ -186,7 +186,7 @@ export const MIN_DAYS_LEFT = envFloat("MIN_DAYS_LEFT", 1);
 export const TIME_DECAY_SELL_DAYS = envFloat("TIME_DECAY_SELL_DAYS", 2);
 
 /** Partial profit: sell half of position when price >= this (Polymarket only, needs > 10 shares) */
-export const PARTIAL_PROFIT_PRICE = envFloat("PARTIAL_PROFIT_PRICE", 0.65);
+export const PARTIAL_PROFIT_PRICE = envFloat("PARTIAL_PROFIT_PRICE", 0.75);
 
 // --- Kelly criterion sizing ---
 

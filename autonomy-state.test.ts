@@ -3,6 +3,7 @@ import {
   createState,
   getDropFromPeak,
   getPositionAgeDays,
+  hasPendingOrderForQuestion,
   pruneStaleTracking,
   trackPositionAge,
   updatePeakPrice,
@@ -81,5 +82,21 @@ describe("pruneStaleTracking", () => {
     expect(state.peakPrice.has("dead")).toBe(false);
     expect(state.positionFirstSeen.has("alive")).toBe(true);
     expect(state.positionFirstSeen.has("dead")).toBe(false);
+  });
+});
+
+describe("pending order tracking", () => {
+  test("hasPendingOrderForQuestion matches full market question", () => {
+    const state = createState("both");
+    state.pendingOrders.set("order-1", {
+      orderID: "order-1",
+      platform: "POLYMARKET",
+      question: "Will BTC hit $150k by December 31?",
+      amount: 4.25,
+      placedAt: Date.now(),
+    });
+
+    expect(hasPendingOrderForQuestion(state, "Will BTC hit $150k by December 31?")).toBe(true);
+    expect(hasPendingOrderForQuestion(state, "Different market")).toBe(false);
   });
 });

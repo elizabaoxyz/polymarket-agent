@@ -8,12 +8,170 @@ import type { Content } from "@elizaos/core";
 import { ChannelType, createMessageMemory, type stringToUuid } from "@elizaos/core";
 import { v4 as uuidv4 } from "uuid";
 import type { AutonomyCallbacks, AutonomyDeps } from "./autonomy-state";
-import {
-  LLM_TEMPERATURE,
-  MIN_CONFIDENCE_THRESHOLD,
-  MIN_EDGE_THRESHOLD,
-} from "./config";
+import { LLM_TEMPERATURE, MIN_CONFIDENCE_THRESHOLD, MIN_EDGE_THRESHOLD } from "./config";
+import { DEFAULT_LLM_MODELS, type LlmProvider, resolveLlmModel, resolveLlmProvider } from "./lib";
 import { formatIntelForPrompt } from "./market-intel";
+
+type AnthropicFamilyProvider = "anthropic" | "glm";
+
+const MAX_LLM_RETRIES = 3;
+const LLM_RETRY_BASE_DELAY_MS = 2000;
+
+function getEnvValue(key: string): string | undefined {
+  const value = process.env[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function isTruthyEnv(value: string | undefined): boolean {
+  if (!value) return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+export function resolveAutonomyLlmProvider(
+  getValue: (key: string) => string | undefined = getEnvValue,
+): LlmProvider | null {
+  return resolveLlmProvider((key) => getValue(key));
+}
+
+export function shouldUseAutonomyEnsemble(
+  getValue: (key: string) => string | undefined = getEnvValue,
+): boolean {
+  if (!isTruthyEnv(getValue("AUTONOMY_LLM_ENSEMBLE"))) return false;
+  const openaiEmbeddingsOnly = isTruthyEnv(getValue("OPENAI_EMBEDDINGS_ONLY"));
+  const openaiKey = getValue("OPENAI_API_KEY")?.trim();
+  const anthropicKey = getValue("GLM_API_KEY")?.trim() || getValue("ANTHROPIC_API_KEY")?.trim();
+  return Boolean(anthropicKey && openaiKey && !openaiEmbeddingsOnly);
+}
+
+function resolveModelForProvider(
+  provider: LlmProvider,
+  getValue: (key: string) => string | undefined = getEnvValue,
+): string {
+  return resolveLlmModel(provider, (key) => getValue(key)) ?? DEFAULT_LLM_MODELS[provider];
+}
+
+function getAnthropicFamilyConfig(
+  provider: AnthropicFamilyProvider,
+  getValue: (key: string) => string | undefined = getEnvValue,
+): { apiKey: string; baseUrl: string; model: string } {
+  if (provider === "glm") {
+    const apiKey = getValue("GLM_API_KEY")?.trim();
+    if (!apiKey) throw new Error("GLM provider selected but GLM_API_KEY is not configured");
+    return {
+      apiKey,
+      baseUrl: getValue("ANTHROPIC_BASE_URL")?.trim() || "https://api.z.ai/api/anthropic",
+      model: resolveModelForProvider("glm", getValue),
+    };
+  }
+
+  const apiKey = getValue("ANTHROPIC_API_KEY")?.trim();
+  if (!apiKey) {
+    throw new Error("Anthropic provider selected but ANTHROPIC_API_KEY is not configured");
+  }
+  return {
+    apiKey,
+    baseUrl: getValue("ANTHROPIC_BASE_URL")?.trim() || "https://api.anthropic.com",
+    model: resolveModelForProvider("anthropic", getValue),
+  };
+}
+
+function getOpenAiConfig(getValue: (key: string) => string | undefined = getEnvValue): {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+} {
+  if (isTruthyEnv(getValue("OPENAI_EMBEDDINGS_ONLY"))) {
+    throw new Error("OpenAI provider is reserved for embeddings only in this environment");
+  }
+  const apiKey = getValue("OPENAI_API_KEY")?.trim();
+  if (!apiKey) throw new Error("OpenAI provider selected but OPENAI_API_KEY is not configured");
+  return {
+    apiKey,
+    baseUrl: getValue("OPENAI_BASE_URL")?.trim() || "https://api.openai.com/v1",
+    model: resolveModelForProvider("openai", getValue),
+  };
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function callAnthropicCompatible(
+  prompt: string,
+  maxTokens: number,
+  config: { apiKey: string; baseUrl: string; model: string },
+  label: string,
+): Promise<string> {
+  for (let attempt = 0; attempt <= MAX_LLM_RETRIES; attempt++) {
+    const res = await fetch(`${config.baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": config.apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: config.model,
+        max_tokens: maxTokens,
+        temperature: LLM_TEMPERATURE,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      if (res.status === 429 && attempt < MAX_LLM_RETRIES) {
+        await delay(LLM_RETRY_BASE_DELAY_MS * 2 ** attempt);
+        continue;
+      }
+      throw new Error(`${label} API ${res.status}: ${errText.slice(0, 200)}`);
+    }
+
+    type AnthropicResponse = { content?: Array<{ type: string; text?: string }> };
+    const data = (await res.json()) as AnthropicResponse;
+    const textBlock = data.content?.find((block) => block.type === "text");
+    return textBlock?.text?.trim() ?? "";
+  }
+
+  throw new Error(`${label} API: max retries exceeded on 429`);
+}
+
+async function callOpenAiCompatible(
+  prompt: string,
+  maxTokens: number,
+  config: { apiKey: string; baseUrl: string; model: string },
+): Promise<string> {
+  for (let attempt = 0; attempt <= MAX_LLM_RETRIES; attempt++) {
+    const res = await fetch(`${config.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.model,
+        max_tokens: maxTokens,
+        temperature: LLM_TEMPERATURE,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      if (res.status === 429 && attempt < MAX_LLM_RETRIES) {
+        await delay(LLM_RETRY_BASE_DELAY_MS * 2 ** attempt);
+        continue;
+      }
+      throw new Error(`OpenAI API ${res.status}: ${errText.slice(0, 200)}`);
+    }
+
+    type OpenAiResponse = { choices?: Array<{ message?: { content?: string } }> };
+    const data = (await res.json()) as OpenAiResponse;
+    return data.choices?.[0]?.message?.content?.trim() ?? "";
+  }
+
+  throw new Error("OpenAI API: max retries exceeded on 429");
+}
 
 /**
  * Send a prompt through elizaOS message handler (triggers actions).
@@ -85,99 +243,31 @@ export async function directLlmCall(
  * Retries up to 3 times on 429 (rate limit) with exponential backoff.
  */
 async function callLlmDirect(prompt: string, maxTokens: number): Promise<string> {
-  const glmKey = process.env.GLM_API_KEY?.trim();
-  const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim();
-  const openaiEmbeddingsOnly = process.env.OPENAI_EMBEDDINGS_ONLY?.trim() === "true";
-  const openaiKey = openaiEmbeddingsOnly ? undefined : process.env.OPENAI_API_KEY?.trim();
+  const provider = resolveAutonomyLlmProvider();
 
-  const maxRetries = 3;
-  const baseDelay = 2000;
-
-  // Anthropic-compatible (GLM Coding Plan or native Anthropic)
-  if (glmKey || anthropicKey) {
-    const apiKey = glmKey || anthropicKey!;
-    const baseUrl = glmKey
-      ? "https://api.z.ai/api/anthropic"
-      : process.env.ANTHROPIC_BASE_URL?.trim() || "https://api.anthropic.com";
-    const model = glmKey
-      ? process.env.GLM_LARGE_MODEL?.trim() || "glm-4.7"
-      : process.env.ANTHROPIC_LARGE_MODEL?.trim() ||
-        process.env.LARGE_MODEL?.trim() ||
-        "claude-sonnet-4-20250514";
-
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const res = await fetch(`${baseUrl}/v1/messages`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: maxTokens,
-          temperature: LLM_TEMPERATURE,
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        if (res.status === 429 && attempt < maxRetries) {
-          const delay = baseDelay * 2 ** attempt;
-          await new Promise((r) => setTimeout(r, delay));
-          continue;
-        }
-        throw new Error(`Anthropic API ${res.status}: ${errText.slice(0, 200)}`);
-      }
-
-      type AnthropicResponse = { content?: Array<{ type: string; text?: string }> };
-      const data = (await res.json()) as AnthropicResponse;
-      const textBlock = data.content?.find((b) => b.type === "text");
-      return textBlock?.text?.trim() ?? "";
-    }
-    throw new Error("Anthropic API: max retries exceeded on 429");
+  switch (provider) {
+    case "glm":
+      return callAnthropicCompatible(prompt, maxTokens, getAnthropicFamilyConfig("glm"), "GLM");
+    case "anthropic":
+      return callAnthropicCompatible(
+        prompt,
+        maxTokens,
+        getAnthropicFamilyConfig("anthropic"),
+        "Anthropic",
+      );
+    case "openai":
+      return callOpenAiCompatible(prompt, maxTokens, getOpenAiConfig());
+    case "gemini":
+    case "groq":
+    case "grok":
+      throw new Error(
+        `Direct autonomy LLM calls are not implemented for configured provider "${provider}"`,
+      );
+    default:
+      throw new Error(
+        "No LLM provider configured for autonomy (set ELIZA_LLM_PROVIDER or a provider API key)",
+      );
   }
-
-  // OpenAI-compatible
-  if (openaiKey) {
-    const baseUrl = process.env.OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1";
-    const model =
-      process.env.OPENAI_LARGE_MODEL?.trim() || process.env.LARGE_MODEL?.trim() || "gpt-4o";
-
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const res = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${openaiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: maxTokens,
-          temperature: LLM_TEMPERATURE,
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        if (res.status === 429 && attempt < maxRetries) {
-          const delay = baseDelay * 2 ** attempt;
-          await new Promise((r) => setTimeout(r, delay));
-          continue;
-        }
-        throw new Error(`OpenAI API ${res.status}: ${errText.slice(0, 200)}`);
-      }
-
-      type OpenAiResponse = { choices?: Array<{ message?: { content?: string } }> };
-      const data = (await res.json()) as OpenAiResponse;
-      return data.choices?.[0]?.message?.content?.trim() ?? "";
-    }
-    throw new Error("OpenAI API: max retries exceeded on 429");
-  }
-
-  throw new Error("No LLM API key configured (GLM_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY)");
 }
 
 /** Parsed LLM structured output for a single pick. */
@@ -196,7 +286,7 @@ function parseLlmResponse(text: string): ParsedLlmPick | null {
   if (!text || text.length === 0) return null;
 
   const pickMatch = /PICK:\s*(\d+)/i.exec(text);
-  const pickNum = pickMatch ? Number.parseInt(pickMatch[1]!) : 0;
+  const pickNum = pickMatch ? Number.parseInt(pickMatch[1]!, 10) : 0;
   if (pickNum === 0) return null;
 
   const sideMatch = /SIDE:\s*(YES|NO)/i.exec(text);
@@ -229,69 +319,29 @@ export async function ensembleLlmCall(
   prompt: string,
   maxTokens = 800,
 ): Promise<string> {
-  const anthropicKey = process.env.ANTHROPIC_API_KEY?.trim() || process.env.GLM_API_KEY?.trim();
-  // When OPENAI_EMBEDDINGS_ONLY is set, don't use OpenAI for LLM calls (only for RAG embeddings)
-  const openaiEmbeddingsOnly = process.env.OPENAI_EMBEDDINGS_ONLY?.trim() === "true";
-  const openaiKey = openaiEmbeddingsOnly ? undefined : process.env.OPENAI_API_KEY?.trim();
-
-  // If only one provider, fall back to regular call
-  if (!anthropicKey || !openaiKey) {
+  if (!shouldUseAutonomyEnsemble()) {
     return directLlmCall(deps, callbacks, prompt, maxTokens);
   }
 
   callbacks.log("[LLM:ENSEMBLE] Calling 2 providers in parallel...");
 
-  const anthropicBase = process.env.GLM_API_KEY?.trim()
-    ? "https://api.z.ai/api/anthropic"
-    : process.env.ANTHROPIC_BASE_URL?.trim() || "https://api.anthropic.com";
-  const anthropicModel = process.env.GLM_API_KEY?.trim()
-    ? process.env.GLM_LARGE_MODEL?.trim() || "glm-4.7"
-    : process.env.ANTHROPIC_LARGE_MODEL?.trim() ||
-      process.env.LARGE_MODEL?.trim() ||
-      "claude-sonnet-4-20250514";
-  const openaiBase = process.env.OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1";
-  const openaiModel =
-    process.env.OPENAI_LARGE_MODEL?.trim() || process.env.LARGE_MODEL?.trim() || "gpt-4o";
+  const anthropicProvider: AnthropicFamilyProvider = process.env.GLM_API_KEY?.trim()
+    ? "glm"
+    : "anthropic";
+  const anthropicConfig = getAnthropicFamilyConfig(anthropicProvider);
+  const openaiConfig = getOpenAiConfig();
 
   const callAnthropic = async (): Promise<string> => {
-    const res = await fetch(`${anthropicBase}/v1/messages`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": anthropicKey!,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: anthropicModel,
-        max_tokens: maxTokens,
-        temperature: LLM_TEMPERATURE,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    if (!res.ok) throw new Error(`Anthropic ${res.status}`);
-    type R = { content?: Array<{ type: string; text?: string }> };
-    const data = (await res.json()) as R;
-    return data.content?.find((b) => b.type === "text")?.text?.trim() ?? "";
+    return callAnthropicCompatible(
+      prompt,
+      maxTokens,
+      anthropicConfig,
+      anthropicProvider === "glm" ? "GLM" : "Anthropic",
+    );
   };
 
   const callOpenai = async (): Promise<string> => {
-    const res = await fetch(`${openaiBase}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${openaiKey}`,
-      },
-      body: JSON.stringify({
-        model: openaiModel,
-        max_tokens: maxTokens,
-        temperature: LLM_TEMPERATURE,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-    if (!res.ok) throw new Error(`OpenAI ${res.status}`);
-    type R = { choices?: Array<{ message?: { content?: string } }> };
-    const data = (await res.json()) as R;
-    return data.choices?.[0]?.message?.content?.trim() ?? "";
+    return callOpenAiCompatible(prompt, maxTokens, openaiConfig);
   };
 
   const [resultA, resultB] = await Promise.allSettled([callAnthropic(), callOpenai()]);
@@ -413,6 +463,7 @@ export async function analyzeCandidates(
   ragContext: string,
 ): Promise<AnalysisResult[]> {
   const today = new Date().toISOString().split("T")[0];
+  const useEnsemble = shouldUseAutonomyEnsemble();
 
   const candidateList = candidates
     .map((c, i) => {
@@ -430,7 +481,9 @@ export async function analyzeCandidates(
     })
     .join("\n\n");
 
-  callbacks.log(`[ANALYSIS] Analyzing top ${candidates.length} markets (ensemble)...`);
+  callbacks.log(
+    `[ANALYSIS] Analyzing top ${candidates.length} markets${useEnsemble ? " (ensemble)" : ""}...`,
+  );
   for (const c of candidates) {
     callbacks.log(
       `[ANALYSIS:CANDIDATE] "${c.question.slice(0, 60)}" YES:$${c.yesPrice.toFixed(2)} score:${c.score.toFixed(2)} vol:$${c.volume?.toFixed(0) ?? "?"}`,
@@ -479,7 +532,9 @@ REASON: <one sentence — your strongest signal>
 
 PICK: 0 only if you genuinely see zero edge on every single candidate. Idle capital is a cost — find the best trade.`;
 
-  const text = await ensembleLlmCall(deps, callbacks, structuredPrompt, 1000);
+  const text = useEnsemble
+    ? await ensembleLlmCall(deps, callbacks, structuredPrompt, 1000)
+    : await directLlmCall(deps, callbacks, structuredPrompt, 1000);
 
   if (text.length === 0) {
     callbacks.log(`[ANALYSIS] LLM returned empty`);
@@ -504,7 +559,7 @@ PICK: 0 only if you genuinely see zero edge on every single candidate. Idle capi
 
     if (!sideMatch) continue;
 
-    const pickNum = pickMatch ? Number.parseInt(pickMatch[1]!) : 0;
+    const pickNum = pickMatch ? Number.parseInt(pickMatch[1]!, 10) : 0;
     if (pickNum === 0) continue;
 
     const pickIdx = Math.min(pickNum - 1, candidates.length - 1);

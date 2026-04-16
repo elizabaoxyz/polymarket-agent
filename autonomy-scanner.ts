@@ -3,7 +3,7 @@
  */
 
 import type { AutonomyCallbacks, AutonomyState } from "./autonomy-state";
-import { isFailCooledDown, isRecentlyTraded } from "./autonomy-state";
+import { hasPendingOrderForQuestion, isFailCooledDown, isRecentlyTraded } from "./autonomy-state";
 import {
   CONTRARIAN_BONUS,
   FAILED_BUY_COOLDOWN_MS,
@@ -245,7 +245,7 @@ export async function scanPolymarketMarkets(
       skipSold++;
       continue;
     }
-    if (state.pendingBuys.has(q.toLowerCase())) {
+    if (state.pendingBuys.has(q.toLowerCase()) || hasPendingOrderForQuestion(state, q)) {
       skipPending++;
       continue;
     }
@@ -473,11 +473,13 @@ export async function scanJupiterMarkets(
       const eventName = event.metadata?.title ?? "";
       const marketName = m.metadata?.title ?? "";
       const q = marketName
-        ? eventName ? `${eventName} — ${marketName}` : marketName
+        ? eventName
+          ? `${eventName} — ${marketName}`
+          : marketName
         : eventName || m.marketId;
       // LLM knowledge bonus
       const knowledgeBonus = llmKnowledgeBonus(q) * LLM_KNOWLEDGE_BONUS;
-      let adjustedScore =
+      const adjustedScore =
         score + priceSweetSpot * SCORE_PRICE_SWEET_SPOT_WEIGHT + quickFlipBonus + knowledgeBonus;
       // Volume is informational — let the LLM decide if liquidity is sufficient
       const marketTitle = (m.metadata?.title ?? "").toLowerCase();
@@ -495,11 +497,26 @@ export async function scanJupiterMarkets(
         continue;
       }
       // No trade-history cooldown for Jupiter — pool is too small for 7-day exclusions
-      if (state.pendingBuys.has(q.toLowerCase())) { _jupDbgCooldown++; continue; }
-      if (eventTitle && [...state.pendingBuys].some((p) => p.includes(eventTitle))) { _jupDbgCooldown++; continue; }
-      if (!isFailCooledDown(state.failedBuys, m.marketId, FAILED_BUY_COOLDOWN_MS)) { _jupDbgCooldown++; continue; }
-      if (state.recentlyAnalyzed.has(q.toLowerCase())) { _jupDbgCooldown++; continue; }
-      if (state.skippedMarkets.has(q.toLowerCase())) { _jupDbgCooldown++; continue; }
+      if (state.pendingBuys.has(q.toLowerCase()) || hasPendingOrderForQuestion(state, q)) {
+        _jupDbgCooldown++;
+        continue;
+      }
+      if (eventTitle && [...state.pendingBuys].some((p) => p.includes(eventTitle))) {
+        _jupDbgCooldown++;
+        continue;
+      }
+      if (!isFailCooledDown(state.failedBuys, m.marketId, FAILED_BUY_COOLDOWN_MS)) {
+        _jupDbgCooldown++;
+        continue;
+      }
+      if (state.recentlyAnalyzed.has(q.toLowerCase())) {
+        _jupDbgCooldown++;
+        continue;
+      }
+      if (state.skippedMarkets.has(q.toLowerCase())) {
+        _jupDbgCooldown++;
+        continue;
+      }
       jupScored.push({
         question: q,
         marketId: m.marketId,

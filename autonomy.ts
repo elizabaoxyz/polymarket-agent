@@ -33,7 +33,7 @@ import {
   reevaluateStuckDust,
   seedStateFromTradeHistory,
 } from "./autonomy-state";
-import { directJupiterBuy, directPolymarketBuy } from "./autonomy-trade";
+import { type BuyExecutionResult, directJupiterBuy, directPolymarketBuy } from "./autonomy-trade";
 import {
   CIRCUIT_BREAKER_LOSS_PCT,
   calcKellyBetSize,
@@ -77,7 +77,7 @@ type PlatformBuyConfig = {
     analysis: AnalysisResult,
     betSize: number,
     remainingBalance: number,
-  ) => Promise<boolean>;
+  ) => Promise<BuyExecutionResult>;
   recordFailedBuy: (analysis: AnalysisResult) => void;
   beforeBuy?: () => Promise<boolean>;
   onScanComplete?: (scored: ScoredMarket[] | JupMarket[]) => Promise<void>;
@@ -227,7 +227,7 @@ async function platformBuyPhase(
         // (0.18-0.25:1) even when they're excellent trades. Kelly sizing handles
         // the risk math — this gate just prevents degenerate bets.
         const effectiveMinRatio =
-          analysis.confidence >= 0.75 ? 0.12 : analysis.confidence >= 0.60 ? 0.25 : MIN_REWARD_RATIO;
+          analysis.confidence >= 0.75 ? 0.12 : analysis.confidence >= 0.6 ? 0.25 : MIN_REWARD_RATIO;
         if (rewardRatio < effectiveMinRatio) {
           callbacks.log(
             `${tag} ❌ Skipping "${analysis.pick.question.slice(0, 50)}" — ratio ${rewardRatio.toFixed(2)}:1 below ${effectiveMinRatio.toFixed(2)} (conf=${analysis.confidence.toFixed(2)})`,
@@ -263,17 +263,23 @@ async function platformBuyPhase(
           `[BUY:${config.label}] #${buyCount + 1} "${analysis.pick.question}" (${analysis.side}:$${marketPrice.toFixed(2)}, kelly:$${betSize.toFixed(2)}, edge:${analysis.edge.toFixed(2)}, conf:${analysis.confidence.toFixed(2)}, est:${analysis.estimatedProb.toFixed(2)})`,
         );
         state.pendingBuys.add(analysis.pick.question.toLowerCase());
-        const bought = await config.executeBuy(analysis, betSize, remainingBalance);
-        if (bought) {
+        const buyResult = await config.executeBuy(analysis, betSize, remainingBalance);
+        if (buyResult.status === "filled") {
           recordTrade(state, {
             question: analysis.pick.question,
             platform: config.label,
             time: Date.now(),
             price: analysis.pick.yesPrice,
-            amount: betSize,
+            amount: buyResult.amountUsd,
           });
-          remainingBalance -= betSize;
+          remainingBalance = Math.max(0, remainingBalance - buyResult.amountUsd);
           buyCount++;
+        } else if (buyResult.status === "pending") {
+          remainingBalance = Math.max(0, remainingBalance - buyResult.amountUsd);
+          buyCount++;
+          callbacks.log(
+            `${tag} Pending order placed for "${analysis.pick.question.slice(0, 50)}" — reserved $${buyResult.amountUsd.toFixed(2)} until fill/cancel`,
+          );
         } else {
           config.recordFailedBuy(analysis);
         }

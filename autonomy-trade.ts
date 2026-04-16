@@ -12,6 +12,11 @@ import {
 import type { PolymarketExtService } from "./plugins/polymarket-ext/service";
 import { POLYMARKET_EXT_SERVICE_TYPE } from "./plugins/polymarket-ext/types";
 
+export type BuyExecutionResult =
+  | { status: "filled"; amountUsd: number }
+  | { status: "pending"; amountUsd: number; orderId: string }
+  | { status: "failed" };
+
 /**
  * Direct Polymarket sell via CLOB API (bypasses LLM).
  */
@@ -118,14 +123,14 @@ export async function directPolymarketBuy(
   knownTokenId?: string,
   expectedPrice?: number,
   knownNoTokenId?: string,
-): Promise<boolean> {
+): Promise<BuyExecutionResult> {
   try {
     const extSvc = (await deps.runtime.getServiceLoadPromise(
       POLYMARKET_EXT_SERVICE_TYPE,
     )) as unknown as PolymarketExtService;
     if (!extSvc?.isFullyActive()) {
       callbacks.log(`[BUY:POLYMARKET] ❌ CLOB not active`);
-      return false;
+      return { status: "failed" };
     }
 
     // Resolve the correct token for the side we want to buy.
@@ -163,7 +168,7 @@ export async function directPolymarketBuy(
       const markets = await extSvc.clob!.searchMarkets(question);
       if (markets.length === 0) {
         callbacks.log(`[BUY:POLYMARKET] ❌ No market found matching "${question.slice(0, 50)}"`);
-        return false;
+        return { status: "failed" };
       }
       const market = markets[0]!;
       const outcome = side === "YES" ? "Yes" : "No";
@@ -172,7 +177,7 @@ export async function directPolymarketBuy(
         callbacks.log(
           `[BUY:POLYMARKET] ❌ No ${outcome} token for "${market.question?.slice(0, 50)}"`,
         );
-        return false;
+        return { status: "failed" };
       }
       tokenId = token.token_id;
       midPrice = token.price;
@@ -198,7 +203,7 @@ export async function directPolymarketBuy(
     const price = midPrice;
     if (price < 0.01 || price > 0.99) {
       callbacks.log(`[BUY:POLYMARKET] ❌ Price $${price.toFixed(4)} out of range`);
-      return false;
+      return { status: "failed" };
     }
 
     // Sanity check: abort if CLOB price is much worse than scanner expected
@@ -208,7 +213,7 @@ export async function directPolymarketBuy(
         `[BUY:POLYMARKET] ❌ CLOB price $${price.toFixed(2)} is ${Math.round((price / expectedPrice - 1) * 100)}% worse than expected $${expectedPrice.toFixed(2)} — stale data, aborting`,
       );
       state.skippedMarkets.set(question.toLowerCase(), Date.now());
-      return false;
+      return { status: "failed" };
     }
 
     let size = Math.max(5, Math.floor(betSize / price));
@@ -220,7 +225,7 @@ export async function directPolymarketBuy(
         callbacks.log(
           `[BUY:POLYMARKET] ❌ Not enough balance: $${balance.toFixed(2)} — can't afford 5 shares at $${price.toFixed(2)}`,
         );
-        return false;
+        return { status: "failed" };
       }
       callbacks.log(
         `[BUY:POLYMARKET] ⚠️ Reduced order from ${Math.floor(betSize / price)} to ${size} shares to fit balance $${balance.toFixed(2)}`,
@@ -240,7 +245,7 @@ export async function directPolymarketBuy(
           `[BUY:POLYMARKET] ✅ FOK FILLED: $${betSize.toFixed(2)} for "${question.slice(0, 60)}"${txInfo}`,
         );
         recordSpend(state, betSize);
-        return true;
+        return { status: "filled", amountUsd: betSize };
       }
       callbacks.log(
         `[BUY:POLYMARKET] FOK didn't fill (${result.status}), trying GTC limit at $${price.toFixed(2)}...`,
@@ -254,32 +259,36 @@ export async function directPolymarketBuy(
     result = await extSvc.placeOrder({ tokenId, side: "BUY", price, size });
     const total = (size * price).toFixed(2);
     const statusIcon = result.status === "matched" ? "FILLED" : String(result.status).toUpperCase();
+    const statusPrefix = result.status === "matched" ? "✅" : "⏳";
     const txInfo =
       result.transactionsHashes.length > 0
         ? ` | tx: ${result.transactionsHashes[0]!.slice(0, 10)}...`
         : "";
     callbacks.log(
-      `[BUY:POLYMARKET] ✅ ${statusIcon}: ${size} shares @ $${price.toFixed(2)} ($${total}) for "${question.slice(0, 60)}"${txInfo}`,
+      `[BUY:POLYMARKET] ${statusPrefix} ${statusIcon}: ${size} shares @ $${price.toFixed(2)} ($${total}) for "${question.slice(0, 60)}"${txInfo}`,
     );
     if (result.status === "matched") {
-      recordSpend(state, Number(total));
+      const filledAmount = Number(total);
+      recordSpend(state, filledAmount);
+      return { status: "filled", amountUsd: filledAmount };
     } else {
+      const pendingAmount = Number(total);
       state.pendingOrders.set(result.orderID, {
         orderID: result.orderID,
         platform: "POLYMARKET",
-        question: question.slice(0, 80),
-        amount: Number(total),
+        question,
+        amount: pendingAmount,
         placedAt: Date.now(),
       });
       callbacks.log(
         `[BUY:POLYMARKET] ⏳ GTC order ${result.orderID} pending — will monitor next cycle`,
       );
+      return { status: "pending", amountUsd: pendingAmount, orderId: result.orderID };
     }
-    return true;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     callbacks.log(`[BUY:POLYMARKET] ❌ "${question.slice(0, 50)}" — failed: ${msg}`);
-    return false;
+    return { status: "failed" };
   }
 }
 
@@ -293,18 +302,18 @@ export async function directJupiterBuy(
   marketId: string,
   side: string,
   betSize: number,
-  question?: string,
+  _question?: string,
   availableBalance?: number,
   usdcBalance?: number,
   jupUsdBalance?: number,
-): Promise<boolean> {
+): Promise<BuyExecutionResult> {
   try {
     const jupSvc = (await deps.runtime.getServiceLoadPromise(
       JUPITER_SERVICE_TYPE,
     )) as unknown as JupiterPredictionService | null;
-    if (!jupSvc || !jupSvc.ownerPubkey) {
+    if (!jupSvc?.ownerPubkey) {
       callbacks.log(`[BUY:JUPITER] ❌ Jupiter service not available`);
-      return false;
+      return { status: "failed" };
     }
 
     const isYes = side.toUpperCase() === "YES";
@@ -315,7 +324,7 @@ export async function directJupiterBuy(
         `[BUY:JUPITER] ❌ Not enough available balance: $${availableBalance.toFixed(2)} < $${betSize.toFixed(2)}`,
       );
       state.jupBuyPausedUntil = Date.now() + 5 * 60_000;
-      return false;
+      return { status: "failed" };
     }
 
     let mint: string;
@@ -326,22 +335,18 @@ export async function directJupiterBuy(
       mint = "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD";
     } else if (usdc >= betSize) {
       mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-    } else if (combined >= betSize && usdc >= 0.5) {
-      // Combined balance covers the bet — use whichever has more
-      // Jupiter only takes from one mint, so pick the larger one
-      mint =
-        jup >= usdc
-          ? "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD"
-          : "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+    } else if (combined >= betSize) {
       callbacks.log(
-        `[BUY:JUPITER] Using larger mint for combined balance (USDC=$${usdc.toFixed(2)} + JupUSD=$${jup.toFixed(2)} = $${combined.toFixed(2)})`,
+        `[BUY:JUPITER] ❌ Combined balance is $${combined.toFixed(2)}, but Jupiter requires one mint to cover the full $${betSize.toFixed(2)} (USDC=$${usdc.toFixed(2)}, JupUSD=$${jup.toFixed(2)})`,
       );
+      state.jupBuyPausedUntil = Date.now() + 5 * 60_000;
+      return { status: "failed" };
     } else {
       callbacks.log(
         `[BUY:JUPITER] ❌ Combined balance $${combined.toFixed(2)} too low for $${betSize.toFixed(2)} (USDC=$${usdc.toFixed(2)}, JupUSD=$${jup.toFixed(2)}). Need to deposit.`,
       );
       state.jupBuyPausedUntil = Date.now() + 5 * 60_000;
-      return false;
+      return { status: "failed" };
     }
     const mintLabel = mint.startsWith("Jupr") ? "JupUSD" : "USDC";
     callbacks.log(
@@ -359,7 +364,7 @@ export async function directJupiterBuy(
 
     callbacks.log(`[BUY:JUPITER] ✅ Order placed! Order: ${orderId} | Signature: ${signature}`);
     recordSpend(state, betSize);
-    return true;
+    return { status: "filled", amountUsd: betSize };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     callbacks.log(`[BUY:JUPITER] ❌ Failed: ${msg}`);
@@ -367,6 +372,6 @@ export async function directJupiterBuy(
     if (msg.includes("Insufficient funds") || msg.includes("insufficient")) {
       state.jupBuyPausedUntil = Date.now() + 5 * 60_000;
     }
-    return false;
+    return { status: "failed" };
   }
 }

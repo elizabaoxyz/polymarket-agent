@@ -203,6 +203,14 @@ export function isRecentlyTraded(state: AutonomyState, question: string): boolea
   );
 }
 
+export function hasPendingOrderForQuestion(state: AutonomyState, question: string): boolean {
+  const q = question.toLowerCase();
+  for (const order of state.pendingOrders.values()) {
+    if (order.question.toLowerCase() === q) return true;
+  }
+  return false;
+}
+
 export function isFailCooledDown(
   failMap: Map<string, number>,
   key: string,

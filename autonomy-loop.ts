@@ -90,7 +90,7 @@ export function startAutonomy(
       const x402Svc = (await deps.runtime.getServiceLoadPromise(
         X402_SERVICE_TYPE,
       )) as unknown as X402SolanaService | null;
-      if (x402Svc && x402Svc.isActive()) {
+      if (x402Svc?.isActive()) {
         globalThis.fetch = x402Svc.getWrappedFetch();
         callbacks.send({
           type: "action_result",
@@ -106,16 +106,32 @@ export function startAutonomy(
   })();
 
   const IDLE_MULTIPLIER = 5;
+  const runCycleSafely = async () => {
+    try {
+      await runAutonomyCycle(deps, callbacks, state);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error("autonomy", `cycle crashed: ${msg}`);
+      try {
+        callbacks.send({
+          type: "action_result",
+          text: `[AUTONOMY] Cycle error: ${msg}`,
+        });
+      } catch {}
+      try {
+        callbacks.send({ type: "thinking", active: false });
+      } catch {}
+    }
+  };
   const scheduleNext = () => {
     if (!running) return;
     const interval =
       state.idleCycles >= 3 ? AUTONOMY_INTERVAL_MS * IDLE_MULTIPLIER : AUTONOMY_INTERVAL_MS;
-    timer = setTimeout(async () => {
-      await runAutonomyCycle(deps, callbacks, state);
-      scheduleNext();
+    timer = setTimeout(() => {
+      void runCycleSafely().finally(scheduleNext);
     }, interval);
   };
-  runAutonomyCycle(deps, callbacks, state).then(scheduleNext);
+  void runCycleSafely().finally(scheduleNext);
 
   return {
     get isRunning() {

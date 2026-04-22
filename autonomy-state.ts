@@ -95,6 +95,8 @@ export type AutonomyState = {
   lastStuckDustReeval: number;
   /** Jupiter price history: pubkey → array of {time, price} for trend computation */
   jupPriceHistory: Map<string, Array<{ time: number; price: number }>>;
+  /** Consecutive cycles where Jupiter was capped and nothing auto-sold — triggers forced rotation */
+  jupiterStuckCycles: number;
   /** Pending unfilled orders — monitored each cycle, cancelled if stale */
   pendingOrders: Map<
     string,
@@ -134,6 +136,7 @@ export function createState(platform: AutonomyPlatform): AutonomyState {
     circuitBreakerTripped: false,
     lastStuckDustReeval: 0,
     jupPriceHistory: new Map(),
+    jupiterStuckCycles: 0,
     pendingOrders: new Map(),
   };
 }

@@ -23,6 +23,7 @@ import {
   DEAD_POSITION_PRICE,
   HARD_STOP_LOSS_PCT,
   HIGH_PRICE_SELL,
+  MAX_POSITIONS,
   PARTIAL_PROFIT_PRICE,
   PRICE_CEILING_MIN_PNL,
   PRICE_CEILING_SELL,
@@ -584,23 +585,83 @@ export async function unifiedPortfolioReview(
     balance < CAPITAL_PRESSURE_MIN_BALANCE &&
     reviewable.length > CAPITAL_PRESSURE_MAX_POSITIONS
   ) {
-    const unsold = reviewable.filter((p) => !autoSellSet.has(p));
+    const minAgeDays = 1 / 24;
+    const unsold = reviewable.filter((p) => {
+      if (autoSellSet.has(p)) return false;
+      const age = getPositionAgeDays(state, p.token ?? p.pubkey ?? "");
+      return age >= minAgeDays;
+    });
     const sorted = [...unsold].sort((a, b) => a.pnl - b.pnl);
     const toSell = sorted.slice(0, 3);
-    callbacks.log(
-      `[PORTFOLIO:${platform}] CAPITAL PRESSURE — selling ${toSell.length} weakest positions`,
-    );
-    for (const p of toSell) {
-      autoSellSet.add(p);
-      const sign = p.pnl >= 0 ? "+" : "";
-      await executeSell(
-        deps,
-        callbacks,
-        state,
-        p,
-        platform,
-        `capital-pressure (${sign}${p.pnl.toFixed(0)}%)`,
+    if (toSell.length > 0) {
+      callbacks.log(
+        `[PORTFOLIO:${platform}] CAPITAL PRESSURE — selling ${toSell.length} weakest positions`,
       );
+      for (const p of toSell) {
+        autoSellSet.add(p);
+        const sign = p.pnl >= 0 ? "+" : "";
+        await executeSell(
+          deps,
+          callbacks,
+          state,
+          p,
+          platform,
+          `capital-pressure (${sign}${p.pnl.toFixed(0)}%)`,
+        );
+      }
+    } else {
+      callbacks.log(
+        `[PORTFOLIO:${platform}] CAPITAL PRESSURE — no positions older than 1h, holding`,
+      );
+    }
+  }
+
+  // === Jupiter stuck-capital rotation ===
+  // If Jupiter has been at cap with no auto-sell triggers for many cycles,
+  // capital is locked forever. Rotate out the least-conviction position
+  // (oldest & flattest PnL) to free a slot for new opportunities.
+  if (platform === "JUPITER") {
+    const capped = reviewable.length >= MAX_POSITIONS;
+    if (capped && autoSellSet.size === 0) {
+      state.jupiterStuckCycles++;
+    } else {
+      state.jupiterStuckCycles = 0;
+    }
+    const STUCK_THRESHOLD = 30;
+    const MIN_ROTATION_AGE_DAYS = 2 / 24;
+    if (state.jupiterStuckCycles >= STUCK_THRESHOLD) {
+      const candidates = reviewable
+        .filter((p) => !autoSellSet.has(p))
+        .filter((p) => getPositionAgeDays(state, p.pubkey ?? "") >= MIN_ROTATION_AGE_DAYS);
+      if (candidates.length > 0) {
+        const victim = candidates.sort((a, b) => {
+          const ageDelta =
+            getPositionAgeDays(state, b.pubkey ?? "") - getPositionAgeDays(state, a.pubkey ?? "");
+          if (Math.abs(ageDelta) > 0.04) return ageDelta;
+          return Math.abs(a.pnl) - Math.abs(b.pnl);
+        })[0];
+        if (victim) {
+          const sign = victim.pnl >= 0 ? "+" : "";
+          const victimAge = getPositionAgeDays(state, victim.pubkey ?? "");
+          callbacks.log(
+            `[PORTFOLIO:JUPITER] STUCK-CAPITAL ROTATION — ${state.jupiterStuckCycles} idle cycles, rotating "${victim.title}" (${sign}${victim.pnl.toFixed(0)}%, ${victimAge.toFixed(1)}d)`,
+          );
+          autoSellSet.add(victim);
+          state.jupiterStuckCycles = 0;
+          await executeSell(
+            deps,
+            callbacks,
+            state,
+            victim,
+            platform,
+            `stuck-rotation (${sign}${victim.pnl.toFixed(0)}%, idle ${STUCK_THRESHOLD}+ cycles)`,
+          );
+        }
+      } else {
+        callbacks.log(
+          `[PORTFOLIO:JUPITER] STUCK-CAPITAL — ${state.jupiterStuckCycles} idle cycles but no positions older than 2h, holding`,
+        );
+      }
     }
   }
 

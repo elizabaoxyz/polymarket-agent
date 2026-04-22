@@ -7,12 +7,13 @@ import { directLlmCall } from "./autonomy-llm";
 import type { AutonomyCallbacks, AutonomyDeps, AutonomyState } from "./autonomy-state";
 import {
   computeJupTrend,
-  getDropFromPeak,
+  getPeakPnl,
   getPositionAgeDays,
   pruneStaleJupHistory,
   pruneStaleTracking,
   recordJupPriceSnapshot,
   trackPositionAge,
+  updatePeakPnl,
   updatePeakPrice,
 } from "./autonomy-state";
 import { directPolymarketSell } from "./autonomy-trade";
@@ -23,10 +24,12 @@ import {
   HARD_STOP_LOSS_PCT,
   HIGH_PRICE_SELL,
   PARTIAL_PROFIT_PRICE,
+  PRICE_CEILING_MIN_PNL,
   PRICE_CEILING_SELL,
   TIME_DECAY_SELL_DAYS,
-  TRAILING_STOP_DROP_PCT,
+  TRAILING_STOP_MIN_PNL,
   TRAILING_STOP_MIN_PRICE,
+  TRAILING_STOP_PNL_DROP,
 } from "./config";
 import { log } from "./log";
 import type { PriceTrend } from "./market-intel";
@@ -431,6 +434,7 @@ export async function unifiedPortfolioReview(
     if (p.curPrice !== undefined && p.curPrice > 0) {
       updatePeakPrice(state, key, p.curPrice);
     }
+    updatePeakPnl(state, key, p.pnl);
     trackPositionAge(state, key);
     // Track Jupiter price snapshots for trend computation
     if (platform === "JUPITER" && p.pubkey && p.curPrice && p.curPrice > 0) {
@@ -485,21 +489,27 @@ export async function unifiedPortfolioReview(
     const pnl = p.pnl;
     const age = getPositionAgeDays(state, key);
     const trend = trendMap.get(key);
-    const dropFromPeak = getDropFromPeak(state, key, price);
+    const peakPnl = getPeakPnl(state, key);
+    const pnlDrop = peakPnl !== null ? peakPnl - pnl : 0;
 
     let reason = "";
 
-    // Rule 1: Price ceiling — max 18% upside, 85% downside
-    if (price >= PRICE_CEILING_SELL) {
-      reason = `price-ceiling ($${price.toFixed(2)} >= $${PRICE_CEILING_SELL})`;
+    // Rule 1: Price ceiling — only when actually profitable.
+    // A NO position priced at $0.92 is a LOSER, not a winner.
+    if (price >= PRICE_CEILING_SELL && pnl >= PRICE_CEILING_MIN_PNL) {
+      reason = `price-ceiling ($${price.toFixed(2)}, +${pnl.toFixed(0)}%)`;
     }
-    // Rule 2: High price + stale — upside thinning, capital better elsewhere
-    else if (price >= HIGH_PRICE_SELL && age > 1) {
-      reason = `high-price-stale ($${price.toFixed(2)}, ${age.toFixed(1)}d old)`;
+    // Rule 2: High price + stale, gated on actual profit
+    else if (price >= HIGH_PRICE_SELL && age > 1 && pnl >= PRICE_CEILING_MIN_PNL) {
+      reason = `high-price-stale ($${price.toFixed(2)}, ${age.toFixed(1)}d old, +${pnl.toFixed(0)}%)`;
     }
-    // Rule 3: High price + falling trend
-    else if (price >= TRAILING_STOP_MIN_PRICE && trend?.direction === "down") {
-      reason = `high-price-falling ($${price.toFixed(2)}, trend=${trend.direction})`;
+    // Rule 3: High price + falling trend, gated on actual profit
+    else if (
+      price >= TRAILING_STOP_MIN_PRICE &&
+      trend?.direction === "down" &&
+      pnl >= PRICE_CEILING_MIN_PNL
+    ) {
+      reason = `high-price-falling ($${price.toFixed(2)}, trend=${trend.direction}, +${pnl.toFixed(0)}%)`;
     }
     // Rule 4: Dead position — thesis was wrong
     else if (price > 0 && price < DEAD_POSITION_PRICE) {
@@ -509,9 +519,15 @@ export async function unifiedPortfolioReview(
     else if (pnl <= HARD_STOP_LOSS_PCT) {
       reason = `hard-stop-loss (${pnl.toFixed(0)}% <= ${HARD_STOP_LOSS_PCT}%)`;
     }
-    // Rule 6: Trailing stop — only above min price, drops from peak
-    else if (price >= TRAILING_STOP_MIN_PRICE && dropFromPeak >= TRAILING_STOP_DROP_PCT) {
-      reason = `trailing-stop (peak $${state.peakPrice.get(key)?.toFixed(2)}, now $${price.toFixed(2)}, drop ${dropFromPeak.toFixed(1)}%)`;
+    // Rule 6: PnL trailing stop — side-agnostic.
+    // Activates once position has hit +TRAILING_STOP_MIN_PNL%; sells when
+    // PnL retraces TRAILING_STOP_PNL_DROP points from its peak.
+    else if (
+      peakPnl !== null &&
+      peakPnl >= TRAILING_STOP_MIN_PNL &&
+      pnlDrop >= TRAILING_STOP_PNL_DROP
+    ) {
+      reason = `trailing-stop-pnl (peak +${peakPnl.toFixed(0)}%, now ${pnl >= 0 ? "+" : ""}${pnl.toFixed(0)}%, drop ${pnlDrop.toFixed(0)}pts)`;
     }
     // Rule 7: Stale position — no significant movement for 5+ days, capital is trapped
     else if (age > 5 && price >= 0.35 && price <= 0.65 && Math.abs(pnl) < 3) {
@@ -538,7 +554,9 @@ export async function unifiedPortfolioReview(
       if (autoSellSet.has(p)) continue;
       const price = p.curPrice ?? 0;
       const shares = p.shares ?? 0;
-      if (price >= PARTIAL_PROFIT_PRICE && shares > 10) {
+      // Only take partial profit when the position is actually in profit —
+      // a NO leg priced at $0.78 might still be underwater.
+      if (price >= PARTIAL_PROFIT_PRICE && p.pnl >= PRICE_CEILING_MIN_PNL && shares > 10) {
         const halfShares = Math.floor(shares / 2);
         if (halfShares >= 5) {
           // CLOB minimum
@@ -644,24 +662,26 @@ export async function unifiedPortfolioReview(
     callbacks,
     `You are a disciplined prediction market portfolio manager. Today is ${new Date().toISOString().split("T")[0]}.
 
-BINARY MARKET RULES — these markets pay $1 or $0. Current PRICE determines risk/reward, not your entry cost.
+These positions already passed the automated rules (hard stop at -15%, trailing stop after +15% peak, price-ceiling for profitable winners). Your job is the ambiguous middle. Fee drag is real — churning break-even positions is a guaranteed loss.
 
-SELL RULES (price-based — this is what matters in binary markets):
-- Price > $0.85: SELL — max 18% upside, 85% downside. Lock in gains.
-- Price > $0.75 with DOWNWARD trend: SELL — momentum fading, thin upside.
-- Price < $0.05: SELL — thesis is dead. Salvage dust.
-- PnL < -20% with DOWNWARD trend: SELL — getting worse, cut losses.
-- PnL -10% to +15%: HOLD — within noise, spread costs make selling unprofitable.
-- PnL > +15% with UPWARD trend: HOLD — let winners run.
-- Position < 5 days old: HOLD — give trades time to play out unless price is extreme.
+BINARY MARKETS pay $1 or $0. BOTH direction (YES vs NO) AND PnL% matter — a NO position at $0.90 is a LOSER, not a winner.
 
-CRITICAL: The PRICE is more important than PnL%. A position at $0.70 has 43% max upside regardless of what you paid.
+SELL when:
+- PnL > +8% AND price > $0.85: lock in — thin remaining upside.
+- PnL > +8% AND price > $0.75 AND trend is DOWNWARD: take it before it fades.
+- PnL < -10% AND trend is DOWNWARD AND age > 3 days: thesis is not playing out.
+- Price < $0.05: thesis is dead, salvage dust.
+
+HOLD when:
+- PnL between -10% and +8%: fee drag makes churning unprofitable.
+- PnL > +8% with UPWARD trend: let winners run toward the trailing stop.
+- Position < 3 days old AND PnL > -10%: give trades time to play out.
 
 Positions:
 ${llmPositionList}
 
 Respond with one line per position:
-<number>: SELL or HOLD — <reason citing price and trend>`,
+<number>: SELL or HOLD — <reason citing PnL and trend>`,
   );
 
   if (reviewText.length === 0) return;

@@ -81,8 +81,10 @@ export type AutonomyState = {
   recentlyAnalyzed: Map<string, number>;
   /** Tokens permanently stuck (< 5 shares, illiquid, or dead markets) — excluded from position count */
   stuckDust: Set<string>;
-  /** Peak observed price per position — for trailing stops */
+  /** Peak observed price per position — legacy, kept for any price-based logic */
   peakPrice: Map<string, number>;
+  /** Peak observed PnL % per position — for side-agnostic trailing stops */
+  peakPnl: Map<string, number>;
   /** First time a position was seen — for time-based exits */
   positionFirstSeen: Map<string, number>;
   /** Starting balance snapshot — for circuit breaker loss detection */
@@ -124,6 +126,7 @@ export function createState(platform: AutonomyPlatform): AutonomyState {
     recentlyAnalyzed: new Map(),
     stuckDust: new Set<string>(),
     peakPrice: new Map(),
+    peakPnl: new Map(),
     positionFirstSeen: new Map(),
     idleCycles: 0,
     depositNotified: false,
@@ -241,6 +244,20 @@ export function getDropFromPeak(state: AutonomyState, key: string, currentPrice:
   return ((peak - currentPrice) / peak) * 100;
 }
 
+/** Update peak PnL % for a position. Only increases, never decreases. */
+export function updatePeakPnl(state: AutonomyState, key: string, currentPnl: number): void {
+  const prev = state.peakPnl.get(key);
+  if (prev === undefined || currentPnl > prev) {
+    state.peakPnl.set(key, currentPnl);
+  }
+}
+
+/** Get peak PnL % for a position. Returns null if never tracked. */
+export function getPeakPnl(state: AutonomyState, key: string): number | null {
+  const peak = state.peakPnl.get(key);
+  return peak === undefined ? null : peak;
+}
+
 /** Record the first time a position is seen. Does not overwrite existing. */
 export function trackPositionAge(state: AutonomyState, key: string): void {
   if (!state.positionFirstSeen.has(key)) {
@@ -306,6 +323,9 @@ export function getPositionAgeDays(state: AutonomyState, key: string): number {
 export function pruneStaleTracking(state: AutonomyState, activeKeys: Set<string>): void {
   for (const key of state.peakPrice.keys()) {
     if (!activeKeys.has(key)) state.peakPrice.delete(key);
+  }
+  for (const key of state.peakPnl.keys()) {
+    if (!activeKeys.has(key)) state.peakPnl.delete(key);
   }
   for (const key of state.positionFirstSeen.keys()) {
     if (!activeKeys.has(key)) state.positionFirstSeen.delete(key);

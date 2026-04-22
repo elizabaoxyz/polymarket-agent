@@ -479,9 +479,10 @@ export async function scanJupiterMarkets(
         : eventName || m.marketId;
       // LLM knowledge bonus
       const knowledgeBonus = llmKnowledgeBonus(q) * LLM_KNOWLEDGE_BONUS;
-      const adjustedScore =
+      let adjustedScore =
         score + priceSweetSpot * SCORE_PRICE_SWEET_SPOT_WEIGHT + quickFlipBonus + knowledgeBonus;
-      // Volume is informational — let the LLM decide if liquidity is sufficient
+      // Crush score for dead-volume markets — fee drag dominates at this size
+      if (volume < 1) adjustedScore *= 0.1;
       const marketTitle = (m.metadata?.title ?? "").toLowerCase();
       const eventTitle = (event.metadata?.title ?? "").toLowerCase();
       if (ownedTitles.has(marketTitle) || ownedTitles.has(`${eventTitle} — ${marketTitle}`)) {
@@ -559,8 +560,9 @@ export async function scanJupiterMarkets(
         }
 
         if (intel.depth && !intel.depth.isLiquid) {
+          topN[i]!.score *= 0.3;
           callbacks.log(
-            `[INTEL:JUP] ⚠️ "${topN[i]!.question.slice(0, 50)}" — low liquidity ($${intel.depth.totalDepthUsd.toFixed(0)} depth)`,
+            `[INTEL:JUP] ⚠️ "${topN[i]!.question.slice(0, 50)}" — low liquidity ($${intel.depth.totalDepthUsd.toFixed(0)} depth), score crushed`,
           );
         }
       }

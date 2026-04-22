@@ -8,7 +8,13 @@ import type { Content } from "@elizaos/core";
 import { ChannelType, createMessageMemory, type stringToUuid } from "@elizaos/core";
 import { v4 as uuidv4 } from "uuid";
 import type { AutonomyCallbacks, AutonomyDeps } from "./autonomy-state";
-import { LLM_TEMPERATURE, MIN_CONFIDENCE_THRESHOLD, MIN_EDGE_THRESHOLD } from "./config";
+import {
+  LLM_TEMPERATURE,
+  MIN_CONFIDENCE_THRESHOLD,
+  MIN_EDGE_THRESHOLD,
+  MIN_NET_EDGE,
+  TAKER_FEE_RATE,
+} from "./config";
 import { DEFAULT_LLM_MODELS, type LlmProvider, resolveLlmModel, resolveLlmProvider } from "./lib";
 import { formatIntelForPrompt } from "./market-intel";
 
@@ -372,42 +378,29 @@ export async function ensembleLlmCall(
     const picksA = parseAll(textA);
     const picksB = parseAll(textB);
 
-    // Merge picks: consensus gets full confidence, disagreement lets the more confident provider through with a penalty
+    // Consensus only: if both providers disagree on direction, skip entirely.
+    // Coin-flip markets with conflicting reads are where ensemble losses stack up.
     const merged: ParsedLlmPick[] = [];
 
     if (picksA.length > 0 && picksB.length > 0 && picksA[0]!.side !== picksB[0]!.side) {
-      // Providers disagree on direction — pick the more confident one with a penalty
-      const confA = picksA[0]!.confidence;
-      const confB = picksB[0]!.confidence;
-      const winner = confA >= confB ? picksA[0]! : picksB[0]!;
-      const loser = confA >= confB ? picksB[0]! : picksA[0]!;
-      const confGap = Math.abs(confA - confB);
-      // Bigger gap = more conviction from winner. Scale penalty: 0.75x base, up to 0.85x if gap > 0.15
-      const penalty = confGap > 0.15 ? 0.85 : 0.75;
       callbacks.log(
-        `[LLM:ENSEMBLE] Providers disagree (${picksA[0]!.side} vs ${picksB[0]!.side}) — using ${winner.side} (conf ${winner.confidence.toFixed(2)} vs ${loser.confidence.toFixed(2)}, ${penalty}x penalty)`,
+        `[LLM:ENSEMBLE] Providers disagree on direction (${picksA[0]!.side} vs ${picksB[0]!.side}) — skipping`,
       );
-      merged.push({
-        ...winner,
-        confidence: winner.confidence * penalty,
-        edge: winner.edge * 0.9,
-        reason: `[split-decision] ${winner.reason}`,
-      });
-    } else {
-      // Same direction or only one has picks — merge normally
-      for (const a of picksA) {
-        const b = picksB.find((p) => p.pickNum === a.pickNum && p.side === a.side);
-        if (b) {
-          merged.push({
-            ...a,
-            estimate: (a.estimate + b.estimate) / 2,
-            edge: (a.edge + b.edge) / 2,
-            confidence: (a.confidence + b.confidence) / 2,
-            reason: `[ensemble] ${a.reason}`,
-          });
-        } else {
-          merged.push({ ...a, confidence: a.confidence * 0.9, reason: `[single] ${a.reason}` });
-        }
+      return "PICK: 0";
+    }
+
+    for (const a of picksA) {
+      const b = picksB.find((p) => p.pickNum === a.pickNum && p.side === a.side);
+      if (b) {
+        merged.push({
+          ...a,
+          estimate: (a.estimate + b.estimate) / 2,
+          edge: (a.edge + b.edge) / 2,
+          confidence: (a.confidence + b.confidence) / 2,
+          reason: `[ensemble] ${a.reason}`,
+        });
+      } else {
+        merged.push({ ...a, confidence: a.confidence * 0.9, reason: `[single] ${a.reason}` });
       }
     }
 
@@ -490,29 +483,28 @@ export async function analyzeCandidates(
     );
   }
 
-  const structuredPrompt = `You are a prediction market TRADER, not an analyst. Today is ${today}.
-You trade Polymarket (~$22) and Jupiter Predict (~$42). Your job is to MAKE MONEY, not write reports.
+  const structuredPrompt = `You are a disciplined prediction market trader. Today is ${today}.
+You trade Polymarket (~$22) and Jupiter Predict (~$42). Your job is to MAKE MONEY.
 
-CORE PRINCIPLE: You have idle capital and your job is to put it to work.
-Pick the BEST opportunity from the candidates. Even a small edge is worth trading — idle cash earns nothing.
-Only skip ALL markets if you truly see zero edge on any of them.
+CORE PRINCIPLE: A losing trade is worse than no trade. Patience beats activity.
+Only trade when you have a GENUINE, defensible edge. "Nothing qualifies" is a valid answer.
 
 HOW TO THINK:
 - You have REAL knowledge. Crypto prices, sports matchups, geopolitical trends, tech news — USE IT.
-- Markets are set by other traders who are often wrong. Your edge comes from knowing things the crowd hasn't priced in.
-- A 55-45 situation priced at 50-50 IS an edge. But a 51-49 situation is NOT — skip it.
-- You don't need certainty. You need a GENUINE LEAN — which side is more likely and WHY?
-- BUY NO aggressively when YES is overpriced. Most traders only look at YES.
-- Sports: home/away, recent form, injuries, matchup history. You know this.
-- Politics: incumbency advantage, polling, structural factors. Make a call.
-- Crypto: current price action vs market target. You can estimate this.
+- Markets are set by other traders who are often right. Your edge only exists if you know something they don't.
+- A 55-45 situation priced at 50-50 IS an edge. A 51-49 situation priced at 50-50 is NOT — skip it.
+- BUY NO when YES is overpriced. Most traders only look at YES.
+- Sports: home/away, recent form, injuries, matchup history.
+- Politics: incumbency advantage, polling, structural factors.
+- Crypto: current price action vs market target.
 
 SIZING (code handles this — just be honest about your confidence):
-- Half-Kelly with 10% bankroll cap. Bigger confidence = bigger bet.
-- $2-$7 per trade depending on edge and confidence.
+- Quarter-Kelly with an 8% bankroll cap. Bigger confidence = bigger bet.
 
-FEE REALITY: Polymarket trades cost ~3% in fees. Jupiter Predict fees are lower (~1%).
-Don't let fee paranoia stop you from trading. A 5% edge after fees is still a 5% edge.
+FEE REALITY: Polymarket trades cost ~3% round-trip. Report EDGE as the raw gap
+(your estimate minus the market price). The agent will subtract fees — so a
+reported edge under 6% will typically be filtered out. Don't pad your edge to
+clear the gate; report what you actually see.
 
 ${candidateList}${ragContext}
 
@@ -522,15 +514,15 @@ Evaluate each candidate honestly. Pick ONLY if you have genuine conviction.
 
 For each candidate, decide: which side would you bet? How confident are you?
 
-PICK: <market number — pick the best opportunity. PICK: 0 only if you truly see no edge on ANY candidate>
+PICK: <market number with the best defensible edge. PICK: 0 is the right answer when none qualify>
 SIDE: YES or NO
 ESTIMATE: <your TRUE probability for YES, 0.00-1.00 — commit to a number, don't hedge>
-EDGE: <your estimate minus market price for your chosen side>
+EDGE: <your estimate minus market price for your chosen side, BEFORE fees>
 CONFIDENCE: <0.55-1.0 — 0.55 means genuine lean, 0.70 means solid read, 0.90 means near-certain>
 CATEGORY: <SPORTS|POLITICS|CRYPTO|CULTURE|TECH|OTHER>
 REASON: <one sentence — your strongest signal>
 
-PICK: 0 only if you genuinely see zero edge on every single candidate. Idle capital is a cost — find the best trade.`;
+If none of these markets has a clean, fee-clearing edge, return PICK: 0. Holding cash is a position.`;
 
   const text = useEnsemble
     ? await ensembleLlmCall(deps, callbacks, structuredPrompt, 1000)
@@ -576,6 +568,17 @@ PICK: 0 only if you genuinely see zero edge on every single candidate. Idle capi
     if (edge < MIN_EDGE_THRESHOLD) {
       callbacks.log(
         `[ANALYSIS] ❌ Edge ${edge.toFixed(2)} below minimum ${MIN_EDGE_THRESHOLD} — skipping "${pick.question.slice(0, 50)}"`,
+      );
+      continue;
+    }
+
+    // Fee-adjusted gate: the LLM reports pre-fee edge, but fees are a real cost.
+    // Require the net edge (edge minus entry fee) to clear MIN_NET_EDGE so we
+    // don't churn positions that look profitable on paper but lose after fees.
+    const netEdge = edge - TAKER_FEE_RATE;
+    if (netEdge < MIN_NET_EDGE) {
+      callbacks.log(
+        `[ANALYSIS] ❌ Net edge ${netEdge.toFixed(2)} (edge ${edge.toFixed(2)} − fee ${TAKER_FEE_RATE.toFixed(2)}) below minimum ${MIN_NET_EDGE} — skipping "${pick.question.slice(0, 50)}"`,
       );
       continue;
     }

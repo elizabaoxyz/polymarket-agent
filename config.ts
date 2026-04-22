@@ -20,7 +20,7 @@ function envFloat(key: string, fallback: number): number {
 // --- Trading limits ---
 
 export const MAX_SHARES_PER_ORDER = envInt("MAX_SHARES_PER_ORDER", 500);
-export const MAX_POSITIONS = envInt("MAX_POSITIONS", 10);
+export const MAX_POSITIONS = envInt("MAX_POSITIONS", 5);
 export const MIN_BET_SIZE_USD = envFloat("MIN_BET_SIZE_USD", 2);
 
 /** Minimum bet size in USD for Jupiter — matches Jupiter's $5 minimum order */
@@ -76,9 +76,13 @@ export const MIN_EDGE_THRESHOLD = envFloat("MIN_EDGE_THRESHOLD", 0.05);
 /** Minimum LLM confidence (0-1) to enter a trade. 0.55 = need a real lean, not a coin flip. */
 export const MIN_CONFIDENCE_THRESHOLD = envFloat("MIN_CONFIDENCE_THRESHOLD", 0.55);
 
-/** Estimated taker fee rate per trade (Polymarket ~2%, Jupiter ~1%, gas ~0.5%).
- *  Edge is reduced by this amount before comparing to MIN_EDGE_THRESHOLD. */
+/** Estimated taker fee rate per trade (Polymarket ~2-3%, Jupiter ~1%, gas ~0.5%).
+ *  LLM-reported edge is reduced by this amount before enforcing MIN_NET_EDGE. */
 export const TAKER_FEE_RATE = envFloat("TAKER_FEE_RATE", 0.03);
+
+/** Minimum edge NET of fees required to enter a trade.
+ *  (LLM edge) - TAKER_FEE_RATE must be >= this value. */
+export const MIN_NET_EDGE = envFloat("MIN_NET_EDGE", 0.03);
 
 // --- Price sweet spot ---
 
@@ -167,11 +171,24 @@ export const DEAD_POSITION_PRICE = envFloat("DEAD_POSITION_PRICE", 0.05);
 /** Hard stop-loss: sell if PnL drops below this % */
 export const HARD_STOP_LOSS_PCT = envFloat("HARD_STOP_LOSS_PCT", -15);
 
-/** Trailing stop only activates above this price (avoid whipsaw at low prices) */
+/** Legacy price-based trailing-stop activation — kept for compatibility but
+ *  superseded by PnL-based trailing stops below. A position only gets a
+ *  price-based trailing stop if its peak PnL never reached TRAILING_STOP_MIN_PNL. */
 export const TRAILING_STOP_MIN_PRICE = envFloat("TRAILING_STOP_MIN_PRICE", 0.88);
 
-/** Trailing stop: sell if price drops this % from peak price */
+/** Trailing stop: sell if price drops this % from peak price (legacy rule) */
 export const TRAILING_STOP_DROP_PCT = envFloat("TRAILING_STOP_DROP_PCT", 6);
+
+/** PnL-based trailing stop: peak PnL must reach this % before trailing activates.
+ *  Works for both YES and NO positions regardless of entry price. */
+export const TRAILING_STOP_MIN_PNL = envFloat("TRAILING_STOP_MIN_PNL", 15);
+
+/** PnL-based trailing stop: sell if PnL drops this many percentage points from peak PnL. */
+export const TRAILING_STOP_PNL_DROP = envFloat("TRAILING_STOP_PNL_DROP", 10);
+
+/** PnL threshold to gate the price-ceiling exit. A position at $0.92 with +2% PnL
+ *  (bought at $0.90) shouldn't auto-sell — only meaningful gains get locked in. */
+export const PRICE_CEILING_MIN_PNL = envFloat("PRICE_CEILING_MIN_PNL", 8);
 
 /** Capital pressure: sell weakest positions when balance < this AND positions > threshold */
 export const CAPITAL_PRESSURE_MIN_BALANCE = envFloat("CAPITAL_PRESSURE_MIN_BALANCE", 5);

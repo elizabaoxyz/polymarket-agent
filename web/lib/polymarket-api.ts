@@ -1,15 +1,23 @@
 import type { GlobalTrade, DashboardStats, WhaleWallet } from "./types";
 
-const DATA_API = "https://data-api.polymarket.com";
+function getApiBase(): string {
+  if (typeof window !== "undefined" && window.location.hostname !== "localhost") {
+    const proto = window.location.protocol;
+    return `${proto}//${window.location.host}`;
+  }
+  return "http://localhost:3001";
+}
 
 export async function getGlobalTrades(limit = 500): Promise<GlobalTrade[]> {
-  const res = await fetch(`${DATA_API}/trades?limit=${limit}`);
+  const base = getApiBase();
+  const res = await fetch(`${base}/api/trades?limit=${limit}`);
   if (!res.ok) return [];
   return res.json();
 }
 
 export async function getWalletTrades(wallet: string, limit = 50): Promise<GlobalTrade[]> {
-  const res = await fetch(`${DATA_API}/activity?user=${wallet}&limit=${limit}`);
+  const base = getApiBase();
+  const res = await fetch(`${base}/api/activity?user=${wallet}&limit=${limit}`);
   if (!res.ok) return [];
   return res.json();
 }

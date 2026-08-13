@@ -1,0 +1,7 @@
+[submodule "elizabao-integration"]
+	path = elizabao-integration
+	url = git@github.com:elizabaoxyz/elizabao.git
+
+[submodule "rh-launchpad/contracts/lib/openzeppelin-contracts"]
+	path = rh-launchpad/contracts/lib/openzeppelin-contracts
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts

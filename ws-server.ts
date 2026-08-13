@@ -271,6 +271,31 @@ async function main() {
       if (url.pathname === "/health") {
         return Response.json({ status: "ok" });
       }
+      // Proxy Polymarket Data API trades for regions blocked by Cloudflare
+      if (url.pathname === "/api/trades") {
+        const limit = url.searchParams.get("limit") ?? "500";
+        return fetch(`https://data-api.polymarket.com/trades?limit=${limit}`)
+          .then((res) => {
+            if (!res.ok) return Response.json([], { status: res.status, headers: { "Access-Control-Allow-Origin": "*" } });
+            return res.json().then((data) =>
+              Response.json(data, { headers: { "Access-Control-Allow-Origin": "*" } })
+            );
+          })
+          .catch(() => Response.json([], { headers: { "Access-Control-Allow-Origin": "*" } }));
+      }
+      // Proxy Polymarket wallet activity
+      if (url.pathname === "/api/activity") {
+        const user = url.searchParams.get("user") ?? "";
+        const limit = url.searchParams.get("limit") ?? "50";
+        return fetch(`https://data-api.polymarket.com/activity?user=${user}&limit=${limit}`)
+          .then((res) => {
+            if (!res.ok) return Response.json([], { status: res.status, headers: { "Access-Control-Allow-Origin": "*" } });
+            return res.json().then((data) =>
+              Response.json(data, { headers: { "Access-Control-Allow-Origin": "*" } })
+            );
+          })
+          .catch(() => Response.json([], { headers: { "Access-Control-Allow-Origin": "*" } }));
+      }
       if (server.upgrade(req)) return undefined;
       return new Response("Not Found", { status: 404 });
     },

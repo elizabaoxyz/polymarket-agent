@@ -1,23 +1,25 @@
 import type { GlobalTrade, DashboardStats, WhaleWallet } from "./types";
 
 function getApiBase(): string {
+  if (process.env.NEXT_PUBLIC_WS_URL) {
+    return process.env.NEXT_PUBLIC_WS_URL.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
+  }
   if (typeof window !== "undefined" && window.location.hostname !== "localhost") {
-    const proto = window.location.protocol;
-    return `${proto}//${window.location.host}`;
+    return `${window.location.protocol}//${window.location.host}`;
   }
   return "http://localhost:3001";
 }
 
+const API_BASE = getApiBase();
+
 export async function getGlobalTrades(limit = 500): Promise<GlobalTrade[]> {
-  const base = getApiBase();
-  const res = await fetch(`${base}/api/trades?limit=${limit}`);
+  const res = await fetch(`${API_BASE}/api/trades?limit=${limit}`);
   if (!res.ok) return [];
   return res.json();
 }
 
 export async function getWalletTrades(wallet: string, limit = 50): Promise<GlobalTrade[]> {
-  const base = getApiBase();
-  const res = await fetch(`${base}/api/activity?user=${wallet}&limit=${limit}`);
+  const res = await fetch(`${API_BASE}/api/activity?user=${wallet}&limit=${limit}`);
   if (!res.ok) return [];
   return res.json();
 }

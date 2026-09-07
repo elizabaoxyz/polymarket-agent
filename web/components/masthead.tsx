@@ -78,12 +78,7 @@ export function Masthead({ dense = false }: { dense?: boolean }) {
                 </Link>
               );
             })}
-            <Link
-              href="/console"
-              className="hidden md:inline text-[rgba(250,246,238,0.6)] hover:text-white transition-colors"
-            >
-              CONSOLE
-            </Link>
+            {/* console link hidden — route still reachable at /console */}
           </nav>
         </div>
       </div>

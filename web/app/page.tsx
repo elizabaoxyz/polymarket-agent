@@ -341,9 +341,6 @@ export default function FrontPage() {
             >
               GITHUB
             </a>
-            <Link className="underline decoration-dotted underline-offset-4 hover:text-white" href="/console">
-              OPERATOR CONSOLE
-            </Link>
             <span className="flex-1" />
             <span>IF A SENTENCE CANNOT BE TIED TO AN ACCEPTED ROW OR A WRITTEN POLICY, IT SHOULD NOT BE HERE.</span>
           </div>

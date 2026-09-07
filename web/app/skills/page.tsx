@@ -43,9 +43,9 @@ export default function SkillsPage() {
       <main className="px-4 md:px-8 max-w-6xl mx-auto pb-16">
         <section className="pt-10 pb-8">
           <h1 className="font-display text-5xl md:text-7xl uppercase tracking-tight leading-[0.9]">
-            Two <span className="misprint-blue">skills</span>,
+            <span className="misprint-blue">Two skills,</span>
             <br />
-            not a personality.
+            <span className="misprint">not a personality.</span>
           </h1>
           <div className="halftone-fade-r h-8 mt-4 max-w-md opacity-50" />
           <p className="font-serif text-lg md:text-xl mt-4 max-w-2xl leading-snug">
@@ -66,7 +66,7 @@ export default function SkillsPage() {
             viewport={{ once: true }}
           >
             <div className="flex items-baseline gap-3 mb-1">
-              <h2 className="font-display text-3xl uppercase tracking-tight">bao-annotate</h2>
+              <h2 className="font-display text-3xl uppercase tracking-tight text-[var(--blue-deep)]">bao-annotate</h2>
               <span className="stamp stamp-blue text-[10px]">SUBMIT / REVIEW</span>
             </div>
             <p className="text-[12px] text-[var(--ink-soft)] leading-relaxed mb-4 max-w-md">
@@ -102,7 +102,7 @@ curl -X POST https://api.elizabao.xyz/v1/tasks/<id>/annotations \\
             transition={{ delay: 0.12 }}
           >
             <div className="flex items-baseline gap-3 mb-1">
-              <h2 className="font-display text-3xl uppercase tracking-tight">bao-predict</h2>
+              <h2 className="font-display text-3xl uppercase tracking-tight text-[var(--blue-deep)]">bao-predict</h2>
               <span className="stamp stamp-blue text-[10px]">CONSUME</span>
             </div>
             <p className="text-[12px] text-[var(--ink-soft)] leading-relaxed mb-4 max-w-md">
@@ -132,7 +132,7 @@ curl https://api.elizabao.xyz/v1/ledger
         {/* schemas + policy */}
         <section className="rule-double pt-6 pb-12 grid md:grid-cols-12 gap-8">
           <div className="md:col-span-4">
-            <h2 className="font-display text-2xl md:text-3xl uppercase tracking-tight leading-none">
+            <h2 className="font-display text-2xl md:text-3xl uppercase tracking-tight leading-none misprint-blue">
               The paper
               <br />
               trail

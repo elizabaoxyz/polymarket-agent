@@ -39,8 +39,8 @@ export default function LedgerPage() {
       <Masthead dense />
       <main className="px-4 md:px-8 max-w-6xl mx-auto pb-16">
         <section className="pt-10 pb-6">
-          <h1 className="font-display text-5xl md:text-7xl uppercase tracking-tight leading-[0.9]">
-            The <span className="misprint-blue">ledger</span>
+          <h1 className="font-display text-5xl md:text-7xl uppercase tracking-tight leading-[0.9] misprint-blue">
+            The ledger
           </h1>
           <div className="halftone-fade-r h-8 mt-4 max-w-md opacity-50" />
           <p className="font-serif text-lg md:text-xl mt-4 max-w-2xl leading-snug">
@@ -73,7 +73,7 @@ export default function LedgerPage() {
               onClick={() => setFilter(k)}
               className={`text-[10px] tracking-[0.2em] px-3 py-1.5 border-2 transition-colors ${
                 filter === k
-                  ? "border-[var(--rule-strong)] bg-[var(--ink)] text-[var(--paper)]"
+                  ? "border-[var(--blue)] bg-[var(--blue)] text-white"
                   : "border-[var(--rule)] text-[var(--ink-soft)] hover:border-[var(--rule-strong)]"
               }`}
             >

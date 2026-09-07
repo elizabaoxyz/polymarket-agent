@@ -101,7 +101,8 @@ function TaskEntry({ task, index }: { task: BaoTask; index: number }) {
             <button
               onClick={capture}
               disabled={capturing}
-              className="font-display uppercase text-[11px] tracking-widest px-4 py-2.5 bg-[var(--ink)] text-[var(--paper)] hover:bg-[var(--blue-deep)] transition-colors disabled:opacity-50 active:scale-95"
+              className="font-display uppercase text-[11px] tracking-widest px-4 py-2.5 bg-[var(--blue)] text-white hover:bg-[var(--ink)] transition-colors disabled:opacity-50 active:scale-95"
+              style={{ boxShadow: "3px 3px 0 var(--ink)" }}
             >
               {capturing ? "Freezing…" : "Capture snapshot"}
             </button>
@@ -144,8 +145,8 @@ export default function MarketsPage() {
       <Masthead dense />
       <main className="px-4 md:px-8 max-w-6xl mx-auto pb-16">
         <section className="pt-10 pb-6">
-          <h1 className="font-display text-5xl md:text-7xl uppercase tracking-tight leading-[0.9]">
-            Open <span className="misprint-blue">tasks</span>
+          <h1 className="font-display text-5xl md:text-7xl uppercase tracking-tight leading-[0.9] misprint-blue">
+            Open tasks
           </h1>
           <div className="halftone-fade-r h-8 mt-4 max-w-md opacity-50" />
           <p className="font-serif text-lg md:text-xl mt-4 max-w-2xl leading-snug">
@@ -177,7 +178,7 @@ export default function MarketsPage() {
         {/* live board */}
         <section className="pt-14">
           <div className="flex items-baseline gap-4 mb-1">
-            <h2 className="font-display text-3xl md:text-5xl uppercase tracking-tight">The board</h2>
+            <h2 className="font-display text-3xl md:text-5xl uppercase tracking-tight misprint-blue">The board</h2>
             <span className="flex items-center gap-2 text-[10px] tracking-[0.25em] text-[var(--ink-faint)]">
               <span className="ink-dot" /> VENUE DATA · 30s REFRESH
             </span>

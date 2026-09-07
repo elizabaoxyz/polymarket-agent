@@ -83,11 +83,11 @@ export default function FrontPage() {
               transition={{ duration: 0.5 }}
               className="font-display text-[13vw] md:text-[5.6rem] leading-[0.92] tracking-tight uppercase"
             >
-              Accepted
+              <span className="misprint-blue">Accepted</span>
               <br />
-              prediction data,
+              <span className="misprint-blue">prediction data,</span>
               <br />
-              <span className="misprint-blue">paid in USDC.</span>
+              <span className="misprint">paid in USDC.</span>
             </motion.h1>
 
             <div className="halftone-fade h-10 mt-6 max-w-xl opacity-60" />
@@ -101,13 +101,14 @@ export default function FrontPage() {
             <div className="flex flex-wrap items-center gap-4 mt-8">
               <Link
                 href="/markets"
-                className="font-display uppercase text-sm tracking-widest px-6 py-3.5 bg-[var(--ink)] text-[var(--paper)] hover:bg-[var(--blue-deep)] transition-colors"
+                className="font-display uppercase text-sm tracking-widest px-6 py-3.5 bg-[var(--blue)] text-white hover:bg-[var(--ink)] transition-colors"
+                style={{ boxShadow: "4px 4px 0 var(--ink)" }}
               >
                 Open tasks →
               </Link>
               <Link
                 href="/skills"
-                className="font-display uppercase text-sm tracking-widest px-6 py-3.5 border-[2.5px] border-[var(--ink)] hover:border-[var(--blue-deep)] hover:text-[var(--blue-deep)] transition-colors"
+                className="font-display uppercase text-sm tracking-widest px-6 py-3.5 border-[2.5px] border-[var(--blue)] text-[var(--blue-deep)] hover:bg-[var(--blue)] hover:text-white transition-colors"
               >
                 Install skills
               </Link>
@@ -168,7 +169,7 @@ export default function FrontPage() {
         {/* ============ HOW A LABEL IS BORN ============ */}
         <section className="rule-double pt-6 pb-12">
           <div className="flex items-baseline gap-4 mb-8">
-            <h2 className="font-display text-2xl md:text-4xl uppercase tracking-tight">How a label is born</h2>
+            <h2 className="font-display text-2xl md:text-4xl uppercase tracking-tight misprint-blue">How a label is born</h2>
             <span className="text-[10px] tracking-[0.25em] text-[var(--ink-faint)]">SIX STEPS · ONE MACHINE</span>
           </div>
           <div className="grid md:grid-cols-3 gap-x-10 gap-y-10">
@@ -196,12 +197,12 @@ export default function FrontPage() {
         <section className="rule-double pt-6 pb-12">
           <div className="grid md:grid-cols-12 gap-8">
             <div className="md:col-span-4">
-              <h2 className="font-display text-2xl md:text-4xl uppercase tracking-tight leading-none">
+              <h2 className="font-display text-2xl md:text-4xl uppercase tracking-tight leading-none misprint-blue">
                 Ten ways
                 <br />
                 to get
                 <br />
-                <span className="misprint-blue">rejected.</span>
+                rejected.
               </h2>
               <p className="text-[12px] leading-relaxed text-[var(--ink-soft)] mt-4 max-w-xs">
                 Every submission runs the gates in order. First failure returns a typed reject — free to
@@ -254,7 +255,7 @@ export default function FrontPage() {
         {/* ============ LIVE BOARD PREVIEW ============ */}
         <section className="rule-double pt-6 pb-12">
           <div className="flex items-baseline justify-between mb-4">
-            <h2 className="font-display text-2xl md:text-4xl uppercase tracking-tight">The board</h2>
+            <h2 className="font-display text-2xl md:text-4xl uppercase tracking-tight misprint-blue">The board</h2>
             <Link
               href="/markets"
               className="text-[11px] tracking-[0.2em] text-[var(--blue-deep)] underline decoration-dotted underline-offset-4"
@@ -291,7 +292,7 @@ export default function FrontPage() {
         {/* ============ WHAT WE WILL NOT DO ============ */}
         <section className="rule-double pt-6 pb-14">
           <div className="grid md:grid-cols-12 gap-8">
-            <h2 className="md:col-span-4 font-display text-2xl md:text-4xl uppercase tracking-tight leading-none">
+            <h2 className="md:col-span-4 font-display text-2xl md:text-4xl uppercase tracking-tight leading-none misprint-blue">
               What we
               <br />
               will not do
@@ -317,12 +318,15 @@ export default function FrontPage() {
         </section>
 
         {/* ============ COLOPHON ============ */}
-        <footer className="rule-double pt-5 pb-12">
-          <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 text-[10px] tracking-[0.18em] text-[var(--ink-faint)]">
-            <span className="font-display text-[var(--ink)] text-sm">elizaBAO</span>
+      </main>
+      <footer className="bg-[var(--blue)] mt-4">
+        <div className="halftone h-3 opacity-25" style={{ filter: "invert(1)" }} />
+        <div className="px-4 md:px-8 max-w-6xl mx-auto py-8">
+          <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 text-[10px] tracking-[0.18em] text-[rgba(242,248,250,0.75)]">
+            <span className="font-display text-white text-sm">elizaBAO</span>
             <span>PRINTED IN ONE SPOT COLOR · #2596BE</span>
             <a
-              className="underline decoration-dotted underline-offset-4 hover:text-[var(--blue-deep)]"
+              className="underline decoration-dotted underline-offset-4 hover:text-white"
               href="https://github.com/elizabaoxyz/polymarket-agent/blob/main/ACCEPTANCE.md"
               target="_blank"
               rel="noreferrer"
@@ -330,21 +334,21 @@ export default function FrontPage() {
               ACCEPTANCE.MD
             </a>
             <a
-              className="underline decoration-dotted underline-offset-4 hover:text-[var(--blue-deep)]"
+              className="underline decoration-dotted underline-offset-4 hover:text-white"
               href="https://github.com/elizabaoxyz/polymarket-agent"
               target="_blank"
               rel="noreferrer"
             >
               GITHUB
             </a>
-            <Link className="underline decoration-dotted underline-offset-4 hover:text-[var(--blue-deep)]" href="/console">
+            <Link className="underline decoration-dotted underline-offset-4 hover:text-white" href="/console">
               OPERATOR CONSOLE
             </Link>
             <span className="flex-1" />
             <span>IF A SENTENCE CANNOT BE TIED TO AN ACCEPTED ROW OR A WRITTEN POLICY, IT SHOULD NOT BE HERE.</span>
           </div>
-        </footer>
-      </main>
+        </div>
+      </footer>
     </div>
   );
 }

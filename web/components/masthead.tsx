@@ -38,53 +38,57 @@ export function Masthead({ dense = false }: { dense?: boolean }) {
         </span>
       </div>
 
-      {/* masthead proper */}
-      <div
-        className={`flex items-end justify-between px-4 md:px-8 ${dense ? "py-3" : "py-5 md:py-7"} gap-4`}
-      >
-        <Link href="/" className="flex items-end gap-3 md:gap-4 group">
-          <Image
-            src="/eliza-portrait.png"
-            alt="Eliza"
-            width={dense ? 44 : 72}
-            height={dense ? 44 : 72}
-            className="border-2 border-[var(--rule-strong)] group-hover:rotate-[-2deg] transition-transform"
-          />
-          <span
-            className={`font-display leading-none tracking-tight misprint ${
-              dense ? "text-3xl md:text-4xl" : "text-4xl md:text-6xl"
-            }`}
-          >
-            elizaBAO
-          </span>
-        </Link>
-        <nav className="flex items-baseline gap-3 md:gap-6 pb-1 text-[11px] md:text-[12px] tracking-[0.18em]">
-          {LINKS.map((l) => {
-            const active = pathname?.startsWith(l.href);
-            return (
-              <Link
-                key={l.href}
-                href={l.href}
-                className={`transition-colors ${
-                  active
-                    ? "text-[var(--blue-deep)] font-bold underline underline-offset-4 decoration-2"
-                    : "text-[var(--ink)] hover:text-[var(--blue-deep)]"
-                }`}
-              >
-                {l.label}
-              </Link>
-            );
-          })}
-          <Link
-            href="/console"
-            className="hidden md:inline text-[var(--ink-faint)] hover:text-[var(--blue-deep)] transition-colors"
-          >
-            CONSOLE
+      {/* masthead proper — solid #2596be ink band */}
+      <div className="bg-[var(--blue)] relative">
+        <div className="absolute inset-x-0 bottom-0 h-3 halftone opacity-25 pointer-events-none" style={{ filter: "invert(1)" }} />
+        <div
+          className={`flex items-end justify-between px-4 md:px-8 ${dense ? "py-3" : "py-5 md:py-7"} gap-4`}
+        >
+          <Link href="/" className="flex items-end gap-3 md:gap-4 group">
+            <Image
+              src="/eliza-portrait.png"
+              alt="Eliza"
+              width={dense ? 44 : 72}
+              height={dense ? 44 : 72}
+              className="border-2 border-[var(--paper)] group-hover:rotate-[-2deg] transition-transform"
+            />
+            <span
+              className={`font-display leading-none tracking-tight text-[var(--paper)] ${
+                dense ? "text-3xl md:text-4xl" : "text-4xl md:text-6xl"
+              }`}
+              style={{ textShadow: "3px 3px 0 rgba(13, 61, 84, 0.45)" }}
+            >
+              elizaBAO
+            </span>
           </Link>
-        </nav>
+          <nav className="flex items-baseline gap-3 md:gap-6 pb-1 text-[11px] md:text-[12px] tracking-[0.18em]">
+            {LINKS.map((l) => {
+              const active = pathname?.startsWith(l.href);
+              return (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  className={`transition-colors ${
+                    active
+                      ? "text-white font-bold underline underline-offset-4 decoration-2"
+                      : "text-[rgba(242,248,250,0.85)] hover:text-white"
+                  }`}
+                >
+                  {l.label}
+                </Link>
+              );
+            })}
+            <Link
+              href="/console"
+              className="hidden md:inline text-[rgba(242,248,250,0.55)] hover:text-white transition-colors"
+            >
+              CONSOLE
+            </Link>
+          </nav>
+        </div>
       </div>
 
-      <div className="rule-double mx-4 md:mx-8" />
+      <div className="rule-double mx-4 md:mx-8 mt-2" />
 
       {/* ticker tape of live venue prices */}
       {board.length > 0 && (

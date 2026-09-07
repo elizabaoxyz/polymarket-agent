@@ -69,17 +69,17 @@ body {
    ========================================================================== */
 
 .paper {
-  --paper: #f5f2ea;
-  --paper-2: #eeeade;
-  --ink: #17313d;          /* near-black blue ink for body text */
-  --ink-soft: #47616e;
-  --ink-faint: #7c8f99;
-  --blue: #2596be;         /* brand spot color — display sizes only */
+  --paper: #f2f8fa;        /* cool blue-white paper */
+  --paper-2: #e2eef4;
+  --ink: #0d3d54;          /* dark shade of the brand hue — body text */
+  --ink-soft: #34647c;
+  --ink-faint: #6d93a5;
+  --blue: #2596be;         /* THE brand color — dominant everywhere */
   --blue-deep: #136185;    /* AA-safe blue for small text */
-  --blue-wash: rgba(37, 150, 190, 0.10);
+  --blue-wash: rgba(37, 150, 190, 0.12);
   --stamp-red: #c0432e;    /* reject stamps only */
-  --rule: rgba(23, 49, 61, 0.22);
-  --rule-strong: #17313d;
+  --rule: rgba(37, 150, 190, 0.35);
+  --rule-strong: #2596be;
 
   background: var(--paper);
   color: var(--ink);

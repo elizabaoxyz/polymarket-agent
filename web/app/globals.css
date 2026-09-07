@@ -277,6 +277,23 @@ body {
     pointer;
 }
 
+/* ASCII ink trail shed by the cursor */
+.trail-glyph {
+  position: fixed;
+  z-index: 9998;
+  pointer-events: none;
+  user-select: none;
+  font-family: var(--font-mono), monospace;
+  font-weight: 700;
+  color: #e66516;
+  transform: translate(-50%, -50%);
+  animation: trail-fade 0.5s ease-out forwards;
+}
+@keyframes trail-fade {
+  0% { opacity: 0.9; transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+  100% { opacity: 0; transform: translate(-50%, -62%) scale(0.3) rotate(20deg); }
+}
+
 /* ink-on-paper text selection */
 .paper ::selection {
   background: var(--blue);

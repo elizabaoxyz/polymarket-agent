@@ -5,6 +5,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { fetchMarkets, type BaoMarket } from "@/lib/bao-api";
+import { CursorTrail } from "@/components/cursor-trail";
 
 const LINKS = [
   { href: "/markets", label: "MARKETS" },
@@ -28,6 +29,7 @@ export function Masthead({ dense = false }: { dense?: boolean }) {
 
   return (
     <header>
+      <CursorTrail />
       {/* hairline info row */}
       <div className="flex items-center justify-between px-4 md:px-8 py-1.5 text-[9px] md:text-[10px] tracking-[0.2em] text-[var(--ink-soft)] border-b border-[var(--rule)]">
         <span className="hidden sm:inline">THE ACCEPTANCE LAYER FOR PREDICTION MARKETS</span>
@@ -35,15 +37,6 @@ export function Masthead({ dense = false }: { dense?: boolean }) {
         <span className="flex items-center gap-2">
           <span className="ink-dot" />
           {today()} · USDC ONLY
-          <a
-            href="https://x.com/elizabao_ai"
-            target="_blank"
-            rel="noreferrer"
-            aria-label="elizaBAO on X"
-            className="font-bold text-[12px] leading-none text-[var(--ink)] hover:text-[var(--blue-deep)] transition-colors"
-          >
-            𝕏
-          </a>
         </span>
       </div>
 
@@ -87,6 +80,18 @@ export function Masthead({ dense = false }: { dense?: boolean }) {
                 </Link>
               );
             })}
+            <a
+              href="https://x.com/elizabao_ai"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="elizaBAO on X (Twitter)"
+              className="flex items-center gap-1.5 font-bold text-white border-2 border-[rgba(250,246,238,0.7)] hover:bg-white hover:text-[var(--blue)] transition-colors px-2.5 py-1"
+            >
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden>
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+              </svg>
+              TWITTER
+            </a>
             {/* console link hidden — route still reachable at /console */}
           </nav>
         </div>

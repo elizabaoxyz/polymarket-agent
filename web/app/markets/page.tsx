@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Masthead } from "@/components/masthead";
 import {
@@ -127,14 +127,24 @@ export default function MarketsPage() {
   const [tasks, setTasks] = useState<BaoTask[]>([]);
   const [board, setBoard] = useState<BaoMarket[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const prevMids = useRef<Record<string, number>>({});
 
   useEffect(() => {
+    const refresh = () =>
+      fetchMarkets(30).then((m) =>
+        setBoard((old) => {
+          const map: Record<string, number> = {};
+          for (const x of old) map[x.slug] = x.midYes;
+          if (old.length) prevMids.current = map;
+          return m;
+        }),
+      );
     Promise.all([fetchTasks(), fetchMarkets(30)]).then(([t, m]) => {
       setTasks(t);
       setBoard(m);
       setLoaded(true);
     });
-    const iv = setInterval(() => fetchMarkets(30).then(setBoard), 30000);
+    const iv = setInterval(refresh, 30000);
     return () => clearInterval(iv);
   }, []);
 
@@ -188,28 +198,41 @@ export default function MarketsPage() {
             point it at an open BAO task first — at least the output will have a snapshot hash.
           </p>
           <div className="rule-double" />
-          {board.map((m, i) => (
-            <a
-              key={m.slug}
-              href={m.rulesUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="ledger-row flex items-baseline py-2.5 text-[13px] ink-in"
-              style={{ animationDelay: `${Math.min(i * 40, 600)}ms` }}
-            >
-              <span className="text-[var(--ink-faint)] w-10 shrink-0 text-[11px]">
-                {String(i + 1).padStart(2, "0")}
-              </span>
-              <span className="truncate pr-2">{m.title}</span>
-              <span className="leader" />
-              <span className="hidden sm:inline text-[11px] text-[var(--ink-faint)] shrink-0 mr-6">
-                liq ${(m.liquidityUsd / 1000).toFixed(0)}k · closes {m.closeAt ? m.closeAt.slice(0, 10) : "—"}
-              </span>
-              <span className="font-display text-[var(--blue-deep)] shrink-0">
-                {(m.midYes * 100).toFixed(1)}¢
-              </span>
-            </a>
-          ))}
+          {board.map((m, i) => {
+            const prev = prevMids.current[m.slug];
+            const delta = prev !== undefined ? m.midYes - prev : 0;
+            return (
+              <a
+                key={m.slug}
+                href={m.rulesUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="ledger-row flex items-baseline py-2.5 text-[13px] ink-in"
+                style={{ animationDelay: `${Math.min(i * 40, 600)}ms` }}
+              >
+                <span className="text-[var(--ink-faint)] w-10 shrink-0 text-[11px]">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <span className="truncate pr-2">{m.title}</span>
+                <span className="leader" />
+                <span className="hidden sm:inline text-[11px] text-[var(--ink-faint)] shrink-0 mr-5">
+                  liq ${(m.liquidityUsd / 1000).toFixed(0)}k · closes {m.closeAt ? m.closeAt.slice(0, 10) : "—"}
+                </span>
+                <span className="hidden md:block w-24 shrink-0 self-center mr-4">
+                  <span className="prob-track block">
+                    <span className="prob-fill block" style={{ width: `${m.midYes * 100}%` }} />
+                  </span>
+                </span>
+                <span className="w-4 shrink-0 text-[11px] text-center">
+                  {delta > 0.001 && <span className="text-[var(--blue-deep)]">▲</span>}
+                  {delta < -0.001 && <span className="text-[var(--stamp-red)]">▼</span>}
+                </span>
+                <span className="font-display text-[var(--blue-deep)] shrink-0 w-14 text-right">
+                  {(m.midYes * 100).toFixed(1)}¢
+                </span>
+              </a>
+            );
+          })}
           {loaded && board.length === 0 && (
             <p className="text-[11px] text-[var(--ink-faint)] py-4">
               venue feed unavailable — the board repopulates when the API is reachable

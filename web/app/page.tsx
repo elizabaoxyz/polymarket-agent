@@ -278,7 +278,12 @@ export default function FrontPage() {
                 </span>
                 <span className="truncate pr-2">{m.title}</span>
                 <span className="leader" />
-                <span className="font-display text-[var(--blue-deep)] shrink-0">
+                <span className="hidden md:block w-24 shrink-0 self-center mr-4">
+                  <span className="prob-track block">
+                    <span className="prob-fill block" style={{ width: `${m.midYes * 100}%` }} />
+                  </span>
+                </span>
+                <span className="font-display text-[var(--blue-deep)] shrink-0 w-14 text-right">
                   {(m.midYes * 100).toFixed(1)}¢
                 </span>
               </a>

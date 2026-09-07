@@ -26,6 +26,7 @@ import {
 import polymarketPlugin from "@elizaos/plugin-polymarket";
 import sqlPlugin from "@elizaos/plugin-sql";
 import { v4 as uuidv4 } from "uuid";
+import { handleBaoRequest } from "./bao-api";
 import { type AutonomyHandle, type AutonomyPlatform, startAutonomy } from "./autonomy-loop";
 import { AUTONOMY_PLATFORM, WS_AUTH_TOKEN } from "./config";
 import {
@@ -270,6 +271,12 @@ async function main() {
       }
       if (url.pathname === "/health") {
         return Response.json({ status: "ok" });
+      }
+      // elizaBAO acceptance-layer API (markets / snapshots / tasks / ledger)
+      if (url.pathname.startsWith("/v1/")) {
+        return handleBaoRequest(url).then(
+          (res) => res ?? new Response("Not Found", { status: 404 }),
+        );
       }
       // Proxy Polymarket Data API trades for regions blocked by Cloudflare
       if (url.pathname === "/api/trades") {

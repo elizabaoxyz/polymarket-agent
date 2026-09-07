@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://elizabao.ai/schemas/evidence.schema.json",
+  "title": "EvidenceCard",
+  "type": "object",
+  "required": ["taskId", "marketId", "stance", "claim", "sourceUrl", "sourceKind", "publishedAt", "quote", "alreadyInBook", "alternativeRead"],
+  "additionalProperties": false,
+  "properties": {
+    "taskId": { "type": "string" },
+    "marketId": { "type": "string" },
+    "stance": { "enum": ["supports_yes", "supports_no", "ambiguous"] },
+    "claim": { "type": "string", "maxLength": 280 },
+    "sourceUrl": { "type": "string", "format": "uri" },
+    "sourceKind": { "enum": ["official", "filing", "exchange", "sensor", "other"] },
+    "publishedAt": { "type": "string", "format": "date-time" },
+    "quote": { "type": "string" },
+    "alreadyInBook": { "enum": ["yes", "no", "unknown"] },
+    "alternativeRead": { "type": "string", "minLength": 10 }
+  }
+}

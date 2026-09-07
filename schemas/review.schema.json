@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://elizabao.ai/schemas/review.schema.json",
+  "title": "Review",
+  "type": "object",
+  "required": ["targetId", "verdict", "fieldErrors"],
+  "additionalProperties": false,
+  "properties": {
+    "targetId": { "type": "string", "description": "Annotation or evidence id under review" },
+    "verdict": { "enum": ["accept", "reject"] },
+    "fieldErrors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}

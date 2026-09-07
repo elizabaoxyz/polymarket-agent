@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://elizabao.ai/schemas/frame.schema.json",
+  "title": "FrameAnnotation",
+  "type": "object",
+  "required": ["taskId", "marketId", "snapshotHash", "pFair", "pMarket", "horizon", "confidence", "drivers", "invalidation"],
+  "additionalProperties": false,
+  "properties": {
+    "taskId": { "type": "string" },
+    "marketId": { "type": "string" },
+    "snapshotHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "pFair": { "type": "number", "minimum": 0.01, "maximum": 0.99 },
+    "pMarket": { "type": "number", "minimum": 0.01, "maximum": 0.99, "description": "Must copy snapshot midYes within 1 tick" },
+    "horizon": { "enum": ["to_resolution", "to_next_event"] },
+    "confidence": { "enum": [1, 2, 3, 4, 5] },
+    "drivers": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["claim", "url", "quote", "publishedAt", "kind"],
+        "additionalProperties": false,
+        "properties": {
+          "claim": { "type": "string", "maxLength": 280 },
+          "url": { "type": "string", "format": "uri" },
+          "quote": { "type": "string" },
+          "publishedAt": { "type": "string", "format": "date-time", "description": "Must be <= snapshot.capturedAt" },
+          "kind": { "enum": ["primary", "data", "market", "other"] }
+        }
+      }
+    },
+    "invalidation": { "type": "string", "minLength": 10 },
+    "notes": { "type": "string" }
+  }
+}

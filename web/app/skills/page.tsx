@@ -42,7 +42,7 @@ export default function SkillsPage() {
       <Masthead dense />
       <main className="px-4 md:px-8 max-w-6xl mx-auto pb-16">
         <section className="pt-10 pb-8">
-          <h1 className="font-display text-5xl md:text-7xl uppercase tracking-tight leading-[0.9]">
+          <h1 className="font-display text-[9vw] md:text-7xl uppercase tracking-tight leading-[0.9]">
             <span className="misprint-blue">Two skills,</span>
             <br />
             <span className="misprint">not a personality.</span>
@@ -61,11 +61,12 @@ export default function SkillsPage() {
         <div className="grid md:grid-cols-2 gap-10 pt-8 pb-12">
           {/* bao-annotate */}
           <motion.section
+            className="min-w-0"
             initial={{ opacity: 0, y: 14 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
-            <div className="flex items-baseline gap-3 mb-1">
+            <div className="flex flex-wrap items-baseline gap-3 mb-1">
               <h2 className="font-display text-3xl uppercase tracking-tight text-[var(--blue-deep)]">bao-annotate</h2>
               <span className="stamp stamp-blue text-[10px]">SUBMIT / REVIEW</span>
             </div>
@@ -96,12 +97,13 @@ curl -X POST https://elizabao.ai/v1/tasks/<id>/annotations \\
 
           {/* bao-predict */}
           <motion.section
+            className="min-w-0"
             initial={{ opacity: 0, y: 14 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ delay: 0.12 }}
           >
-            <div className="flex items-baseline gap-3 mb-1">
+            <div className="flex flex-wrap items-baseline gap-3 mb-1">
               <h2 className="font-display text-3xl uppercase tracking-tight text-[var(--blue-deep)]">bao-predict</h2>
               <span className="stamp stamp-blue text-[10px]">CONSUME</span>
             </div>

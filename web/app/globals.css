@@ -85,6 +85,21 @@ body {
   color: var(--ink);
   font-family: var(--font-mono), monospace;
   position: relative;
+  overflow-x: hidden; /* rotated stamps etc. must never cause sideways scroll */
+}
+
+/* phone: room for the fixed bottom tab bar */
+@media (max-width: 767px) {
+  .paper {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom));
+  }
+}
+
+/* code blocks scroll inside themselves instead of stretching the page */
+.paper pre {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* paper grain */

@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { fetchMarkets, type BaoMarket } from "@/lib/bao-api";
 import { CursorTrail } from "@/components/cursor-trail";
+import { TabBar } from "@/components/tab-bar";
 
 const LINKS = [
   { href: "/markets", label: "MARKETS" },
@@ -25,6 +26,20 @@ export function Masthead({ dense = false }: { dense?: boolean }) {
     fetchMarkets(20).then(setBoard);
     const iv = setInterval(() => fetchMarkets(20).then(setBoard), 30000);
     return () => clearInterval(iv);
+  }, []);
+
+  // Paint the document itself paper-white while a broadsheet page is mounted,
+  // so overscroll/rubber-band never reveals the dark console background.
+  useEffect(() => {
+    const html = document.documentElement;
+    const prevHtml = html.style.backgroundColor;
+    const prevBody = document.body.style.backgroundColor;
+    html.style.backgroundColor = "#faf6ee";
+    document.body.style.backgroundColor = "#faf6ee";
+    return () => {
+      html.style.backgroundColor = prevHtml;
+      document.body.style.backgroundColor = prevBody;
+    };
   }, []);
 
   return (
@@ -63,14 +78,14 @@ export function Masthead({ dense = false }: { dense?: boolean }) {
               elizaBAO
             </span>
           </Link>
-          <nav className="flex items-baseline gap-3 md:gap-6 pb-1 text-[11px] md:text-[12px] tracking-[0.18em]">
+          <nav className="flex items-center md:items-baseline gap-3 md:gap-6 pb-1 text-[11px] md:text-[12px] tracking-[0.18em] shrink-0">
             {LINKS.map((l) => {
               const active = pathname?.startsWith(l.href);
               return (
                 <Link
                   key={l.href}
                   href={l.href}
-                  className={`transition-colors ${
+                  className={`hidden md:inline transition-colors ${
                     active
                       ? "text-white font-bold underline underline-offset-4 decoration-2"
                       : "text-[rgba(250,246,238,0.85)] hover:text-white"
@@ -85,12 +100,12 @@ export function Masthead({ dense = false }: { dense?: boolean }) {
               target="_blank"
               rel="noreferrer"
               aria-label="elizaBAO on X (Twitter)"
-              className="flex items-center gap-1.5 font-bold text-white border-2 border-[rgba(250,246,238,0.7)] hover:bg-white hover:text-[var(--blue)] transition-colors px-2.5 py-1"
+              className="flex items-center gap-1.5 font-bold text-white border-2 border-[rgba(250,246,238,0.7)] hover:bg-white hover:text-[var(--blue)] transition-colors px-2.5 py-1.5 md:py-1"
             >
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden>
                 <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
               </svg>
-              TWITTER
+              <span className="hidden sm:inline">TWITTER</span>
             </a>
             {/* console link hidden — route still reachable at /console */}
           </nav>
@@ -114,6 +129,9 @@ export function Masthead({ dense = false }: { dense?: boolean }) {
           </div>
         </div>
       )}
+
+      {/* app-style bottom navigation on phones */}
+      <TabBar />
     </header>
   );
 }

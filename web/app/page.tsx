@@ -76,12 +76,12 @@ export default function FrontPage() {
       <main className="px-4 md:px-8 max-w-6xl mx-auto">
         {/* ============ LEDE ============ */}
         <section className="grid md:grid-cols-12 gap-8 pt-10 md:pt-16 pb-12">
-          <div className="md:col-span-8">
+          <div className="md:col-span-8 min-w-0">
             <motion.h1
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
-              className="font-display text-[13vw] md:text-[5.6rem] leading-[0.92] tracking-tight uppercase"
+              className="font-display text-[10.5vw] md:text-[5.6rem] leading-[0.92] tracking-tight uppercase"
             >
               <span className="misprint-blue">Accepted</span>
               <br />
@@ -101,14 +101,14 @@ export default function FrontPage() {
             <div className="flex flex-wrap items-center gap-4 mt-8">
               <Link
                 href="/markets"
-                className="font-display uppercase text-sm tracking-widest px-6 py-3.5 bg-[var(--blue)] text-white hover:bg-[var(--ink)] transition-colors"
+                className="flex-1 sm:flex-none text-center font-display uppercase text-sm tracking-widest px-6 py-4 sm:py-3.5 bg-[var(--blue)] text-white hover:bg-[var(--ink)] active:translate-x-[2px] active:translate-y-[2px] transition-all"
                 style={{ boxShadow: "4px 4px 0 var(--ink)" }}
               >
                 Open tasks →
               </Link>
               <Link
                 href="/skills"
-                className="font-display uppercase text-sm tracking-widest px-6 py-3.5 border-[2.5px] border-[var(--blue)] text-[var(--blue-deep)] hover:bg-[var(--blue)] hover:text-white transition-colors"
+                className="flex-1 sm:flex-none text-center font-display uppercase text-sm tracking-widest px-6 py-4 sm:py-3.5 border-[2.5px] border-[var(--blue)] text-[var(--blue-deep)] hover:bg-[var(--blue)] hover:text-white transition-colors"
               >
                 Install skills
               </Link>
@@ -270,21 +270,28 @@ export default function FrontPage() {
                 href={m.rulesUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="ledger-row flex items-baseline py-2.5 text-[13px] ink-in"
+                className="ledger-row block py-3 text-[13px] ink-in active:bg-[var(--blue-wash)]"
                 style={{ animationDelay: `${i * 60}ms` }}
               >
-                <span className="text-[var(--ink-faint)] w-10 shrink-0 text-[11px]">
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <span className="truncate pr-2">{m.title}</span>
-                <span className="leader" />
-                <span className="hidden md:block w-24 shrink-0 self-center mr-4">
-                  <span className="prob-track block">
-                    <span className="prob-fill block" style={{ width: `${m.midYes * 100}%` }} />
+                <span className="flex items-baseline">
+                  <span className="text-[var(--ink-faint)] w-8 md:w-10 shrink-0 text-[11px]">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <span className="truncate pr-2">{m.title}</span>
+                  <span className="leader hidden md:block" />
+                  <span className="hidden md:block w-24 shrink-0 self-center mr-4">
+                    <span className="prob-track block">
+                      <span className="prob-fill block" style={{ width: `${m.midYes * 100}%` }} />
+                    </span>
+                  </span>
+                  <span className="font-display text-[var(--blue-deep)] shrink-0 w-14 text-right ml-auto">
+                    {(m.midYes * 100).toFixed(1)}¢
                   </span>
                 </span>
-                <span className="font-display text-[var(--blue-deep)] shrink-0 w-14 text-right">
-                  {(m.midYes * 100).toFixed(1)}¢
+                <span className="flex md:hidden items-center mt-2 pl-8">
+                  <span className="prob-track block flex-1">
+                    <span className="prob-fill block" style={{ width: `${m.midYes * 100}%` }} />
+                  </span>
                 </span>
               </a>
             ))}

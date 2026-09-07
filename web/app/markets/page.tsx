@@ -96,12 +96,12 @@ function TaskEntry({ task, index }: { task: BaoTask; index: number }) {
           <br />
           MAX ACCEPTED {task.maxAccepted} · {task.sponsor.toUpperCase()}
         </div>
-        <div className="flex md:flex-col gap-2 mt-2 md:items-end">
+        <div className="flex w-full md:w-auto md:flex-col gap-2 mt-2 md:items-end">
           {!snap && (
             <button
               onClick={capture}
               disabled={capturing}
-              className="font-display uppercase text-[11px] tracking-widest px-4 py-2.5 bg-[var(--blue)] text-white hover:bg-[var(--ink)] transition-colors disabled:opacity-50 active:scale-95"
+              className="flex-1 md:flex-none font-display uppercase text-[11px] tracking-widest px-4 py-3.5 md:py-2.5 bg-[var(--blue)] text-white hover:bg-[var(--ink)] transition-colors disabled:opacity-50 active:scale-95"
               style={{ boxShadow: "3px 3px 0 var(--ink)" }}
             >
               {capturing ? "Freezing…" : "Capture snapshot"}
@@ -207,28 +207,39 @@ export default function MarketsPage() {
                 href={m.rulesUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="ledger-row flex items-baseline py-2.5 text-[13px] ink-in"
+                className="ledger-row block py-3 text-[13px] ink-in active:bg-[var(--blue-wash)]"
                 style={{ animationDelay: `${Math.min(i * 40, 600)}ms` }}
               >
-                <span className="text-[var(--ink-faint)] w-10 shrink-0 text-[11px]">
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <span className="truncate pr-2">{m.title}</span>
-                <span className="leader" />
-                <span className="hidden sm:inline text-[11px] text-[var(--ink-faint)] shrink-0 mr-5">
-                  liq ${(m.liquidityUsd / 1000).toFixed(0)}k · closes {m.closeAt ? m.closeAt.slice(0, 10) : "—"}
-                </span>
-                <span className="hidden md:block w-24 shrink-0 self-center mr-4">
-                  <span className="prob-track block">
-                    <span className="prob-fill block" style={{ width: `${m.midYes * 100}%` }} />
+                <span className="flex items-baseline">
+                  <span className="text-[var(--ink-faint)] w-8 md:w-10 shrink-0 text-[11px]">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <span className="truncate pr-2">{m.title}</span>
+                  <span className="leader hidden md:block" />
+                  <span className="hidden md:inline text-[11px] text-[var(--ink-faint)] shrink-0 mr-5">
+                    liq ${(m.liquidityUsd / 1000).toFixed(0)}k · closes {m.closeAt ? m.closeAt.slice(0, 10) : "—"}
+                  </span>
+                  <span className="hidden md:block w-24 shrink-0 self-center mr-4">
+                    <span className="prob-track block">
+                      <span className="prob-fill block" style={{ width: `${m.midYes * 100}%` }} />
+                    </span>
+                  </span>
+                  <span className="w-4 shrink-0 text-[11px] text-center">
+                    {delta > 0.001 && <span className="text-[var(--blue-deep)]">▲</span>}
+                    {delta < -0.001 && <span className="text-[var(--stamp-red)]">▼</span>}
+                  </span>
+                  <span className="font-display text-[var(--blue-deep)] shrink-0 w-14 text-right ml-auto">
+                    {(m.midYes * 100).toFixed(1)}¢
                   </span>
                 </span>
-                <span className="w-4 shrink-0 text-[11px] text-center">
-                  {delta > 0.001 && <span className="text-[var(--blue-deep)]">▲</span>}
-                  {delta < -0.001 && <span className="text-[var(--stamp-red)]">▼</span>}
-                </span>
-                <span className="font-display text-[var(--blue-deep)] shrink-0 w-14 text-right">
-                  {(m.midYes * 100).toFixed(1)}¢
+                {/* phone: probability bar + meta as a second line */}
+                <span className="flex md:hidden items-center gap-3 mt-2 pl-8">
+                  <span className="prob-track block flex-1">
+                    <span className="prob-fill block" style={{ width: `${m.midYes * 100}%` }} />
+                  </span>
+                  <span className="text-[10px] text-[var(--ink-faint)] shrink-0">
+                    liq ${(m.liquidityUsd / 1000).toFixed(0)}k
+                  </span>
                 </span>
               </a>
             );

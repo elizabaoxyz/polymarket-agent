@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Archivo_Black, Instrument_Serif, Kode_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -19,6 +19,18 @@ export const metadata: Metadata = {
     icon: "/eliza-portrait.png",
     apple: "/eliza-portrait.png",
   },
+  appleWebApp: {
+    capable: true,
+    title: "elizaBAO",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#e66516",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

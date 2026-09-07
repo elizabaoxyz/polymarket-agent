@@ -38,7 +38,7 @@ export function Masthead({ dense = false }: { dense?: boolean }) {
         </span>
       </div>
 
-      {/* masthead proper — solid #2596be ink band */}
+      {/* masthead proper — solid #e66516 ink band */}
       <div className="bg-[var(--blue)] relative">
         <div className="absolute inset-x-0 bottom-0 h-3 halftone opacity-25 pointer-events-none" style={{ filter: "invert(1)" }} />
         <div
@@ -56,7 +56,7 @@ export function Masthead({ dense = false }: { dense?: boolean }) {
               className={`font-display leading-none tracking-tight text-[var(--paper)] ${
                 dense ? "text-3xl md:text-4xl" : "text-4xl md:text-6xl"
               }`}
-              style={{ textShadow: "3px 3px 0 rgba(13, 61, 84, 0.45)" }}
+              style={{ textShadow: "3px 3px 0 rgba(74, 40, 16, 0.45)" }}
             >
               elizaBAO
             </span>
@@ -71,7 +71,7 @@ export function Masthead({ dense = false }: { dense?: boolean }) {
                   className={`transition-colors ${
                     active
                       ? "text-white font-bold underline underline-offset-4 decoration-2"
-                      : "text-[rgba(242,248,250,0.85)] hover:text-white"
+                      : "text-[rgba(250,246,238,0.85)] hover:text-white"
                   }`}
                 >
                   {l.label}
@@ -80,7 +80,7 @@ export function Masthead({ dense = false }: { dense?: boolean }) {
             })}
             <Link
               href="/console"
-              className="hidden md:inline text-[rgba(242,248,250,0.55)] hover:text-white transition-colors"
+              className="hidden md:inline text-[rgba(250,246,238,0.6)] hover:text-white transition-colors"
             >
               CONSOLE
             </Link>

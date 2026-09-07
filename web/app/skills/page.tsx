@@ -30,7 +30,7 @@ const SCHEMAS = [
 
 function CodeBlock({ children }: { children: string }) {
   return (
-    <pre className="text-[11px] leading-relaxed bg-[var(--ink)] text-[#cfe8f3] p-4 overflow-x-auto border-l-[4px] border-[var(--blue)]">
+    <pre className="text-[11px] leading-relaxed bg-[var(--ink)] text-[#f6dfc8] p-4 overflow-x-auto border-l-[4px] border-[var(--blue)]">
       {children}
     </pre>
   );

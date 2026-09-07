@@ -322,9 +322,9 @@ export default function FrontPage() {
       <footer className="bg-[var(--blue)] mt-4">
         <div className="halftone h-3 opacity-25" style={{ filter: "invert(1)" }} />
         <div className="px-4 md:px-8 max-w-6xl mx-auto py-8">
-          <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 text-[10px] tracking-[0.18em] text-[rgba(242,248,250,0.75)]">
+          <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2 text-[10px] tracking-[0.18em] text-[rgba(250,246,238,0.8)]">
             <span className="font-display text-white text-sm">elizaBAO</span>
-            <span>PRINTED IN ONE SPOT COLOR · #2596BE</span>
+            <span>PRINTED IN ONE SPOT COLOR · #E66516</span>
             <a
               className="underline decoration-dotted underline-offset-4 hover:text-white"
               href="https://github.com/elizabaoxyz/polymarket-agent/blob/main/ACCEPTANCE.md"

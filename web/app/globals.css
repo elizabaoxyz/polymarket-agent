@@ -63,23 +63,23 @@ body {
 .autonomy-active { animation: autonomy-pulse 2s ease-in-out infinite; }
 
 /* ==========================================================================
-   BROADSHEET THEME — blue ink (#2596be) printed on paper.
+   BROADSHEET THEME — orange ink (#e66516) printed on paper.
    The brand: halftone print, rubber stamps, ledger rules, editorial type.
    Scoped under .paper so the console keeps its terminal look.
    ========================================================================== */
 
 .paper {
-  --paper: #f2f8fa;        /* cool blue-white paper */
-  --paper-2: #e2eef4;
-  --ink: #0d3d54;          /* dark shade of the brand hue — body text */
-  --ink-soft: #34647c;
-  --ink-faint: #6d93a5;
-  --blue: #2596be;         /* THE brand color — dominant everywhere */
-  --blue-deep: #136185;    /* AA-safe blue for small text */
-  --blue-wash: rgba(37, 150, 190, 0.12);
-  --stamp-red: #c0432e;    /* reject stamps only */
-  --rule: rgba(37, 150, 190, 0.35);
-  --rule-strong: #2596be;
+  --paper: #faf6ee;        /* warm paper-white, same as the logo background */
+  --paper-2: #f2e9d9;
+  --ink: #4a2810;          /* dark burnt shade of the brand hue — body text */
+  --ink-soft: #8a5a35;
+  --ink-faint: #b18c66;
+  --blue: #e66516;         /* THE brand color — dominant everywhere */
+  --blue-deep: #b1470a;    /* AA-safe orange for small text */
+  --blue-wash: rgba(230, 101, 22, 0.10);
+  --stamp-red: #a81f2c;    /* reject stamps only — deep crimson vs brand orange */
+  --rule: rgba(230, 101, 22, 0.4);
+  --rule-strong: #e66516;
 
   background: var(--paper);
   color: var(--ink);
@@ -95,7 +95,7 @@ body {
   z-index: 0;
   pointer-events: none;
   opacity: 0.5;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.09 0 0 0 0 0.19 0 0 0 0 0.24 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.29 0 0 0 0 0.16 0 0 0 0 0.06 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 .paper > * { position: relative; z-index: 1; }
 
@@ -181,11 +181,11 @@ body {
 
 .misprint {
   color: var(--ink);
-  text-shadow: 3px 3px 0 rgba(37, 150, 190, 0.55);
+  text-shadow: 3px 3px 0 rgba(230, 101, 22, 0.55);
 }
 .misprint-blue {
   color: var(--blue);
-  text-shadow: 3px 3px 0 rgba(23, 49, 61, 0.28);
+  text-shadow: 3px 3px 0 rgba(74, 40, 16, 0.28);
 }
 
 /* --- ledger rows ---------------------------------------------------------- */
@@ -241,7 +241,7 @@ body {
   height: 100%;
   background-image: radial-gradient(circle, var(--blue) 1.6px, transparent 2px);
   background-size: 5px 5px;
-  background-color: rgba(37, 150, 190, 0.25);
+  background-color: rgba(230, 101, 22, 0.25);
   animation: bar-grow 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 @keyframes bar-grow { from { width: 0 !important; } }

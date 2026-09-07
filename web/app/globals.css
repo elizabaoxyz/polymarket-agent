@@ -1,40 +1,38 @@
 @import "tailwindcss";
 
+/* ==========================================================================
+   TERMINAL THEME (operator console at /console — unchanged dark vars)
+   ========================================================================== */
+
 :root {
-  /* elizaBAO brand: #2596be steel blue on near-black */
-  --bg: #070b0e;             /* base background */
-  --bg-panel: #0b1116;       /* panel backgrounds */
-  --bg-card: #101820;        /* card backgrounds */
-  --bg-agent: #0a1e2a;       /* agent message tint */
-  --border: #1d2c38;         /* borders */
-  --accent: #2596be;         /* brand blue */
-  --accent-bright: #4db8dd;  /* hover / highlight */
+  --bg: #070b0e;
+  --bg-panel: #0b1116;
+  --bg-card: #101820;
+  --bg-agent: #0a1e2a;
+  --border: #1d2c38;
+  --accent: #2596be;
+  --accent-bright: #4db8dd;
   --accent-dim: rgba(37, 150, 190, 0.14);
   --text: #eef4f7;
   --text-secondary: #94a9b5;
   --text-muted: #6b7f8b;
-  --green: #37d29a;          /* accepted / YES */
-  --red: #ff6b7a;            /* rejected / NO */
-  --amber: #e8b74a;          /* pending review */
+  --green: #37d29a;
+  --red: #ff6b7a;
+  --amber: #e8b74a;
 }
 
 body {
-  font-family: var(--font-mono), 'Kode Mono', monospace;
+  font-family: var(--font-mono), monospace;
   color: var(--text);
   background: var(--bg);
 }
 
-.mono {
-  font-family: var(--font-mono), 'Kode Mono', monospace;
-}
+.mono { font-family: var(--font-mono), monospace; }
 
-/* Scrollbar */
 ::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #2a3f4f; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(120, 140, 150, 0.4); border-radius: 3px; }
 
-/* Thinking dots */
 @keyframes dot-pulse {
   0%, 80%, 100% { opacity: 0.3; }
   40% { opacity: 1; }
@@ -43,147 +41,229 @@ body {
 .thinking-dot:nth-child(2) { animation-delay: 0.2s; }
 .thinking-dot:nth-child(3) { animation-delay: 0.4s; }
 
-/* ===== BACKGROUND EFFECTS ===== */
-
-/* Dot grid background */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -2;
-  background-image: radial-gradient(circle, rgba(37, 150, 190, 0.09) 1px, transparent 1px);
-  background-size: 24px 24px;
-  pointer-events: none;
-}
-
-/* Ambient blue glow orb */
-body::after {
-  content: "";
-  position: fixed;
-  top: 25%;
-  left: 50%;
-  width: 700px;
-  height: 700px;
-  z-index: -1;
-  background: radial-gradient(circle, rgba(37, 150, 190, 0.055) 0%, transparent 70%);
-  border-radius: 50%;
-  pointer-events: none;
-  animation: float-glow 18s ease-in-out infinite;
-}
-
-@keyframes float-glow {
-  0%, 100% { transform: translate(-50%, 0) scale(1); }
-  33% { transform: translate(-42%, -40px) scale(1.06); }
-  66% { transform: translate(-58%, 24px) scale(0.97); }
-}
-
-/* CRT scanline */
-.scanline {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  pointer-events: none;
-  overflow: hidden;
-}
+.scanline { position: fixed; inset: 0; z-index: 9999; pointer-events: none; overflow: hidden; }
 .scanline::after {
   content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 2px;
+  position: absolute; left: 0; right: 0; height: 2px;
   background: linear-gradient(90deg, transparent, rgba(37, 150, 190, 0.07), transparent);
   animation: scanline-sweep 9s linear infinite;
 }
-@keyframes scanline-sweep {
-  0% { top: -2px; }
-  100% { top: 100%; }
-}
+@keyframes scanline-sweep { 0% { top: -2px; } 100% { top: 100%; } }
 
-/* Border shimmer */
-@keyframes border-shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-.shimmer-border { position: relative; }
-.shimmer-border::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%);
-  background-size: 200% 100%;
-  animation: border-shimmer 4s linear infinite;
-  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  mask-composite: exclude;
-  pointer-events: none;
-  opacity: 0.35;
-}
-
-/* Hover glow */
-.hover-glow {
-  transition: box-shadow 0.3s ease, border-color 0.3s ease, transform 0.2s ease;
-}
+.hover-glow { transition: box-shadow 0.3s ease, border-color 0.3s ease; }
 .hover-glow:hover {
-  box-shadow: 0 0 14px rgba(37, 150, 190, 0.18), 0 0 5px rgba(37, 150, 190, 0.12);
+  box-shadow: 0 0 14px rgba(37, 150, 190, 0.18);
   border-color: var(--accent) !important;
 }
 
-/* Pulse for live elements */
 @keyframes autonomy-pulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(37, 150, 190, 0.4); }
   50% { box-shadow: 0 0 12px 4px rgba(37, 150, 190, 0.2); }
 }
 .autonomy-active { animation: autonomy-pulse 2s ease-in-out infinite; }
 
-/* ===== BAO alive effects ===== */
+/* ==========================================================================
+   BROADSHEET THEME — blue ink (#2596be) printed on paper.
+   The brand: halftone print, rubber stamps, ledger rules, editorial type.
+   Scoped under .paper so the console keeps its terminal look.
+   ========================================================================== */
 
-/* Live tick dot next to fresh data */
-@keyframes live-tick {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.35; transform: scale(0.7); }
-}
-.live-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: var(--accent);
-  animation: live-tick 1.6s ease-in-out infinite;
-  box-shadow: 0 0 8px rgba(37, 150, 190, 0.7);
+.paper {
+  --paper: #f5f2ea;
+  --paper-2: #eeeade;
+  --ink: #17313d;          /* near-black blue ink for body text */
+  --ink-soft: #47616e;
+  --ink-faint: #7c8f99;
+  --blue: #2596be;         /* brand spot color — display sizes only */
+  --blue-deep: #136185;    /* AA-safe blue for small text */
+  --blue-wash: rgba(37, 150, 190, 0.10);
+  --stamp-red: #c0432e;    /* reject stamps only */
+  --rule: rgba(23, 49, 61, 0.22);
+  --rule-strong: #17313d;
+
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-mono), monospace;
+  position: relative;
 }
 
-/* Snapshot hash: typed-in feel */
-@keyframes hash-flicker {
-  0% { opacity: 0; }
-  30% { opacity: 1; }
-  35% { opacity: 0.6; }
-  40% { opacity: 1; }
-  100% { opacity: 1; }
+/* paper grain */
+.paper::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 0.09 0 0 0 0 0.19 0 0 0 0 0.24 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
 }
-.hash-in { animation: hash-flicker 0.7s steps(6) both; }
+.paper > * { position: relative; z-index: 1; }
 
-/* Row entrance for tables / ledger */
-@keyframes row-in {
-  from { opacity: 0; transform: translateY(6px); }
+.font-display { font-family: var(--font-display), sans-serif; }
+.font-serif { font-family: var(--font-serif), serif; }
+
+/* --- halftone textures (the logo's DNA) ---------------------------------- */
+
+.halftone {
+  background-image: radial-gradient(circle, var(--blue) 1px, transparent 1.4px);
+  background-size: 7px 7px;
+}
+.halftone-dense {
+  background-image: radial-gradient(circle, var(--blue) 1.4px, transparent 1.8px);
+  background-size: 5px 5px;
+}
+/* band that fades from dense dots to nothing — used under headlines */
+.halftone-fade {
+  background-image: radial-gradient(circle, var(--blue) 1.2px, transparent 1.6px);
+  background-size: 6px 6px;
+  -webkit-mask-image: linear-gradient(to bottom, black, transparent);
+  mask-image: linear-gradient(to bottom, black, transparent);
+}
+.halftone-fade-r {
+  background-image: radial-gradient(circle, var(--blue) 1.2px, transparent 1.6px);
+  background-size: 6px 6px;
+  -webkit-mask-image: linear-gradient(to right, black, transparent);
+  mask-image: linear-gradient(to right, black, transparent);
+}
+
+/* --- newspaper rules ------------------------------------------------------ */
+
+.rule-double {
+  border-top: 3px solid var(--rule-strong);
+  position: relative;
+}
+.rule-double::after {
+  content: "";
+  display: block;
+  border-top: 1px solid var(--rule-strong);
+  margin-top: 2px;
+}
+.rule-thin { border-top: 1px solid var(--rule); }
+
+/* dotted leader line, like a table of contents */
+.leader {
+  flex: 1 1 auto;
+  min-width: 24px;
+  border-bottom: 2px dotted var(--rule);
+  transform: translateY(-4px);
+  margin: 0 8px;
+}
+
+/* --- rubber stamps -------------------------------------------------------- */
+
+.stamp {
+  display: inline-block;
+  font-family: var(--font-display), sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border: 2.5px solid currentColor;
+  border-radius: 3px;
+  padding: 0.15em 0.5em;
+  line-height: 1.1;
+  transform: rotate(-2deg);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='40'%3E%3Cfilter id='r'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.5' numOctaves='2' seed='7'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='discrete' tableValues='0 .3 .6 .8 1 1 1 1 1 1 1 1'/%3E%3C/feComponentTransfer%3E%3CfeComposite operator='in' in2='SourceGraphic'/%3E%3C/filter%3E%3Crect width='120' height='40' fill='%23000' filter='url(%23r)'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='40'%3E%3Cfilter id='r'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.5' numOctaves='2' seed='7'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='discrete' tableValues='0 .3 .6 .8 1 1 1 1 1 1 1 1'/%3E%3C/feComponentTransfer%3E%3CfeComposite operator='in' in2='SourceGraphic'/%3E%3C/filter%3E%3Crect width='120' height='40' fill='%23000' filter='url(%23r)'/%3E%3C/svg%3E");
+  -webkit-mask-size: cover;
+  mask-size: cover;
+}
+.stamp-blue { color: var(--blue-deep); }
+.stamp-red { color: var(--stamp-red); transform: rotate(2.5deg); }
+.stamp-ink { color: var(--ink); }
+
+@keyframes stamp-down {
+  0% { transform: scale(2.2) rotate(-14deg); opacity: 0; }
+  55% { transform: scale(0.94) rotate(-1deg); opacity: 1; }
+  100% { transform: scale(1) rotate(-2deg); opacity: 1; }
+}
+.stamp-in { animation: stamp-down 0.38s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+
+/* --- misregistered print (headline treatment) ----------------------------- */
+
+.misprint {
+  color: var(--ink);
+  text-shadow: 3px 3px 0 rgba(37, 150, 190, 0.55);
+}
+.misprint-blue {
+  color: var(--blue);
+  text-shadow: 3px 3px 0 rgba(23, 49, 61, 0.28);
+}
+
+/* --- ledger rows ---------------------------------------------------------- */
+
+.ledger-row {
+  border-bottom: 1px solid var(--rule);
+  transition: background 0.15s ease;
+}
+.ledger-row:hover { background: var(--blue-wash); }
+
+@keyframes ink-in {
+  from { opacity: 0; transform: translateY(5px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.row-in { animation: row-in 0.4s ease both; }
+.ink-in { animation: ink-in 0.45s ease both; }
 
-/* Probability bar fill */
-@keyframes bar-fill {
-  from { width: 0; }
-}
-.bar-fill { animation: bar-fill 0.9s cubic-bezier(0.22, 1, 0.36, 1) both; }
+/* --- ticker tape ---------------------------------------------------------- */
 
-/* Slow breathing glow for the logo */
-@keyframes breathe {
-  0%, 100% { filter: drop-shadow(0 0 4px rgba(37, 150, 190, 0.35)); }
-  50% { filter: drop-shadow(0 0 14px rgba(37, 150, 190, 0.65)); }
-}
-.logo-breathe { animation: breathe 4s ease-in-out infinite; }
-
-/* Marquee data stream */
-@keyframes stream-x {
+@keyframes tape-x {
   0% { transform: translateX(0); }
   100% { transform: translateX(-50%); }
 }
-.stream { animation: stream-x 45s linear infinite; }
-.stream:hover { animation-play-state: paused; }
+.tape { animation: tape-x 60s linear infinite; }
+.tape:hover { animation-play-state: paused; }
+
+/* --- strike-through list (what we will not do) ---------------------------- */
+
+.struck {
+  position: relative;
+}
+.struck::after {
+  content: "";
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  top: 55%;
+  height: 2.5px;
+  background: var(--stamp-red);
+  transform: rotate(-0.6deg);
+  transform-origin: left center;
+  animation: strike 0.5s ease both;
+}
+@keyframes strike { from { right: 100%; } to { right: -2px; } }
+
+/* --- probability bar as halftone fill ------------------------------------- */
+
+.prob-track {
+  height: 10px;
+  border: 1.5px solid var(--rule-strong);
+  background: var(--paper);
+}
+.prob-fill {
+  height: 100%;
+  background-image: radial-gradient(circle, var(--blue) 1.6px, transparent 2px);
+  background-size: 5px 5px;
+  background-color: rgba(37, 150, 190, 0.25);
+  animation: bar-grow 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes bar-grow { from { width: 0 !important; } }
+
+/* --- pulse for live data -------------------------------------------------- */
+
+@keyframes ink-blot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+.ink-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--blue);
+  animation: ink-blot 1.8s ease-in-out infinite;
+}
+
+/* drop cap for the lede */
+.drop-cap::first-letter {
+  font-family: var(--font-display), sans-serif;
+  float: left;
+  font-size: 3.2em;
+  line-height: 0.85;
+  padding-right: 0.12em;
+  color: var(--blue);
+}

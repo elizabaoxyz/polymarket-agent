@@ -1,25 +1,33 @@
 import type { Metadata } from "next";
-import { Kode_Mono } from "next/font/google";
+import { Archivo_Black, Instrument_Serif, Kode_Mono } from "next/font/google";
 import "./globals.css";
 
 const kodeMono = Kode_Mono({ subsets: ["latin"], variable: "--font-mono", weight: ["400", "700"] });
+const archivoBlack = Archivo_Black({ subsets: ["latin"], variable: "--font-display", weight: "400" });
+const instrumentSerif = Instrument_Serif({
+  subsets: ["latin"],
+  variable: "--font-serif",
+  weight: "400",
+  style: ["normal", "italic"],
+});
 
 export const metadata: Metadata = {
   title: "elizaBAO — accepted prediction data, paid in USDC",
   description:
-    "An acceptance layer for prediction markets. Labels bind to snapshots at time T, gates check evidence dates, reviews are adversarial, and USDC pays only work that beats the book.",
+    "The acceptance layer for prediction markets. Labels bind to snapshots at time T, gates check evidence dates, reviews are adversarial, and USDC pays only work that beats the book.",
   icons: {
-    icon: "/bao-logo.png",
-    apple: "/bao-logo.png",
+    icon: "/eliza-portrait.png",
+    apple: "/eliza-portrait.png",
   },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${kodeMono.variable} antialiased bg-[var(--bg)] text-[var(--text)]`}>
+    <html lang="en">
+      <body
+        className={`${kodeMono.variable} ${archivoBlack.variable} ${instrumentSerif.variable} antialiased`}
+      >
         {children}
-        <div className="scanline" />
       </body>
     </html>
   );

@@ -1,124 +1,171 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { BaoNav } from "@/components/bao-nav";
+import { Masthead } from "@/components/masthead";
 
-function Code({ children }: { children: string }) {
+const REPO = "https://github.com/elizabaoxyz/polymarket-agent";
+
+const ANNOTATE_ACTIONS = [
+  ["BAO_LIST_TASKS", "open tasks with pools and cutoffs"],
+  ["BAO_GET_SNAPSHOT", "freeze mid + depth, get the hash to bind to"],
+  ["BAO_SUBMIT_FRAME", "pFair, copied book mid, drivers dated ≤ T"],
+  ["BAO_SUBMIT_EVIDENCE", "dated, quotable card — 30% on accept, 70% on citation"],
+  ["BAO_SUBMIT_REVIEW", "attack someone else's package, get paid from the reserve"],
+  ["BAO_MY_SCORES", "your 90-day excess, accepted count, review accuracy"],
+];
+
+const PREDICT_ACTIONS = [
+  ["BAO_EXPLAIN_MARKET", "aggregate accepted frames + evidence for one market"],
+  ["BAO_FAIR_VS_BOOK", "fair band, book mid, edge, suggested max risk"],
+  ["BAO_PREPARE_ORDER", "draft order intent — defaults to human confirm"],
+  ["BAO_GET_LEDGER", "the accepted rows behind every claim"],
+];
+
+const SCHEMAS = [
+  ["frame.schema.json", "schemas/frame.schema.json"],
+  ["evidence.schema.json", "schemas/evidence.schema.json"],
+  ["review.schema.json", "schemas/review.schema.json"],
+  ["ACCEPTANCE.md", "ACCEPTANCE.md"],
+];
+
+function CodeBlock({ children }: { children: string }) {
   return (
-    <pre className="bg-[var(--bg)] border border-[var(--border)] p-3 rounded-sm overflow-x-auto">
-      <code className="mono text-[11px] text-[var(--accent-bright)] whitespace-pre">{children}</code>
+    <pre className="text-[11px] leading-relaxed bg-[var(--ink)] text-[#cfe8f3] p-4 overflow-x-auto border-l-[4px] border-[var(--blue)]">
+      {children}
     </pre>
   );
 }
 
-const REPO = "https://github.com/elizabaoxyz/polymarket-agent";
-
 export default function SkillsPage() {
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
-      <BaoNav />
-      <div className="scanline" />
-      <main className="pt-20 max-w-3xl mx-auto px-4 pb-16">
-        <h1 className="mono text-lg tracking-widest mb-2">SKILLS</h1>
-        <p className="text-[12px] text-[var(--text-secondary)] mb-10 max-w-2xl">
-          Two elizaOS skills, not a hosted personality. No human coding required to participate — the
-          schema is the interface. No chat widget lives on this site.
-        </p>
-
-        <motion.section
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-10 border border-[var(--border)] bg-[var(--bg-card)] p-5 rounded-sm hover-glow"
-        >
-          <div className="mono text-sm text-[var(--accent)] mb-1">bao-annotate</div>
-          <p className="text-[11px] text-[var(--text-secondary)] mb-3 leading-relaxed">
-            Pull a task, capture the snapshot, submit a frame or a review. You never invent evidence
-            timestamps. You copy pMarket from the snapshot. You do not place trades. If a source is dated
-            after the snapshot time, drop it.
+    <div className="paper min-h-screen">
+      <Masthead dense />
+      <main className="px-4 md:px-8 max-w-6xl mx-auto pb-16">
+        <section className="pt-10 pb-8">
+          <h1 className="font-display text-5xl md:text-7xl uppercase tracking-tight leading-[0.9]">
+            Two <span className="misprint-blue">skills</span>,
+            <br />
+            not a personality.
+          </h1>
+          <div className="halftone-fade-r h-8 mt-4 max-w-md opacity-50" />
+          <p className="font-serif text-lg md:text-xl mt-4 max-w-2xl leading-snug">
+            Works from Eliza on a laptop, a phone, or any agent that can call the actions. No human
+            coding required to participate — <em className="text-[var(--blue-deep)]">the schema is the interface.</em>{" "}
+            Please don&apos;t wrap a personality around this. The character file is not the interface.
           </p>
-          <Code>{`# list open tasks
-GET /v1/tasks
+        </section>
 
-# freeze a snapshot for a market (returns sha256 hash to bind to)
-GET /v1/snapshots/:slug
+        <div className="rule-double" />
 
-# actions exposed to Eliza
-BAO_LIST_TASKS · BAO_GET_SNAPSHOT · BAO_SUBMIT_FRAME
-BAO_SUBMIT_EVIDENCE · BAO_SUBMIT_REVIEW · BAO_MY_SCORES`}</Code>
-        </motion.section>
+        {/* the two skills side by side, like product listings */}
+        <div className="grid md:grid-cols-2 gap-10 pt-8 pb-12">
+          {/* bao-annotate */}
+          <motion.section
+            initial={{ opacity: 0, y: 14 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+          >
+            <div className="flex items-baseline gap-3 mb-1">
+              <h2 className="font-display text-3xl uppercase tracking-tight">bao-annotate</h2>
+              <span className="stamp stamp-blue text-[10px]">SUBMIT / REVIEW</span>
+            </div>
+            <p className="text-[12px] text-[var(--ink-soft)] leading-relaxed mb-4 max-w-md">
+              Pull a task, freeze a snapshot, submit a frame or a review. You never invent evidence
+              timestamps. You copy pMarket from the snapshot. You do not place trades.
+            </p>
+            <CodeBlock>{`# list open tasks
+curl https://api.elizabao.xyz/v1/tasks
 
-        <motion.section
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="mb-10 border border-[var(--border)] bg-[var(--bg-card)] p-5 rounded-sm hover-glow"
-        >
-          <div className="mono text-sm text-[var(--accent)] mb-1">bao-predict</div>
-          <p className="text-[11px] text-[var(--text-secondary)] mb-3 leading-relaxed">
-            Explain a market using accepted rows only, and cite the ids. Not allowed to “just know”. No id,
-            no claim. Order drafting is optional and defaults to human confirm — v1 does not need to trade
-            to be complete.
-          </p>
-          <Code>{`# actions exposed to Eliza
-BAO_EXPLAIN_MARKET   # aggregate accepted frames + evidence
-BAO_FAIR_VS_BOOK     # fair band, book mid, edge, max risk
-BAO_PREPARE_ORDER    # draft only — confirm: true by default
-BAO_GET_LEDGER
+# freeze a snapshot (returns sha256 hash)
+curl https://api.elizabao.xyz/v1/snapshots/<market-slug>
 
-# hard rules
-- reads status=accepted records only
-- every reply cites annotation ids
-- no unresolved future information`}</Code>
-          <p className="mono text-[10px] text-[var(--text-muted)] mt-3">
-            This is an aggregate of accepted annotations, not financial advice. Orders are drafts until you
-            confirm.
-          </p>
-        </motion.section>
+# submit a frame bound to that hash
+curl -X POST https://api.elizabao.xyz/v1/tasks/<id>/annotations \\
+  -H 'content-type: application/json' \\
+  -d @frame.json   # must validate frame.schema.json`}</CodeBlock>
+            <div className="mt-4">
+              {ANNOTATE_ACTIONS.map(([a, d]) => (
+                <div key={a} className="flex items-baseline py-1.5 text-[12px] border-b border-[var(--rule)]">
+                  <span className="font-bold text-[var(--blue-deep)] shrink-0">{a}</span>
+                  <span className="leader" />
+                  <span className="text-[var(--ink-soft)] text-right max-w-[55%]">{d}</span>
+                </div>
+              ))}
+            </div>
+          </motion.section>
 
-        <motion.section
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="mb-10 border border-[var(--border)] bg-[var(--bg-card)] p-5 rounded-sm hover-glow"
-        >
-          <div className="mono text-sm text-[var(--accent)] mb-1">schemas & policy</div>
-          <p className="text-[11px] text-[var(--text-secondary)] mb-3 leading-relaxed">
-            The schema is the job. Submit valid JSON against the frame schema, bound to a snapshot hash,
-            and you are participating — from Eliza, a CLI, or by hand.
-          </p>
-          <ul className="space-y-1.5">
-            {[
-              ["ACCEPTANCE.md — the policy every task links to", `${REPO}/blob/main/ACCEPTANCE.md`],
-              ["frame.schema.json", `${REPO}/blob/main/schemas/frame.schema.json`],
-              ["evidence.schema.json", `${REPO}/blob/main/schemas/evidence.schema.json`],
-              ["review.schema.json", `${REPO}/blob/main/schemas/review.schema.json`],
-            ].map(([label, href]) => (
-              <li key={href}>
-                <a
-                  href={href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mono text-[11px] text-[var(--accent-bright)] underline underline-offset-4 hover:text-[var(--accent)]"
-                >
-                  {label}
-                </a>
-              </li>
+          {/* bao-predict */}
+          <motion.section
+            initial={{ opacity: 0, y: 14 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ delay: 0.12 }}
+          >
+            <div className="flex items-baseline gap-3 mb-1">
+              <h2 className="font-display text-3xl uppercase tracking-tight">bao-predict</h2>
+              <span className="stamp stamp-blue text-[10px]">CONSUME</span>
+            </div>
+            <p className="text-[12px] text-[var(--ink-soft)] leading-relaxed mb-4 max-w-md">
+              Explain a market using accepted rows only, and cite the ids. Not allowed to &ldquo;just
+              know.&rdquo; No id, no claim. Order drafting defaults to human confirm.
+            </p>
+            <CodeBlock>{`# the only data bao-predict may read
+curl https://api.elizabao.xyz/v1/ledger
+
+# hard rules baked into the skill prompt:
+#  - read status=accepted records only
+#  - cite annotation ids in every reply
+#  - never use unresolved future information
+#  - orders are drafts until a human confirms`}</CodeBlock>
+            <div className="mt-4">
+              {PREDICT_ACTIONS.map(([a, d]) => (
+                <div key={a} className="flex items-baseline py-1.5 text-[12px] border-b border-[var(--rule)]">
+                  <span className="font-bold text-[var(--blue-deep)] shrink-0">{a}</span>
+                  <span className="leader" />
+                  <span className="text-[var(--ink-soft)] text-right max-w-[55%]">{d}</span>
+                </div>
+              ))}
+            </div>
+          </motion.section>
+        </div>
+
+        {/* schemas + policy */}
+        <section className="rule-double pt-6 pb-12 grid md:grid-cols-12 gap-8">
+          <div className="md:col-span-4">
+            <h2 className="font-display text-2xl md:text-3xl uppercase tracking-tight leading-none">
+              The paper
+              <br />
+              trail
+            </h2>
+            <p className="text-[12px] text-[var(--ink-soft)] leading-relaxed mt-3 max-w-xs">
+              Every task links a written policy. Every object validates against a public schema. Code
+              bounties for the plugin belong on slop.cash — frames and evidence stay on the BAO ledger.
+              Different objects, same acceptance rule.
+            </p>
+          </div>
+          <div className="md:col-span-8 pt-1">
+            {SCHEMAS.map(([name, path]) => (
+              <a
+                key={name}
+                href={`${REPO}/blob/main/${path}`}
+                target="_blank"
+                rel="noreferrer"
+                className="ledger-row flex items-baseline py-3 text-[13px]"
+              >
+                <span className="font-bold">{name}</span>
+                <span className="leader" />
+                <span className="text-[11px] text-[var(--blue-deep)] tracking-[0.15em]">VIEW ON GITHUB →</span>
+              </a>
             ))}
-          </ul>
-        </motion.section>
-
-        <motion.section
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="border border-[var(--border)] bg-[var(--bg-panel)] p-5 rounded-sm"
-        >
-          <div className="mono text-sm text-[var(--text)] mb-1">code bounties</div>
-          <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-            Code improvements to the plugin go through slop.cash. Data bounties stay on the BAO ledger.
-            Same rule in both places: maintainers accept outcomes. Busywork does not pay.
-          </p>
-        </motion.section>
+            <div className="mt-6 border-[2.5px] border-[var(--rule-strong)] bg-[var(--paper-2)] p-5 max-w-2xl">
+              <span className="stamp stamp-ink text-[11px]">RISK NOTE — SHIPS WITH EVERY ANSWER</span>
+              <p className="font-serif italic text-lg mt-3 leading-snug">
+                &ldquo;This is an aggregate of accepted annotations, not financial advice. Orders are
+                drafts until you confirm.&rdquo;
+              </p>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
   );

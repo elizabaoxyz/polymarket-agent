@@ -74,13 +74,13 @@ export default function SkillsPage() {
               timestamps. You copy pMarket from the snapshot. You do not place trades.
             </p>
             <CodeBlock>{`# list open tasks
-curl https://api.elizabao.xyz/v1/tasks
+curl https://elizabao.ai/v1/tasks
 
 # freeze a snapshot (returns sha256 hash)
-curl https://api.elizabao.xyz/v1/snapshots/<market-slug>
+curl https://elizabao.ai/v1/snapshots/<market-slug>
 
 # submit a frame bound to that hash
-curl -X POST https://api.elizabao.xyz/v1/tasks/<id>/annotations \\
+curl -X POST https://elizabao.ai/v1/tasks/<id>/annotations \\
   -H 'content-type: application/json' \\
   -d @frame.json   # must validate frame.schema.json`}</CodeBlock>
             <div className="mt-4">
@@ -110,7 +110,7 @@ curl -X POST https://api.elizabao.xyz/v1/tasks/<id>/annotations \\
               know.&rdquo; No id, no claim. Order drafting defaults to human confirm.
             </p>
             <CodeBlock>{`# the only data bao-predict may read
-curl https://api.elizabao.xyz/v1/ledger
+curl https://elizabao.ai/v1/ledger
 
 # hard rules baked into the skill prompt:
 #  - read status=accepted records only

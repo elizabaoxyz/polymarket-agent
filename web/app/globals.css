@@ -258,6 +258,31 @@ body {
   animation: ink-blot 1.8s ease-in-out infinite;
 }
 
+/* --- ASCII / pixel-art cursor ---------------------------------------------
+   Chunky 2x-scaled pixel arrow in brand orange with an ink drop-shadow,
+   and a pixel crosshair over anything clickable. Falls back to system
+   cursors if SVG cursors are unsupported. */
+
+.paper,
+.paper * {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='26' viewBox='0 0 12 13' shape-rendering='crispEdges'%3E%3Cpath transform='translate(1,1)' fill='%234a2810' d='M0 0h1v1H0zM0 1h2v1H0zM0 2h3v1H0zM0 3h4v1H0zM0 4h5v1H0zM0 5h6v1H0zM0 6h7v1H0zM0 7h4v1H0zM0 8h2v1H0zM3 8h2v1H3zM0 9h1v1H0zM3 9h2v1H3zM4 10h2v1H4z'/%3E%3Cpath fill='%23e66516' d='M0 0h1v1H0zM0 1h2v1H0zM0 2h3v1H0zM0 3h4v1H0zM0 4h5v1H0zM0 5h6v1H0zM0 6h7v1H0zM0 7h4v1H0zM0 8h2v1H0zM3 8h2v1H3zM0 9h1v1H0zM3 9h2v1H3zM4 10h2v1H4z'/%3E%3C/svg%3E") 1 1,
+    auto;
+}
+
+.paper a,
+.paper button,
+.paper [role="button"],
+.paper summary {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 13 13' shape-rendering='crispEdges'%3E%3Cg fill='%234a2810'%3E%3Cpath d='M6 1h2v4H6zM6 9h2v4H6zM1 6h4v2H1zM9 6h4v2H9z'/%3E%3C/g%3E%3Cg fill='%23e66516'%3E%3Cpath d='M5 0h2v4H5zM5 8h2v4H5zM0 5h4v2H0zM8 5h4v2H8z'/%3E%3C/g%3E%3Cpath fill='%234a2810' d='M5 5h2v2H5z'/%3E%3C/svg%3E") 12 12,
+    pointer;
+}
+
+/* ink-on-paper text selection */
+.paper ::selection {
+  background: var(--blue);
+  color: var(--paper);
+}
+
 /* drop cap for the lede */
 .drop-cap::first-letter {
   font-family: var(--font-display), sans-serif;

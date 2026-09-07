@@ -34,7 +34,7 @@
   {
     "id": "task-0003",
     "kind": "frame",
-    "marketSlug": "will-the-fed-decrease-interest-rates-by-25-bps-after-the-september-2026-meeting-586",
+    "marketSlug": "will-there-be-no-change-in-fed-interest-rates-after-the-september-2026-meeting-615",
     "policyUrl": "https://github.com/elizabaoxyz/polymarket-agent/blob/main/ACCEPTANCE.md",
     "poolUsdc": "100.00",
     "reviewerPoolUsdc": "15.00",
@@ -45,12 +45,12 @@
     "submitBy": "2026-09-15T12:00:00Z",
     "maxAccepted": 8,
     "status": "open",
-    "brief": "FOMC September 2026: fair probability of a 25 bps cut. Drivers must be dated at or before the snapshot: CPI/PCE prints, dot plot, Fed speeches. Anything published after T is a FUTURE_EVIDENCE reject."
+    "brief": "FOMC September 2026: fair probability of NO CHANGE in the fed funds rate. Drivers must be dated at or before the snapshot: CPI/PCE prints, dot plot, Fed speeches. Anything published after T is a FUTURE_EVIDENCE reject."
   },
   {
     "id": "task-0004",
     "kind": "rwa_map",
-    "marketSlug": "will-the-fed-decrease-interest-rates-by-25-bps-after-the-september-2026-meeting-586",
+    "marketSlug": "will-there-be-no-change-in-fed-interest-rates-after-the-september-2026-meeting-615",
     "policyUrl": "https://github.com/elizabaoxyz/polymarket-agent/blob/main/ACCEPTANCE.md",
     "poolUsdc": "40.00",
     "reviewerPoolUsdc": "8.00",
@@ -66,7 +66,7 @@
   {
     "id": "task-0005",
     "kind": "evidence",
-    "marketSlug": "will-vitinha-win-the-2026-ballon-dor",
+    "marketSlug": "will-carlos-alcaraz-win-the-2026-mens-us-open",
     "policyUrl": "https://github.com/elizabaoxyz/polymarket-agent/blob/main/ACCEPTANCE.md",
     "poolUsdc": "50.00",
     "reviewerPoolUsdc": "8.00",
@@ -74,10 +74,10 @@
     "chain": "base",
     "sponsor": "elizaBAO (team)",
     "opensAt": "2026-09-08T00:00:00Z",
-    "submitBy": "2026-10-15T23:59:00Z",
+    "submitBy": "2026-09-12T23:59:00Z",
     "maxAccepted": 12,
     "status": "open",
-    "brief": "Evidence cards for the 2026 Ballon d'Or race. Stance, dated source, quote, and whether the book already prices it. 30% pays on accept, 70% when cited by two accepted frames."
+    "brief": "Evidence cards for 'Will Carlos Alcaraz win the 2026 Men's US Open?'. Stance, dated source, quote, and whether the book already prices it. 30% pays on accept, 70% when cited by two accepted frames."
   },
   {
     "id": "task-0006",

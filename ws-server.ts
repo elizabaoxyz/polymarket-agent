@@ -274,7 +274,7 @@ async function main() {
       }
       // elizaBAO acceptance-layer API (markets / snapshots / tasks / ledger)
       if (url.pathname.startsWith("/v1/")) {
-        return handleBaoRequest(url).then(
+        return handleBaoRequest(url, req).then(
           (res) => res ?? new Response("Not Found", { status: 404 }),
         );
       }

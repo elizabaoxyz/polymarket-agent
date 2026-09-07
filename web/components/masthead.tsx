@@ -34,7 +34,16 @@ export function Masthead({ dense = false }: { dense?: boolean }) {
         <span className="sm:hidden">ACCEPTANCE LAYER</span>
         <span className="flex items-center gap-2">
           <span className="ink-dot" />
-          {today()} · USDC ONLY · BASE
+          {today()} · USDC ONLY
+          <a
+            href="https://x.com/elizabao_ai"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="elizaBAO on X"
+            className="font-bold text-[12px] leading-none text-[var(--ink)] hover:text-[var(--blue-deep)] transition-colors"
+          >
+            𝕏
+          </a>
         </span>
       </div>
 

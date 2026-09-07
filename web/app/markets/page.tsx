@@ -165,7 +165,7 @@ export default function MarketsPage() {
             <span className="text-[var(--ink-soft)]">Locked across open tasks</span>
             <span className="leader max-w-24" />
             <span className="font-display text-2xl text-[var(--blue-deep)]">${pool.toFixed(2)}</span>
-            <span className="text-[10px] tracking-[0.2em] text-[var(--ink-faint)]">USDC · BASE</span>
+            <span className="text-[10px] tracking-[0.2em] text-[var(--ink-faint)]">USDC</span>
           </div>
         </section>
 

@@ -311,7 +311,7 @@ export default function FrontPage() {
                 </motion.li>
               ))}
               <li className="text-[11px] tracking-[0.15em] text-[var(--ink-soft)] pt-3">
-                USDC ON BASE IS THE ONLY BOUNTY ASSET. UNUSED POOLS RETURN TO THE SPONSOR.
+                USDC IS THE ONLY BOUNTY ASSET. UNUSED POOLS RETURN TO THE SPONSOR.
               </li>
             </ul>
           </div>

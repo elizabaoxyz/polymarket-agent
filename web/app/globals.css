@@ -95,6 +95,25 @@ body {
   }
 }
 
+/* bottom tab bar: active page gets stamped like a rubber stamp hitting paper */
+.tab-stamp {
+  transform: rotate(-2deg);
+  animation: tab-stamp-in 0.28s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+@keyframes tab-stamp-in {
+  0% {
+    transform: scale(1.7) rotate(-9deg);
+    opacity: 0;
+  }
+  55% {
+    transform: scale(0.92) rotate(-1deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(-2deg);
+  }
+}
+
 /* code blocks scroll inside themselves instead of stretching the page */
 .paper pre {
   max-width: 100%;

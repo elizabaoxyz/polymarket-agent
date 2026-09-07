@@ -43,6 +43,7 @@ export function Masthead({ dense = false }: { dense?: boolean }) {
   }, []);
 
   return (
+    <>
     <header>
       <CursorTrail />
       {/* hairline info row */}
@@ -130,8 +131,11 @@ export function Masthead({ dense = false }: { dense?: boolean }) {
         </div>
       )}
 
-      {/* app-style bottom navigation on phones */}
-      <TabBar />
     </header>
+
+    {/* app-style bottom navigation on phones — OUTSIDE the header so its z-index
+        lives in the root stacking context and always paints above <main> (z-1) */}
+    <TabBar />
+    </>
   );
 }
